@@ -1,17 +1,22 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
-// POST: Draft/Create a completely brand new player into the global database
+// POST: Draft/Create a brand new player and attach them to the current league
 export async function POST(request: Request) {
   try {
-    const { name } = await request.json();
+    // Extract both name and leagueId from the incoming request
+    const { name, leagueId } = await request.json();
 
     if (!name) {
       return NextResponse.json({ error: "Player name is required" }, { status: 400 });
     }
 
     const newPlayer = await prisma.player.create({
-      data: { name }
+      data: { 
+        name,
+        // Tie the player to the league if the ID was provided
+        leagueId: leagueId ? Number(leagueId) : null
+      }
     });
 
     return NextResponse.json(newPlayer);

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-// This is now our Pancake/Hamburger Nav
 import Sidebar from "../components/sidebar"; 
+import { Providers } from "./providers"; // 1. Import the Provider bridge
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,14 +27,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-white`}>
-        {/* We removed the 'flex' container that was pinning the sidebar.
-          The Sidebar (Pancake) now handles its own fixed positioning.
-        */}
-        <Sidebar />
-
-        <main className="min-h-screen">
-          {children}
-        </main>
+        {/* 2. Wrap everything in Providers so Sidebar and Pages can see the user session */}
+        <Providers>
+          <Sidebar />
+          <main className="min-h-screen">
+            {children}
+          </main>
+        </Providers>
       </body>
     </html>
   );

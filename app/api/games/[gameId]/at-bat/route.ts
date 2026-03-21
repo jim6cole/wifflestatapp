@@ -3,36 +3,36 @@ import { NextResponse } from 'next/server';
 
 export async function POST(
   req: Request, 
-  // 1. Update the type to expect gameId and be a Promise
   { params }: { params: Promise<{ gameId: string }> } 
 ) {
-  const { batterId, pitcherId, result, runsScored, outs } = await req.json();
-  
-  // 2. Await the params to be Next.js 15 compliant
-  const resolvedParams = await params;
-  const gameId = parseInt(resolvedParams.gameId);
-
   try {
-    const result_data = await prisma.$transaction(async (tx) => {
-      // 1. Record the At-Bat
-      const atBat = await tx.atBat.create({
-        data: { gameId, batterId, pitcherId, result, runsScored, outs }
-      });
+    const { batterId, pitcherId, result, runsScored, outs, inning, isTopInning } = await req.json();
+    const resolvedParams = await params;
+    const gameId = parseInt(resolvedParams.gameId);
 
-      // 2. Update the Game Score and Outs
-      const game = await tx.game.update({
-        where: { id: gameId },
-        data: {
-          homeScore: { increment: runsScored > 0 ? runsScored : 0 }, // Simplified logic
-          // You can add logic here to swap innings if outs == 3
+    const result_data = await prisma.$transaction(async (tx) => {
+      // 1. Record the At-Bat for the leaderboards
+      const atBat = await tx.atBat.create({
+        data: { 
+          gameId, 
+          batterId, 
+          pitcherId, 
+          result, 
+          runsScored, 
+          outs,
+          inning,
+          isTopInning
         }
       });
 
-      return { atBat, game };
+      // 2. We skip updating the game score here because our 
+      // 'live-state' API handles the master score sync.
+      return { atBat };
     });
 
     return NextResponse.json(result_data);
   } catch (error: any) {
+    console.error("At-bat log error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -21,6 +21,9 @@ export default function SeasonWizard() {
     cleanHitRule: true,
     ghostRunner: true,
     mercyRule: 10,
+    mercyRulePerInning: 0,
+    mercyRuleInningApply: 3,
+    unlimitedLastInning: false,
     dpWithoutRunners: false,
     dpKeepsRunners: false    
   });
@@ -130,7 +133,7 @@ export default function SeasonWizard() {
                       <WizardSelect 
                         label="Speed Limit" 
                         val={rules.speedLimit} 
-                        options={Array.from({length: 21}, (_, i) => i + 60)} // 60 to 80
+                        options={Array.from({length: 21}, (_, i) => i + 60)} 
                         onChange={(v: number) => setRules({...rules, speedLimit: v})} 
                       />
                       <p className="text-[9px] font-bold text-[#c1121f] uppercase mt-1 px-1 italic">Maximum velocity permitted (MPH)</p>
@@ -140,10 +143,63 @@ export default function SeasonWizard() {
             </div>
           </div>
 
+          <div className="border-t border-white/10 pt-8 space-y-4">
+             <h3 className="text-xl font-black italic uppercase text-white border-b border-[#c1121f] pb-2 text-center mb-6">Mercy Parameters</h3>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               
+               {/* GAME MERCY RULE */}
+               <div className="flex items-center justify-between p-5 bg-[#001d3d] rounded-2xl border border-white/5 shadow-inner">
+                 <div>
+                   <p className="font-black italic uppercase text-sm">Mercy Rule (Game)</p>
+                   <p className="text-[10px] text-[#669bbc] font-bold uppercase mt-1">End game if lead exceeds amount</p>
+                 </div>
+                 <select value={rules.mercyRule} onChange={e => setRules({...rules, mercyRule: parseInt(e.target.value)})} className="bg-[#003566] text-white p-3 rounded-lg font-black text-xs outline-none cursor-pointer border border-[#669bbc]">
+                   {[0, 10, 12, 15, 20].map(n => <option key={n} value={n}>{n === 0 ? 'Off' : n + ' Runs'}</option>)}
+                 </select>
+               </div>
+
+               {/* WHEN MERCY RULE APPLIES */}
+               {rules.mercyRule > 0 && (
+                 <div className="flex items-center justify-between p-5 bg-[#001d3d] rounded-2xl border border-[#c1121f]/50 shadow-inner animate-in fade-in zoom-in-95 duration-200">
+                   <div>
+                     <p className="font-black italic uppercase text-sm">Applies After</p>
+                     <p className="text-[10px] text-[#669bbc] font-bold uppercase mt-1">Inning game mercy takes effect</p>
+                   </div>
+                   <select value={rules.mercyRuleInningApply} onChange={e => setRules({...rules, mercyRuleInningApply: parseInt(e.target.value)})} className="bg-[#c1121f] text-white p-3 rounded-lg font-black text-xs outline-none cursor-pointer border border-[#fdf0d5]">
+                     {[2, 3, 4, 5].map(n => <option key={n} value={n}>Inning {n}</option>)}
+                   </select>
+                 </div>
+               )}
+
+               {/* INNING RUN LIMIT */}
+               <div className="flex items-center justify-between p-5 bg-[#001d3d] rounded-2xl border border-white/5 shadow-inner">
+                 <div>
+                   <p className="font-black italic uppercase text-sm">Run Limit (Inning)</p>
+                   <p className="text-[10px] text-[#669bbc] font-bold uppercase mt-1">End half-inning if runs hit amount</p>
+                 </div>
+                 <select value={rules.mercyRulePerInning} onChange={e => setRules({...rules, mercyRulePerInning: parseInt(e.target.value)})} className="bg-[#003566] text-white p-3 rounded-lg font-black text-xs outline-none cursor-pointer border border-[#669bbc]">
+                   {[0, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n === 0 ? 'Off' : n + ' Runs'}</option>)}
+                 </select>
+               </div>
+
+               {/* UNLIMITED LAST INNING TOGGLE */}
+               <div className="md:col-span-2 mt-2">
+                 <Toggle 
+                   label="Unlimited Final Inning" 
+                   desc="Suspend game mercy and inning run limits during the final scheduled inning." 
+                   active={rules.unlimitedLastInning} 
+                   onToggle={() => setRules({...rules, unlimitedLastInning: !rules.unlimitedLastInning})} 
+                 />
+               </div>
+
+             </div>
+          </div>
+
           <button 
             onClick={handleCreate}
             disabled={loading}
-            className="w-full bg-[#c1121f] border-2 border-[#fdf0d5] py-6 text-3xl font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-xl disabled:opacity-50"
+            className="w-full bg-[#c1121f] border-2 border-[#fdf0d5] py-6 text-3xl font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-[6px_6px_0px_#001d3d] disabled:opacity-50 mt-8"
           >
             {loading ? 'INITIALIZING...' : 'Establish Season Identity ★'}
           </button>

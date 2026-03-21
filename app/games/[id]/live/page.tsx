@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
 export default function LiveScorer() {
@@ -31,27 +31,78 @@ export default function LiveScorer() {
   const [showOtherModal, setShowOtherModal] = useState(false);
   const [showGhostModal, setShowGhostModal] = useState(false);
   
-  // Unified Placement State (Errors, Tags, Manual Hits)
+  // Unified Placement State
   const [placementAction, setPlacementAction] = useState<string | null>(null);
   const [placementDetails, setPlacementDetails] = useState<any[]>([]);
-
-  // Hit with Error State
   const [hitErrorData, setHitErrorData] = useState<any>(null);
   
   // Game Over States
   const [showEndGameModal, setShowEndGameModal] = useState(false);
   const [gameOverMessage, setGameOverMessage] = useState("");
 
+  // Cloud Save Debounce Ref
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // --- INITIAL LOAD & CLOUD RECOVERY ---
   useEffect(() => {
     if (!id) return;
+
     fetch(`/api/games/${id}/setup`)
       .then(async (res) => {
         if (!res.ok) throw new Error(await res.text());
         return res.json();
       })
-      .then(data => setGame(data))
+      .then(data => {
+        setGame(data);
+        
+        // Recover Cloud Saved state if it exists
+        if (data.liveState) {
+          try {
+            const parsed = JSON.parse(data.liveState);
+            setCurrentBatterIdx(parsed.currentBatterIdx ?? 0);
+            setIsTopInning(parsed.isTopInning ?? true);
+            setInning(parsed.inning ?? 1);
+            setOuts(parsed.outs ?? 0);
+            setBalls(parsed.balls ?? 0);
+            setStrikes(parsed.strikes ?? 0);
+            setBaseRunners(parsed.baseRunners ?? [null, null, null]);
+            setHomeScore(parsed.homeScore ?? 0);
+            setAwayScore(parsed.awayScore ?? 0);
+            setHomePitches(parsed.homePitches ?? 0);
+            setAwayPitches(parsed.awayPitches ?? 0);
+            setPlayLog(parsed.playLog ?? []);
+            setRedoStack(parsed.redoStack ?? []);
+          } catch (e) {
+            console.error("Corrupted cloud save data.", e);
+          }
+        }
+      })
       .catch(err => console.error("Error loading game:", err));
   }, [id]);
+
+  // --- AUTOSAVE TO DATABASE (CLOUD SYNC) ---
+  useEffect(() => {
+    if (!game || !id) return; 
+    
+    const stateToSave = {
+      currentBatterIdx, isTopInning, inning, outs, balls, strikes,
+      baseRunners, homeScore, awayScore, homePitches, awayPitches,
+      playLog, redoStack
+    };
+    
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    saveTimeoutRef.current = setTimeout(() => {
+      fetch(`/api/games/${id}/live-state`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: stateToSave })
+      }).catch(err => console.error("Cloud Autosave failed:", err));
+    }, 1500);
+
+    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
+  }, [game, id, currentBatterIdx, isTopInning, inning, outs, balls, strikes, baseRunners, homeScore, awayScore, homePitches, awayPitches, playLog, redoStack]);
+
 
   const clearRedo = () => { if (redoStack.length > 0) setRedoStack([]); };
 
@@ -65,7 +116,6 @@ export default function LiveScorer() {
     const rules = game.season;
     const targetInnings = rules?.inningsPerGame || 5;
 
-    // --- GAME OVER CHECKS (End of Inning) ---
     if (isTopInning && inning >= targetInnings && homeScore > awayScore) {
         setGameOverMessage("GAME OVER! Home Team Wins!");
         setShowEndGameModal(true);
@@ -81,11 +131,10 @@ export default function LiveScorer() {
     const nextIsTop = !isTopInning;
     const nextInning = nextIsTop ? inning + 1 : inning;
     
-   // --- AUTO GHOST RUNNER LOGIC ---
-let nextBases: (any | null)[] = [null, null, null]; // <-- Just add the type here
-if (rules?.ghostRunner && nextInning > targetInnings) {
-   nextBases[1] = { id: `ghost-${Date.now()}`, name: 'Ghost Runner' };
-}
+    let nextBases: (any | null)[] = [null, null, null];
+    if (rules?.ghostRunner && nextInning > targetInnings) {
+       nextBases[1] = { id: `ghost-${Date.now()}`, name: 'Ghost Runner' };
+    }
 
     setPlayLog(prev => [{ 
       type: 'divider', 
@@ -103,6 +152,7 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
     if (!isTopInning) setInning(prev => prev + 1);
   }, [game, isTopInning, inning, baseRunners, outs, balls, strikes, currentBatterIdx, homeScore, awayScore]);
 
+  // --- UPDATED RECORD PLAY (WITH PERMANENT STAT LOGGING) ---
   const recordPlay = useCallback((result: string, newBases: (any|null)[], runs: number, extraOuts: number = 0) => {
     clearRedo();
     if (!game) return;
@@ -113,6 +163,29 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
     const lineup = game.lineups.filter((l: any) => l.teamId === battingTeamId);
     const batter = lineup[currentBatterIdx]?.player;
 
+    // Determine Active Pitcher for the Stat Record
+    const activePitcherId = isTopInning ? game.currentHomePitcherId : game.currentAwayPitcherId;
+
+    // 1. LOG TO PERMANENT STATS API
+    try {
+      fetch(`/api/games/${id}/at-bat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          batterId: batter.id,
+          pitcherId: activePitcherId,
+          result: result.toUpperCase().replace(/\s/g, '_'), // Formats "Fly Out" to "FLY_OUT"
+          runsScored: runs,
+          outs: extraOuts,
+          inning: inning,
+          isTopInning: isTopInning
+        })
+      });
+    } catch (e) {
+      console.error("Failed to sync at-bat to permanent records:", e);
+    }
+
+    // 2. UPDATE LOCAL SCOREBOARD
     const newHomeScore = isTopInning ? homeScore : homeScore + runs;
     const newAwayScore = isTopInning ? awayScore + runs : awayScore;
 
@@ -127,7 +200,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
       prevBatterIdx: currentBatterIdx
     }, ...prev]);
 
-    // --- WALK-OFF CHECK ---
     if (!isTopInning && inning >= targetInnings && newHomeScore > newAwayScore) {
        setBaseRunners(newBases);
        setGameOverMessage("WALK-OFF WIN!");
@@ -140,7 +212,7 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
       setBaseRunners(newBases); setOuts(totalOuts); setBalls(0); setStrikes(0);
       setCurrentBatterIdx((prev) => (prev + 1) % lineup.length);
     }
-  }, [game, isTopInning, currentBatterIdx, outs, inning, baseRunners, balls, strikes, toggleInning, homeScore, awayScore]);
+  }, [game, id, isTopInning, currentBatterIdx, outs, inning, baseRunners, balls, strikes, toggleInning, homeScore, awayScore]);
 
   const advanceRunnersAuto = useCallback((basesToMove: number, type: string) => {
     if (!game) return;
@@ -198,7 +270,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
     }
   };
 
-  // UNIFIED PLACEMENT ENGINE
   const startPlacementFlow = (actionType: string) => {
     const runnersOn = baseRunners.filter(b => b !== null);
     if (actionType === 'Tag' && runnersOn.length === 0) {
@@ -221,7 +292,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
       if (actionType.includes('Triple')) defaultEnd = '3rd';
       setPlacementDetails([...active, { player: batter, from: 'Batter', end: defaultEnd, internalId: 'bat' }]);
     } else {
-      // Tag Up
       setPlacementDetails(active);
     }
     
@@ -278,7 +348,7 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
         setHitErrorData({
           hitType: 'Single',
           fielderId: '',
-          placements: [...active, { player: batter, from: 'Batter', end: '2nd', internalId: 'bat' }] // default to 2nd for an error
+          placements: [...active, { player: batter, from: 'Batter', end: '2nd', internalId: 'bat' }] 
         });
         break;
       case 'Add Ghost Runner':
@@ -308,7 +378,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
     const targetBalls = game.season?.balls || 4;
     const targetStrikes = game.season?.strikes || 3;
 
-    // --- MANUAL BASERUNNER HIT INTERCEPTOR ---
     if (['Single', 'Double', 'Triple'].includes(type)) {
       if (game.season?.isBaserunning && baseRunners.some(b => b !== null)) {
         startPlacementFlow(type);
@@ -431,8 +500,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
   const targetBalls = game.season?.balls || 4;
   const targetStrikes = game.season?.strikes || 3;
   const targetOuts = game.season?.outs || 3;
-
-  // Derive the fielding team's active lineup for the Error selection
   const fieldingTeamId = isTopInning ? game.homeTeamId : game.awayTeamId;
   const fieldingLineup = game.lineups.filter((l: any) => l.teamId === fieldingTeamId);
 
@@ -545,7 +612,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
           <div className="bg-[#002D62] border-2 border-pink-500 p-6 rounded-3xl w-full max-w-md shadow-2xl flex flex-col my-auto max-h-[95vh]">
              <h2 className="text-xl font-black uppercase italic mb-4 text-center text-pink-400">Hit + Error</h2>
              
-             {/* Hit Type Selection */}
              <div className="mb-4">
                 <label className="text-[10px] font-black uppercase text-pink-300 tracking-widest block mb-2">Credited Hit</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -561,7 +627,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
                 </div>
              </div>
 
-             {/* Fielder Selection */}
              <div className="mb-4">
                 <label className="text-[10px] font-black uppercase text-pink-300 tracking-widest block mb-2">Error Committed By</label>
                 <select 
@@ -576,7 +641,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
                 </select>
              </div>
 
-             {/* Placements */}
              <div className="space-y-2 mb-6 flex-1 overflow-y-auto pr-1">
                 <label className="text-[10px] font-black uppercase text-pink-300 tracking-widest block mt-2">Final Placements</label>
                 {hitErrorData.placements.map((rp: any) => (
@@ -626,7 +690,7 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
       {/* GHOST RUNNER MODAL */}
       {showGhostModal && (
         <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/95 p-6 backdrop-blur-sm">
-          <div className="bg-[#002D62] border-2 border-slate-400 p-6 rounded-3xl w-full max-w-sm shadow-2xl text-center">
+          <div className="bg-[#002D62] border-2 border-slate-400 p-6 rounded-3xl w-full max-sm shadow-2xl text-center">
             <h2 className="text-xl font-black uppercase italic mb-6 text-slate-300">Place Ghost Runner</h2>
             <div className="grid grid-cols-3 gap-4 mb-6">
               <button onClick={() => placeGhostRunner(0)} className="bg-slate-800 p-4 rounded-xl border border-white/10 hover:bg-white hover:text-[#002D62] transition-colors font-black text-lg">1st</button>
@@ -641,7 +705,7 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
       {/* OTHER MODAL */}
       {showOtherModal && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/95 p-6 backdrop-blur-sm">
-          <div className="bg-[#002D62] border-2 border-purple-600 p-6 rounded-3xl w-full max-w-sm shadow-2xl">
+          <div className="bg-[#002D62] border-2 border-purple-600 p-6 rounded-3xl w-full max-sm shadow-2xl">
             <h2 className="text-xl font-black uppercase italic mb-6 text-center text-purple-400 tracking-tighter">Special Actions</h2>
             <div className="space-y-2">
               <p className="text-[10px] font-black uppercase text-slate-500 mb-2 tracking-widest">Base Running</p>
@@ -655,15 +719,17 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
                   <span className="text-purple-500 group-hover:text-white">→</span>
                 </button>
               ))}
-              <div className="pt-4">
-                  <p className="text-[10px] font-black uppercase text-yellow-500 mb-2 tracking-widest">Clean Hits (Extra Base)</p>
-                  <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => handleOtherAction('Clean Single')} className="bg-yellow-600/20 border border-yellow-600/40 p-4 rounded-xl font-black uppercase italic text-[10px] hover:bg-yellow-600 hover:text-white transition-all">Clean 1B</button>
-                      <button onClick={() => handleOtherAction('Clean Double')} className="bg-yellow-600/20 border border-yellow-600/40 p-4 rounded-xl font-black uppercase italic text-[10px] hover:bg-yellow-600 hover:text-white transition-all">Clean 2B</button>
-                  </div>
-              </div>
+              
+              {game.season?.cleanHitRule && (
+                <div className="pt-4">
+                    <p className="text-[10px] font-black uppercase text-yellow-500 mb-2 tracking-widest">Clean Hits (Extra Base)</p>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => handleOtherAction('Clean Single')} className="bg-yellow-600/20 border border-yellow-600/40 p-4 rounded-xl font-black uppercase italic text-[10px] hover:bg-yellow-600 hover:text-white transition-all">Clean 1B</button>
+                        <button onClick={() => handleOtherAction('Clean Double')} className="bg-yellow-600/20 border border-yellow-600/40 p-4 rounded-xl font-black uppercase italic text-[10px] hover:bg-yellow-600 hover:text-white transition-all">Clean 2B</button>
+                    </div>
+                </div>
+              )}
 
-              {/* ADVANCED HITS (Only show if baserunning is enabled) */}
               {game.season?.isBaserunning && (
                 <div className="pt-4">
                   <p className="text-[10px] font-black uppercase text-pink-500 mb-2 tracking-widest">Advanced Hits</p>
@@ -688,8 +754,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
 
       {/* SCOREBUG */}
       <div className="bg-[#002D62] overflow-hidden rounded shadow-2xl mb-8 border border-white/20 select-none">
-        
-        {/* RULE HEADER */}
         <div className="bg-[#c1121f] text-white px-3 py-1 flex justify-between items-center font-black uppercase tracking-widest text-[9px]">
            <span>{game.season?.name}</span>
            <span>{game.season?.inningsPerGame} INN | {targetBalls}B {targetStrikes}S {targetOuts}O {game.season?.mercyRule > 0 ? `| ${game.season.mercyRule} Run Mercy` : ''}</span>
@@ -738,7 +802,7 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
           <button onClick={() => handleAction('Strike')} className="bg-slate-900 border-b-4 border-slate-700 py-6 rounded-xl font-black text-xl uppercase italic">Strike</button>
         </div>
         <div className="grid grid-cols-4 gap-2">
-          {['Single', 'Double', 'Triple', 'HR'].map((h, i) => <button key={h} onClick={() => handleAction(h)} className="bg-blue-900 border-b-4 border-blue-950 p-4 rounded-lg font-black text-[10px] uppercase italic">{h}</button>)}
+          {['Single', 'Double', 'Triple', 'HR'].map((h) => <button key={h} onClick={() => handleAction(h)} className="bg-blue-900 border-b-4 border-blue-950 p-4 rounded-lg font-black text-[10px] uppercase italic">{h}</button>)}
         </div>
         <div className="grid grid-cols-3 gap-2">
           <button onClick={() => recordPlay('Fly Out', [...baseRunners], 0, 1)} className="bg-red-950 border-b-4 border-red-900 p-4 rounded-lg font-black text-[10px] uppercase italic">Fly Out</button>
@@ -773,7 +837,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
         </div>
       </div>
 
-      {/* MANUAL END GAME BUTTON */}
       <button 
         onClick={() => { setGameOverMessage("Manual Game Over"); setShowEndGameModal(true); }}
         className="w-full mt-8 bg-red-600/10 border-2 border-red-600/50 text-red-500 py-4 rounded-xl font-black uppercase italic tracking-widest hover:bg-red-600 hover:text-white hover:border-red-600 transition-all"
@@ -781,7 +844,6 @@ if (rules?.ghostRunner && nextInning > targetInnings) {
         End Game
       </button>
 
-      {/* JACKASS MODAL */}
       {showJackassError && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-red-600/95 backdrop-blur-md p-6 text-center">
           <div className="bg-white p-8 rounded-3xl border-4 border-black max-w-sm w-full shadow-2xl">

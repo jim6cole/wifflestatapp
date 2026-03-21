@@ -5,22 +5,19 @@ import Link from 'next/link';
 export default function LeagueHub({ params }: { params: Promise<{ leagueId: string }> }) {
   const { leagueId } = use(params);
   const [league, setLeague] = useState<any>(null);
-  const [activeSeason, setActiveSeason] = useState<any>(null);
+  const [seasons, setSeasons] = useState<any[]>([]); // Store all seasons
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        // Fetch League Details
         const leagueRes = await fetch(`/api/admin/leagues/${leagueId}`);
-        // Fetch Seasons to find the most recent/active one
         const seasonsRes = await fetch(`/api/admin/leagues/${leagueId}/seasons`);
         
         if (leagueRes.ok) setLeague(await leagueRes.json());
         if (seasonsRes.ok) {
-          const seasons = await seasonsRes.json();
-          // We assume the top one is the latest active campaign
-          if (seasons.length > 0) setActiveSeason(seasons[0]);
+          const data = await seasonsRes.json();
+          setSeasons(data); // Store the full array
         }
       } catch (error) {
         console.error("Error loading hub data:", error);
@@ -32,6 +29,9 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
   }, [leagueId]);
 
   if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black uppercase text-white animate-pulse italic">Accessing League Mainframe...</div>;
+
+  // We still use the most recent one to "prime" the shortcut buttons in Col 1 & 3
+  const latestSeason = seasons.length > 0 ? seasons[0] : null;
 
   return (
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] font-sans p-8 md:p-16 border-[12px] border-[#c1121f]">
@@ -59,39 +59,51 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
         {/* COMMAND GRID */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
           
-          {/* COLUMN 1: ROSTER MANAGEMENT */}
+          {/* COLUMN 1: PERSONNEL MANAGEMENT */}
           <div className="bg-[#003566]/30 border-2 border-[#669bbc] p-8 relative rounded-tr-[40px]">
-            <h2 className="text-3xl font-black italic uppercase text-white mb-2 border-b-2 border-[#c1121f] pb-2">Roster Management</h2>
+            <h2 className="text-3xl font-black italic uppercase text-white mb-2 border-b-2 border-[#c1121f] pb-2">Personnel</h2>
             <div className="space-y-4 mt-8">
               <HubButton 
                 title="Edit Teams" 
-                subtitle="Manage Franchises & Names" 
-                href={activeSeason ? `/admin/leagues/${leagueId}/seasons/${activeSeason.id}/teams` : '#'} 
-                disabled={!activeSeason}
+                subtitle="Franchise Management" 
+                href={latestSeason ? `/admin/leagues/${leagueId}/seasons/${latestSeason.id}/teams` : '#'} 
+                disabled={!latestSeason}
               />
               <HubButton 
                 title="Edit Rosters" 
-                subtitle="Assign Players to Teams" 
-                href={activeSeason ? `/admin/leagues/${leagueId}/seasons/${activeSeason.id}/players` : '#'}
-                disabled={!activeSeason}
+                subtitle="Player Assignments" 
+                href={latestSeason ? `/admin/leagues/${leagueId}/seasons/${latestSeason.id}/players` : '#'}
+                disabled={!latestSeason}
               />
             </div>
           </div>
 
-          {/* COLUMN 2: SEASON OPERATIONS */}
-          <div className="bg-[#003566]/30 border-2 border-[#669bbc] p-8 relative rounded-tr-[40px]">
-            <h2 className="text-3xl font-black italic uppercase text-white mb-2 border-b-2 border-[#c1121f] pb-2">Season Operations</h2>
-            <div className="space-y-4 mt-8">
+          {/* COLUMN 2: OPERATIONAL CAMPAIGNS (The Multi-Season Fix) */}
+          <div className="bg-[#003566]/30 border-2 border-[#669bbc] p-8 relative rounded-tr-[40px] flex flex-col">
+            <h2 className="text-3xl font-black italic uppercase text-white mb-2 border-b-2 border-[#c1121f] pb-2">Campaigns</h2>
+            
+            {/* Scrollable list of all active seasons */}
+            <div className="space-y-4 mt-8 flex-1 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar">
+              {seasons.map((s) => (
+                <HubButton 
+                  key={s.id}
+                  title={s.name} 
+                  subtitle="Open Season Terminal" 
+                  href={`/admin/leagues/${leagueId}/seasons/${s.id}`} 
+                  highlight 
+                />
+              ))}
+
+              {seasons.length === 0 && (
+                <p className="text-[#669bbc] font-black italic uppercase text-center py-10 opacity-50">No Active Seasons</p>
+              )}
+            </div>
+
+            <div className="pt-6 mt-4 border-t border-white/10">
               <HubButton 
-                title="Season Wizard" 
-                subtitle="Create New Season with Custom Rules" 
+                title="+ Season Wizard" 
+                subtitle="Initialize New Campaign" 
                 href={`/admin/leagues/${leagueId}/seasons/new`} 
-                highlight 
-              />
-              <HubButton 
-                title="Season Archive" 
-                subtitle="View Past and Active Campaigns" 
-                href={`/admin/leagues/${leagueId}/seasons`} 
               />
             </div>
           </div>
@@ -102,16 +114,16 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
             <div className="space-y-4 mt-8">
               <HubButton 
                 title="Schedule Game" 
-                subtitle="Set Up a New Matchup" 
-                href={activeSeason ? `/admin/leagues/${leagueId}/seasons/${activeSeason.id}/schedule/new` : '#'}
-                disabled={!activeSeason}
+                subtitle="Deploy Matchup" 
+                href={latestSeason ? `/admin/leagues/${leagueId}/seasons/${latestSeason.id}/schedule/new` : '#'}
+                disabled={!latestSeason}
               />
               <HubButton 
-  title="Active Games" 
-  subtitle="Launch Live Scorekeeper" 
-  href="/admin/games/active"  // This is the new path
-/>
-              <HubButton title="Edit Box Scores" subtitle="Fix Errors in Past Games" href="#" />
+                title="Active Games" 
+                subtitle="Live Scorekeeper Terminal" 
+                href="/admin/games/active"
+              />
+              <HubButton title="Season Archive" subtitle="View All Histories" href={`/admin/leagues/${leagueId}/seasons`} />
             </div>
           </div>
 
@@ -121,13 +133,12 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
   );
 }
 
-// Reusable Button Component for that Arcade Look
 function HubButton({ title, subtitle, href, highlight = false, disabled = false }: { title: string, subtitle: string, href: string, highlight?: boolean, disabled?: boolean }) {
   if (disabled) {
     return (
       <div className="block bg-[#001d3d]/50 border border-white/5 p-6 opacity-40 cursor-not-allowed">
         <h3 className="text-2xl font-black italic uppercase text-white leading-tight">{title}</h3>
-        <p className="text-[9px] font-bold uppercase text-[#669bbc] tracking-widest mt-1 italic">Create Season to Unlock</p>
+        <p className="text-[9px] font-bold uppercase text-[#669bbc] tracking-widest mt-1 italic">Locked</p>
       </div>
     );
   }

@@ -4,7 +4,6 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import prisma from "@/lib/prisma";
 import bcrypt from "bcrypt";
 
-// We EXPORT this so the Dashboard and other Server Components can use it
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -25,23 +24,33 @@ export const authOptions: NextAuthOptions = {
         const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
         if (!isPasswordValid) return null;
 
-        // Return user data including the roleLevel for our L1/L2/L3 logic
+        // Return user data including leagueId and approval status!
         return { 
           id: user.id.toString(), 
           email: user.email, 
           name: user.name, 
-          role: user.roleLevel 
+          role: user.roleLevel,
+          leagueId: user.leagueId,
+          isApproved: user.isApproved
         };
       }
     })
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) token.role = (user as any).role;
+      if (user) {
+        token.role = (user as any).role;
+        token.leagueId = (user as any).leagueId;
+        token.isApproved = (user as any).isApproved;
+      }
       return token;
     },
     async session({ session, token }) {
-      if (session.user) (session.user as any).role = token.role;
+      if (session.user) {
+        (session.user as any).role = token.role;
+        (session.user as any).leagueId = token.leagueId;
+        (session.user as any).isApproved = token.isApproved;
+      }
       return session;
     }
   },

@@ -33,35 +33,44 @@ model League {
   seasons     Season[]
   teams       Team[]
   users       User[]
+  players     Player[] // Links players directly to a home league
   createdAt   DateTime @default(now())
 }
 
 // --- CORE GAME MODELS ---
 
 model Season {
-  id                Int      @id @default(autoincrement())
-  name              String
-  leagueId          Int
+  id                   Int          @id @default(autoincrement())
+  name                 String
+  leagueId             Int
   // Cascades deletion down from the League
-  league            League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  league               League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   
-  inningsPerGame    Int      @default(4)
-  eraStandard       Int      @default(4)
-  balls             Int      @default(4)
-  strikes           Int      @default(3)
-  outs              Int      @default(3)
-  isSpeedRestricted Boolean  @default(false)
-  isBaserunning     Boolean  @default(true)
-  cleanHitRule      Boolean  @default(true)
-  ghostRunner       Boolean  @default(false)
-  mercyRule         Int      @default(10)
-  dpWithoutRunners  Boolean  @default(false)
-  dpKeepsRunners    Boolean  @default(false)
+  inningsPerGame       Int          @default(4)
+  eraStandard          Int          @default(4)
+  balls                Int          @default(4)
+  strikes              Int          @default(3)
+  outs                 Int          @default(3)
   
-  games             Game[]
-  teams             Team[]   
-  rosterSlots       RosterSlot[]
-  createdAt         DateTime @default(now())
+  // Custom Rules
+  isSpeedRestricted    Boolean      @default(false)
+  speedLimit           Int          @default(60) 
+  isBaserunning        Boolean      @default(true)
+  cleanHitRule         Boolean      @default(true)
+  ghostRunner          Boolean      @default(false)
+  dpWithoutRunners     Boolean      @default(false)
+  dpKeepsRunners       Boolean      @default(false)
+
+  // Mercy & Run Limits
+  mercyRule            Int          @default(10)
+  mercyRulePerInning   Int          @default(0)
+  mercyRuleInningApply Int          @default(3) 
+  unlimitedLastInning  Boolean      @default(false) 
+  
+  games                Game[]
+  teams                Team[]   
+  rosterSlots          RosterSlot[]
+  createdAt            DateTime     @default(now())
 }
 
 model Team {
@@ -88,7 +97,11 @@ model Player {
   id            Int           @id @default(autoincrement())
   name          String
   
-  // A player can have many roster spots (contracts)
+  // Players belong to a specific league so Free Agent pools don't mix globally
+  leagueId      Int?          
+  league        League?       @relation(fields: [leagueId], references: [id]) 
+  
+  // A player can have many roster spots (contracts) across different seasons/teams
   rosterSlots   RosterSlot[]
   
   atBats        AtBat[]       @relation("Batter")
@@ -127,6 +140,8 @@ model Game {
   
   currentHomePitcherId Int?
   currentAwayPitcherId Int?
+
+  liveState            String?       // <-- ADD THIS LINE FOR CLOUD SAVING
 
   atBats               AtBat[]
   lineups              LineupEntry[]
