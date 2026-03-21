@@ -1,0 +1,196 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import Link from 'next/link';
+
+export default function SeasonWizard() {
+  const router = useRouter();
+  const { leagueId } = useParams();
+
+  const [loading, setLoading] = useState(false);
+  const [rules, setRules] = useState({
+    name: '',
+    leagueId: 0,
+    inningsPerGame: 5,
+    balls: 4,
+    strikes: 3,
+    outs: 3,
+    isSpeedRestricted: false,
+    speedLimit: 60,
+    isBaserunning: false,
+    cleanHitRule: true,
+    ghostRunner: true,
+    mercyRule: 10,
+    dpWithoutRunners: false,
+    dpKeepsRunners: false    
+  });
+
+  useEffect(() => {
+    if (leagueId) {
+      setRules(prev => ({ ...prev, leagueId: parseInt(leagueId as string) }));
+    }
+  }, [leagueId]);
+
+  const handleCreate = async () => {
+    if (!rules.name) return alert("Please name this season!");
+    setLoading(true);
+    try {
+      const res = await fetch('/api/seasons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rules),
+      });
+      if (res.ok) {
+        router.push(`/admin/leagues/${leagueId}`);
+        router.refresh();
+      }
+    } catch (err) { console.error(err); } finally { setLoading(false); }
+  };
+
+  if (!leagueId) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black text-white italic text-4xl">LOADING...</div>;
+
+  return (
+    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] border-[12px] border-[#c1121f] p-8 md:p-12">
+      <div className="max-w-4xl mx-auto">
+        
+        <header className="mb-12 border-b-4 border-[#669bbc] pb-6 flex justify-between items-end">
+          <div>
+            <h1 className="text-6xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f]">Season Wizard</h1>
+            <p className="text-[#669bbc] font-bold uppercase text-[10px] tracking-[0.4em] mt-2 italic">Affiliate Profile #{leagueId}</p>
+          </div>
+          <Link href={`/admin/leagues/${leagueId}`} className="text-[10px] font-black uppercase text-[#669bbc] border border-[#669bbc] px-4 py-2 hover:bg-white hover:text-[#001d3d]">Cancel</Link>
+        </header>
+
+        <div className="bg-[#003566] border-2 border-[#669bbc] p-8 shadow-2xl space-y-10">
+          
+          <section>
+            <label className="block text-[10px] font-black uppercase text-[#669bbc] mb-2 tracking-widest">Season Label</label>
+            <input 
+              className="w-full bg-[#001d3d] border-2 border-[#fdf0d5] p-5 text-4xl font-black italic uppercase text-white outline-none focus:border-[#c1121f] placeholder:opacity-20"
+              placeholder="e.g. 2026 ADK OPENER"
+              onChange={(e) => setRules({...rules, name: e.target.value.toUpperCase()})}
+            />
+          </section>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 border-t border-white/10 pt-10">
+            {/* COLUMN 1: STRUCTURE */}
+            <div className="space-y-6">
+               <h3 className="text-xl font-black italic uppercase text-white border-b border-[#c1121f] pb-2 text-center">Standard Play</h3>
+               <div className="grid grid-cols-2 gap-4">
+                  <WizardSelect label="Innings" val={rules.inningsPerGame} options={[3,4,5,6,7,9]} onChange={(v: number) => setRules({...rules, inningsPerGame: v})} />
+                  <WizardSelect label="Outs/Inn" val={rules.outs} options={[2,3,4]} onChange={(v: number) => setRules({...rules, outs: v})} />
+                  <WizardSelect label="Balls" val={rules.balls} options={[3,4,5,6]} onChange={(v: number) => setRules({...rules, balls: v})} />
+                  <WizardSelect label="Strikes" val={rules.strikes} options={[2,3,4]} onChange={(v: number) => setRules({...rules, strikes: v})} />
+               </div>
+               
+               <div className="pt-4 border-t border-white/5 space-y-4">
+                 <BinaryToggle label="Baserunning" active={rules.isBaserunning} onToggle={(v: boolean) => setRules({...rules, isBaserunning: v})} />
+                 <Toggle label='Ghost Runner in Extras (Runner on 2nd)' active={rules.ghostRunner} onToggle={() => setRules({...rules, ghostRunner: !rules.ghostRunner})} />
+               </div>
+            </div>
+
+            {/* COLUMN 2: CUSTOM RULES */}
+            <div className="space-y-4">
+               {/* GHOST BASE LOGIC SECTION */}
+               {!rules.isBaserunning ? (
+                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                    <Toggle 
+                      label="Clean Hit Rule" 
+                      desc="(A single or double which no fielder touches moves baserunners an extra base)" 
+                      active={rules.cleanHitRule} 
+                      onToggle={() => setRules({...rules, cleanHitRule: !rules.cleanHitRule})} 
+                    />
+                    <Toggle 
+                      label="Double Play Without Runners" 
+                      active={rules.dpWithoutRunners} 
+                      onToggle={() => setRules({...rules, dpWithoutRunners: !rules.dpWithoutRunners})} 
+                    />
+                    <Toggle 
+                      label="Double Play Keeps Baserunners" 
+                      active={rules.dpKeepsRunners} 
+                      onToggle={() => setRules({...rules, dpKeepsRunners: !rules.dpKeepsRunners})} 
+                    />
+                 </div>
+               ) : (
+                 <div className="p-8 border-2 border-dashed border-[#669bbc] opacity-50 flex items-center justify-center text-center">
+                    <p className="text-[10px] font-black uppercase text-[#669bbc]">Special Ghost logic hidden for physical baserunning.</p>
+                 </div>
+               )}
+
+               {/* SPEED RESTRICTION SECTION */}
+               <div className="pt-6 border-t border-white/5 space-y-4">
+                  <Toggle 
+                    label="Speed Restricted" 
+                    active={rules.isSpeedRestricted} 
+                    onToggle={() => setRules({...rules, isSpeedRestricted: !rules.isSpeedRestricted})} 
+                  />
+                  
+                  {rules.isSpeedRestricted && (
+                    <div className="animate-in zoom-in-95 duration-200">
+                      <WizardSelect 
+                        label="Speed Limit" 
+                        val={rules.speedLimit} 
+                        options={Array.from({length: 21}, (_, i) => i + 60)} // 60 to 80
+                        onChange={(v: number) => setRules({...rules, speedLimit: v})} 
+                      />
+                      <p className="text-[9px] font-bold text-[#c1121f] uppercase mt-1 px-1 italic">Maximum velocity permitted (MPH)</p>
+                    </div>
+                  )}
+               </div>
+            </div>
+          </div>
+
+          <button 
+            onClick={handleCreate}
+            disabled={loading}
+            className="w-full bg-[#c1121f] border-2 border-[#fdf0d5] py-6 text-3xl font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-xl disabled:opacity-50"
+          >
+            {loading ? 'INITIALIZING...' : 'Establish Season Identity ★'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// UI HELPERS
+function WizardSelect({ label, val, options, onChange }: any) {
+  return (
+    <div className="bg-[#001d3d] p-3 border border-white/10 shadow-inner">
+      <p className="text-[10px] font-black uppercase text-[#669bbc] mb-2">{label}</p>
+      <select 
+        value={val}
+        onChange={(e) => onChange(parseInt(e.target.value))}
+        className="bg-transparent text-2xl font-black italic text-white w-full outline-none cursor-pointer"
+      >
+        {options.map((opt: number) => <option key={opt} value={opt} className="bg-[#001d3d]">{opt} {label === "Speed Limit" ? "MPH" : ""}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function BinaryToggle({ label, active, onToggle }: { label: string, active: boolean, onToggle: (v: boolean) => void }) {
+  return (
+    <div className="flex justify-between items-center p-3 bg-black/20 border border-white/10">
+      <span className="text-xs font-black uppercase italic text-[#fdf0d5]">{label}</span>
+      <div className="flex gap-1">
+        <button onClick={() => onToggle(true)} className={`px-4 py-1 text-[10px] font-black uppercase transition-colors ${active ? 'bg-[#c1121f] text-white' : 'bg-white/5 text-[#669bbc]'}`}>On</button>
+        <button onClick={() => onToggle(false)} className={`px-4 py-1 text-[10px] font-black uppercase transition-colors ${!active ? 'bg-[#c1121f] text-white' : 'bg-white/5 text-[#669bbc]'}`}>Off</button>
+      </div>
+    </div>
+  );
+}
+
+function Toggle({ label, desc, active, onToggle }: any) {
+  return (
+    <button onClick={onToggle} className="w-full text-left p-3 bg-black/20 border border-white/5 group hover:border-[#fdf0d5] transition-all">
+      <div className="flex justify-between items-center">
+        <span className="text-xs font-black uppercase italic text-[#fdf0d5] leading-tight">{label}</span>
+        <div className={`w-8 h-4 border flex items-center p-1 transition-colors flex-shrink-0 ml-4 ${active ? 'bg-[#c1121f] border-white' : 'bg-transparent border-[#669bbc]'}`}>
+           <div className={`w-2 h-2 transition-transform ${active ? 'translate-x-3 bg-white' : 'translate-x-0 bg-[#669bbc]'}`}></div>
+        </div>
+      </div>
+      {desc && <p className="text-[8px] font-bold uppercase text-[#669bbc] mt-1 group-hover:text-white transition-colors">{desc}</p>}
+    </button>
+  );
+}
