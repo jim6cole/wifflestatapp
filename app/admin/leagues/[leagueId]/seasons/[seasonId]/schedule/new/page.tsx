@@ -165,7 +165,6 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Time</label>
-                    {/* UPDATED TIME SELECT */}
                     <select 
                       value={gameTime}
                       onChange={(e) => setGameTime(e.target.value)}
@@ -209,8 +208,10 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
               <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
                 {games.map((game) => {
                   const gameDateObj = new Date(game.scheduledAt);
+                  const isLive = game.status === 'LIVE'; // Check if game is live
+                  
                   return (
-                    <div key={game.id} className="bg-[#003566] border-l-8 border-[#c1121f] border-y-2 border-r-2 border-[#669bbc] p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center hover:bg-[#001d3d] transition-colors gap-4">
+                    <div key={game.id} className={`bg-[#003566] border-l-8 ${isLive ? 'border-[#fdf0d5] animate-pulse' : 'border-[#c1121f]'} border-y-2 border-r-2 border-[#669bbc] p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center hover:bg-[#001d3d] transition-colors gap-4`}>
                       
                       <div className="flex-1">
                         <div className="flex items-center gap-3">
@@ -219,17 +220,29 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                           <span className="text-xl font-black italic uppercase text-white">{game.homeTeam?.name}</span>
                         </div>
                         <p className="text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mt-1">
-                          Game ID: {game.id} | Status: {game.status}
+                          Game ID: {game.id} | Status: <span className={isLive ? "text-green-400" : ""}>{game.status}</span>
                         </p>
                       </div>
 
-                      <div className="bg-[#001d3d] border border-[#669bbc]/50 px-4 py-2 text-right min-w-[140px]">
-                        <p className="font-bold text-sm text-white">
-                          {gameDateObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-                        </p>
-                        <p className="text-[10px] font-black text-[#c1121f] tracking-widest uppercase mt-0.5">
-                          {gameDateObj.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                        </p>
+                      <div className="flex items-center gap-4">
+                        {/* ONLY SHOW "ENTER GAME" BUTTON IF LIVE */}
+                        {isLive && (
+                          <Link 
+                            href={`/games/${game.id}/live`}
+                            className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border border-[#fdf0d5] hover:bg-white hover:text-[#c1121f] transition-all"
+                          >
+                            Enter Game →
+                          </Link>
+                        )}
+                        
+                        <div className="bg-[#001d3d] border border-[#669bbc]/50 px-4 py-2 text-right min-w-[140px]">
+                          <p className="font-bold text-sm text-white">
+                            {gameDateObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                          </p>
+                          <p className="text-[10px] font-black text-[#c1121f] tracking-widest uppercase mt-0.5">
+                            {gameDateObj.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                          </p>
+                        </div>
                       </div>
 
                     </div>

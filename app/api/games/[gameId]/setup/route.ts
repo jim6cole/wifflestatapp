@@ -3,28 +3,30 @@ import prisma from '@/lib/prisma';
 
 export async function GET(
   request: Request,
-  // 1. Swap 'id' for 'gameId' to match the [gameId] folder
   { params }: { params: Promise<{ gameId: string }> }
 ) {
   try {
-    // 2. Unwrap the new parameter name
     const resolvedParams = await params;
     const gameIdString = resolvedParams.gameId;
-
+    
     // CONVERT STRING ID TO NUMBER
     const gameId = parseInt(gameIdString, 10);
 
-    // Safety check: If someone enters /api/games/abc, parseInt returns NaN
     if (isNaN(gameId)) {
       return NextResponse.json({ error: "Invalid Game ID format" }, { status: 400 });
     }
 
     const game = await prisma.game.findUnique({
-      where: { id: gameId }, // Now 'id' matches the 'Int' type in Prisma
+      where: { id: gameId },
       include: {
         homeTeam: true,
         awayTeam: true,
         season: true,
+        // WE ADDED THIS: Fetch the lineup entries in batting order with player names!
+        lineups: {
+          orderBy: { battingOrder: 'asc' },
+          include: { player: true }
+        }
       },
     });
 
