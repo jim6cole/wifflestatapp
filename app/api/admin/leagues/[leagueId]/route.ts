@@ -1,37 +1,34 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ leagueId: string }> } // Define as a Promise
-) {
-  // 1. AWAIT the params here
+// ARCHIVE TOGGLE
+export async function PATCH(request: Request, { params }: { params: Promise<{ leagueId: string }> }) {
+  const session = await getServerSession(authOptions);
+  if (!session || (session.user as any).role < 3) return NextResponse.json({ error: "L3 Admin Required" }, { status: 403 });
+
+  const { leagueId } = await params;
+  const { isActive } = await request.json();
+
+  const updated = await prisma.league.update({
+    where: { id: parseInt(leagueId) },
+    data: { isActive }
+  });
+  return NextResponse.json(updated);
+}
+
+// PERMANENT DELETE (Nuke)
+export async function DELETE(request: Request, { params }: { params: Promise<{ leagueId: string }> }) {
+  const session = await getServerSession(authOptions);
+  if (!session || (session.user as any).role < 3) return NextResponse.json({ error: "L3 Admin Required" }, { status: 403 });
+
   const { leagueId } = await params;
 
-  console.log("FETCHING LEAGUE ID:", leagueId);
-
   try {
-    const id = parseInt(leagueId);
-
-    if (isNaN(id)) {
-      return NextResponse.json({ error: "Invalid ID format" }, { status: 400 });
-    }
-
-    const league = await prisma.league.findUnique({
-      where: { id: id },
-      include: {
-        seasons: true, // Including these helps the hub show active data
-        teams: true,
-      }
-    });
-
-    if (!league) {
-      return NextResponse.json({ error: "League not found" }, { status: 404 });
-    }
-
-    return NextResponse.json(league);
-  } catch (error) {
-    console.error("API CRASH:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    await prisma.league.delete({ where: { id: parseInt(leagueId) } });
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 }

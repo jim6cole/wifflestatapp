@@ -27,6 +27,7 @@ model League {
   fullName    String
   location    String?
   description String?
+  isActive    Boolean  @default(true) // New field for archiving
   seasons     Season[]
   teams       Team[]
   users       User[]

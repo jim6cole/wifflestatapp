@@ -62,6 +62,11 @@ export default async function AdminDashboard() {
                 desc="Establish a new organization" 
                 href="/admin/leagues/new" 
               />
+              <ProButton 
+                title="View Live Action" 
+                desc="Monitor all active scorekeepers" 
+                href="/admin/games/active" 
+              />
             </div>
           </div>
 
@@ -77,28 +82,33 @@ export default async function AdminDashboard() {
                 href="/admin/staff" 
               />
               <ProButton 
-                title="Platform Audit" 
-                desc="View system-wide logs" 
-                href="/admin/logs" 
+                title="User Logs" 
+                desc="Security levels & session history" 
+                href="/admin/users" 
               />
             </div>
           </div>
 
-          {/* CATEGORY 3: SYSTEM ASSETS */}
+          {/* CATEGORY 3: EDIT ADMIN */}
           <div className="bg-[#003566] border-2 border-[#669bbc] p-8 rounded-tr-[50px] shadow-lg flex flex-col h-full">
             <h3 className="text-xl font-black uppercase italic text-[#fdf0d5] mb-6 border-b-2 border-[#c1121f] pb-2">
-              Database Root
+              Edit Admin
             </h3>
             <div className="space-y-4 flex-1">
               <ProButton 
-                title="Direct DB Access" 
-                desc="Manage Prisma records" 
-                href="/admin/db" 
-              />
-              <ProButton 
-                title="Stat Overrides" 
+                title="Edit Box Scores" 
                 desc="Manual correction terminal" 
                 href="/admin/stats/audit" 
+              />
+              <ProButton 
+                title="Edit All Players" 
+                desc="Manage global player registry" 
+                href="/admin/players" 
+              />
+              <ProButton 
+                title="Edit All Teams" 
+                desc="Manage global team registry" 
+                href="/admin/teams" 
               />
             </div>
           </div>
