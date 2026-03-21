@@ -19,15 +19,14 @@ export async function GET(
     const game = await prisma.game.findUnique({
       where: { id: gameId },
       include: {
-        homeTeam: true,
-        awayTeam: true,
-        season: true,
-        // WE ADDED THIS: Fetch the lineup entries in batting order with player names!
-        lineups: {
-          orderBy: { battingOrder: 'asc' },
-          include: { player: true }
-        }
-      },
+  homeTeam: true,
+  awayTeam: true,
+  season: true,
+  lineups: {
+    orderBy: { battingOrder: 'asc' },
+    include: { player: true }
+  }
+}
     });
 
     if (!game) {

@@ -81,11 +81,11 @@ export default function LiveScorer() {
     const nextIsTop = !isTopInning;
     const nextInning = nextIsTop ? inning + 1 : inning;
     
-    // --- AUTO GHOST RUNNER LOGIC ---
-    let nextBases = [null, null, null];
-    if (rules?.ghostRunner && nextInning > targetInnings) {
-       nextBases[1] = { id: `ghost-${Date.now()}`, name: 'Ghost Runner' };
-    }
+   // --- AUTO GHOST RUNNER LOGIC ---
+let nextBases: (any | null)[] = [null, null, null]; // <-- Just add the type here
+if (rules?.ghostRunner && nextInning > targetInnings) {
+   nextBases[1] = { id: `ghost-${Date.now()}`, name: 'Ghost Runner' };
+}
 
     setPlayLog(prev => [{ 
       type: 'divider', 

@@ -16,7 +16,8 @@ model User {
   name        String?
   roleLevel   Int      @default(1)
   leagueId    Int?
-  league      League?  @relation(fields: [leagueId], references: [id])
+  // If a league is deleted, the user stays in the system but loses the league assignment
+  league      League?  @relation(fields: [leagueId], references: [id], onDelete: SetNull)
   isApproved  Boolean  @default(false)
   createdAt   DateTime @default(now())
 }
@@ -27,7 +28,8 @@ model League {
   fullName    String
   location    String?
   description String?
-  isActive    Boolean  @default(true) // New field for archiving
+  isActive    Boolean  @default(true) // Archive toggle
+  
   seasons     Season[]
   teams       Team[]
   users       User[]
@@ -40,7 +42,8 @@ model Season {
   id                Int      @id @default(autoincrement())
   name              String
   leagueId          Int
-  league            League   @relation(fields: [leagueId], references: [id])
+  // Cascades deletion down from the League
+  league            League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   
   inningsPerGame    Int      @default(4)
   eraStandard       Int      @default(4)
@@ -65,7 +68,8 @@ model Team {
   id            Int           @id @default(autoincrement())
   name          String
   leagueId      Int
-  league        League        @relation(fields: [leagueId], references: [id])
+  // Cascades deletion down from the League
+  league        League        @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   
   // Teams now find players through the RosterSlot join table
   rosterSlots   RosterSlot[]
@@ -144,7 +148,7 @@ model AtBat {
   pitcher    Player   @relation("Pitcher", fields: [pitcherId], references: [id])
   
   inning     Int      @default(1)
-  result     String?  
+  result     String?
   runsScored Int      @default(0)
   rbi        Int      @default(0)
   balls      Int      @default(0)
