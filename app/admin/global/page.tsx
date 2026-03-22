@@ -21,10 +21,15 @@ export default function GlobalLeagueManager() {
 
   async function fetchLeagues() {
     try {
-      const res = await fetch('/api/admin/leagues/all');
+      // Added { cache: 'no-store' } to bypass browser caching
+      const res = await fetch('/api/admin/leagues/all', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setLeagues(data);
+      } else {
+        // This will log the actual error if your session gets rejected
+        const err = await res.json();
+        console.error("Server rejected league fetch:", err);
       }
     } catch (error) {
       console.error("Failed to fetch leagues:", error);
@@ -69,13 +74,12 @@ export default function GlobalLeagueManager() {
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] font-sans p-8 md:p-16 border-[12px] border-[#c1121f]">
       <div className="max-w-6xl mx-auto">
         <header className="mb-12 border-b-4 border-[#669bbc] pb-6">
-          {/* DYNAMIC BACK BUTTON: Uses browser history instead of hard link */}
-          <button 
-            onClick={() => router.back()} 
+          <Link 
+            href="/admin/dashboard" 
             className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors mb-4 block"
           >
-            ← Go Back
-          </button>
+              ← Back to Dashboard
+          </Link>
 
           <h1 className="text-7xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f]">
             Affiliate Map

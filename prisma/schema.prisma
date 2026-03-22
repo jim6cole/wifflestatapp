@@ -8,27 +8,37 @@ datasource db {
 }
 
 model User {
-  id         Int      @id @default(autoincrement())
-  email      String   @unique
-  name       String?
-  password   String
-  roleLevel  Int      @default(1)
-  isApproved Boolean  @default(false)
-  leagueId   Int?
-  league     League?  @relation(fields: [leagueId], references: [id])
-  createdAt  DateTime @default(now())
+  id             Int                @id @default(autoincrement())
+  email          String             @unique
+  name           String?
+  password       String
+  isGlobalAdmin  Boolean            @default(false) // Replaces Level 3
+  memberships    LeagueMembership[]
+  createdAt      DateTime           @default(now())
 }
 
 model League {
-  id          Int      @id @default(autoincrement())
+  id          Int                @id @default(autoincrement())
   name        String
   fullName    String?
   location    String?
   description String?
-  isActive    Boolean  @default(true)
+  isActive    Boolean            @default(true)
   seasons     Season[]
-  users       User[]
-  createdAt   DateTime @default(now())
+  memberships LeagueMembership[] // Replaces the old Users array
+  createdAt   DateTime           @default(now())
+}
+
+model LeagueMembership {
+  id         Int     @id @default(autoincrement())
+  userId     Int
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leagueId   Int
+  league     League  @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  roleLevel  Int     @default(1) // 1 = Scorekeeper, 2 = Commissioner
+  isApproved Boolean @default(false)
+
+  @@unique([userId, leagueId])
 }
 
 model Team {

@@ -15,8 +15,10 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
         
+        // Fetch the user AND all of their league memberships
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email }
+          where: { email: credentials.email },
+          include: { memberships: true }
         });
 
         if (!user) return null;
@@ -24,14 +26,12 @@ export const authOptions: NextAuthOptions = {
         const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
         if (!isPasswordValid) return null;
 
-        // Return user data including leagueId and approval status!
         return { 
           id: user.id.toString(), 
           email: user.email, 
           name: user.name, 
-          role: user.roleLevel,
-          leagueId: user.leagueId,
-          isApproved: user.isApproved
+          isGlobalAdmin: user.isGlobalAdmin,
+          memberships: user.memberships // Attach the array of leagues they belong to!
         };
       }
     })
@@ -39,17 +39,16 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.role = (user as any).role;
-        token.leagueId = (user as any).leagueId;
-        token.isApproved = (user as any).isApproved;
+        token.isGlobalAdmin = (user as any).isGlobalAdmin;
+        token.memberships = (user as any).memberships;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as any).role = token.role;
-        (session.user as any).leagueId = token.leagueId;
-        (session.user as any).isApproved = token.isApproved;
+        (session.user as any).id = token.sub;
+        (session.user as any).isGlobalAdmin = token.isGlobalAdmin;
+        (session.user as any).memberships = token.memberships;
       }
       return session;
     }

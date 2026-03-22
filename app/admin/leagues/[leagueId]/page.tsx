@@ -5,19 +5,20 @@ import Link from 'next/link';
 export default function LeagueHub({ params }: { params: Promise<{ leagueId: string }> }) {
   const { leagueId } = use(params);
   const [league, setLeague] = useState<any>(null);
-  const [seasons, setSeasons] = useState<any[]>([]); // Store all seasons
+  const [seasons, setSeasons] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const leagueRes = await fetch(`/api/admin/leagues/${leagueId}`);
-        const seasonsRes = await fetch(`/api/admin/leagues/${leagueId}/seasons`);
+        // ADDED: cache: 'no-store' to ensure we see when a season ends
+        const leagueRes = await fetch(`/api/admin/leagues/${leagueId}`, { cache: 'no-store' });
+        const seasonsRes = await fetch(`/api/admin/leagues/${leagueId}/seasons`, { cache: 'no-store' });
         
         if (leagueRes.ok) setLeague(await leagueRes.json());
         if (seasonsRes.ok) {
           const data = await seasonsRes.json();
-          setSeasons(data); // Store the full array
+          setSeasons(data); 
         }
       } catch (error) {
         console.error("Error loading hub data:", error);
@@ -30,8 +31,11 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
 
   if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black uppercase text-white animate-pulse italic">Accessing League Mainframe...</div>;
 
-  // We still use the most recent one to "prime" the shortcut buttons in Col 1 & 3
-  const latestSeason = seasons.length > 0 ? seasons[0] : null;
+  // FIX: Filter for ACTIVE seasons only
+  const activeSeasons = seasons.filter(s => s.status === 'ACTIVE');
+  
+  // Prime the shortcut buttons with the most recent ACTIVE season
+  const latestActiveSeason = activeSeasons.length > 0 ? activeSeasons[0] : null;
 
   return (
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] font-sans p-8 md:p-16 border-[12px] border-[#c1121f]">
@@ -40,8 +44,8 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
         {/* HEADER SECTION */}
         <header className="mb-12 border-b-4 border-[#669bbc] pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
-            <Link href="/admin/global" className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors">
-              ← System Root
+            <Link href="/admin/global" className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors block mb-4">
+                ← League Select
             </Link>
             <div className="flex items-center gap-4 mt-4">
               <h1 className="text-8xl font-black italic uppercase tracking-tighter text-white drop-shadow-[6px_6px_0px_#c1121f]">
@@ -50,7 +54,6 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
             </div>
             <p className="text-[#669bbc] font-bold uppercase text-sm tracking-[0.4em] mt-2 italic">{league?.description || 'Sector Operations'}</p>
           </div>
-
           <div className="bg-[#c1121f] text-white italic font-black px-8 py-4 skew-x-[-10deg] shadow-[8px_8px_0px_#003566] border-2 border-[#fdf0d5] text-xl">
             AFFILIATE ID: {leagueId}
           </div>
@@ -59,32 +62,38 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
         {/* COMMAND GRID */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
           
-          {/* COLUMN 1: PERSONNEL MANAGEMENT */}
+         {/* COLUMN 1: PERSONNEL MANAGEMENT */}
           <div className="bg-[#003566]/30 border-2 border-[#669bbc] p-8 relative rounded-tr-[40px]">
             <h2 className="text-3xl font-black italic uppercase text-white mb-2 border-b-2 border-[#c1121f] pb-2">Personnel</h2>
             <div className="space-y-4 mt-8">
               <HubButton 
                 title="Edit Teams" 
                 subtitle="Franchise Management" 
-                href={latestSeason ? `/admin/leagues/${leagueId}/seasons/${latestSeason.id}/teams` : '#'} 
-                disabled={!latestSeason}
+                href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/teams` : '#'} 
+                disabled={!latestActiveSeason}
               />
               <HubButton 
                 title="Edit Rosters" 
                 subtitle="Player Assignments" 
-                href={latestSeason ? `/admin/leagues/${leagueId}/seasons/${latestSeason.id}/players` : '#'}
-                disabled={!latestSeason}
+                href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/players` : '#'}
+                disabled={!latestActiveSeason}
+              />
+              {/* NEW BUTTON: MANAGE USER ACCESS */}
+              <HubButton 
+                title="User Access" 
+                subtitle="Staff Approvals" 
+                href={`/admin/leagues/${leagueId}/staff`} 
               />
             </div>
           </div>
 
-          {/* COLUMN 2: OPERATIONAL CAMPAIGNS (The Multi-Season Fix) */}
+          {/* COLUMN 2: OPERATIONAL CAMPAIGNS */}
           <div className="bg-[#003566]/30 border-2 border-[#669bbc] p-8 relative rounded-tr-[40px] flex flex-col">
             <h2 className="text-3xl font-black italic uppercase text-white mb-2 border-b-2 border-[#c1121f] pb-2">Campaigns</h2>
             
-            {/* Scrollable list of all active seasons */}
+            {/* Scrollable list of only ACTIVE seasons */}
             <div className="space-y-4 mt-8 flex-1 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar">
-              {seasons.map((s) => (
+              {activeSeasons.map((s) => (
                 <HubButton 
                   key={s.id}
                   title={s.name} 
@@ -93,8 +102,7 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
                   highlight 
                 />
               ))}
-
-              {seasons.length === 0 && (
+              {activeSeasons.length === 0 && (
                 <p className="text-[#669bbc] font-black italic uppercase text-center py-10 opacity-50">No Active Seasons</p>
               )}
             </div>
@@ -115,8 +123,8 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
               <HubButton 
                 title="Schedule Game" 
                 subtitle="Deploy Matchup" 
-                href={latestSeason ? `/admin/leagues/${leagueId}/seasons/${latestSeason.id}/schedule/new` : '#'}
-                disabled={!latestSeason}
+                href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/schedule/new` : '#'}
+                disabled={!latestActiveSeason}
               />
               <HubButton 
                 title="Active Games" 
@@ -138,11 +146,10 @@ function HubButton({ title, subtitle, href, highlight = false, disabled = false 
     return (
       <div className="block bg-[#001d3d]/50 border border-white/5 p-6 opacity-40 cursor-not-allowed">
         <h3 className="text-2xl font-black italic uppercase text-white leading-tight">{title}</h3>
-        <p className="text-[9px] font-bold uppercase text-[#669bbc] tracking-widest mt-1 italic">Locked</p>
+        <p className="text-[9px] font-bold uppercase text-[#669bbc] tracking-widest mt-1 italic">Locked (No Active Season)</p>
       </div>
     );
   }
-
   return (
     <Link 
       href={href} 

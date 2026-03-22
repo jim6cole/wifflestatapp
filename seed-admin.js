@@ -1,24 +1,29 @@
 const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
+
 const prisma = new PrismaClient();
 
 async function main() {
-  const hashedPassword = await bcrypt.hash('YourSuperSecretPassword123', 10);
+  const hashedPassword = await bcrypt.hash('admin123', 10);
   
   const admin = await prisma.user.upsert({
-    where: { email: 'admin@wrc.com' },
+    where: { email: 'admin@awaa.com' },
     update: {},
     create: {
-      email: 'admin@wrc.com',
-      name: 'Jum',
+      email: 'admin@awaa.com',
+      name: 'Global Root',
       password: hashedPassword,
-      roleLevel: 3,
-      isApproved: true,
+      isGlobalAdmin: true, // The new SaaS Global Admin flag
     },
   });
-  console.log('Global Admin Created:', admin.email);
+  console.log('Global Admin seeded:', admin);
 }
 
 main()
-  .catch((e) => console.error(e))
-  .finally(async () => await prisma.$disconnect());
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

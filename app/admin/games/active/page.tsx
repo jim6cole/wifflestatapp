@@ -1,8 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation'; // ADD THIS LINE
 
 export default function ActiveGamesLobby() {
+  const router = useRouter();
   const [games, setGames] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -29,7 +31,9 @@ export default function ActiveGamesLobby() {
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-8 md:p-16 border-[12px] border-[#c1121f]">
       <div className="max-w-5xl mx-auto">
         <header className="mb-12 border-b-4 border-[#669bbc] pb-6">
-          <Link href="/admin/global" className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors">← System Root</Link>
+          <button onClick={() => router.back()} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors mb-4 block text-left">
+  ← Go Back
+</button>
           <h1 className="text-6xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] mt-2">
             Game Command Central
           </h1>

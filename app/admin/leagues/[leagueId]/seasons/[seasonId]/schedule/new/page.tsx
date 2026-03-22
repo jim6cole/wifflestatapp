@@ -98,9 +98,9 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
         
         {/* BREADCRUMB / NAV */}
         <div className="mb-12 border-b-4 border-[#669bbc] pb-6">
-          <Link href={`/admin/leagues/${leagueId}/seasons`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors">
-            ← Back to Season Archive
-          </Link>
+          <Link href={`/admin/leagues/${leagueId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors block mb-4">
+  ← Back to League Hub
+</Link>
           <h1 className="text-6xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] mt-2">
             Matchup Generator
           </h1>

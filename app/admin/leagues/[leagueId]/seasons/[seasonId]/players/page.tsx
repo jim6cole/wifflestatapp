@@ -359,9 +359,9 @@ export default function PlayerManagerPage({ params }: { params: Promise<{ league
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] font-sans p-8 md:p-16 border-[12px] border-[#c1121f]">
       <div className="max-w-7xl mx-auto">
         <div className="mb-12 border-b-4 border-[#669bbc] pb-6">
-          <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}/teams`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors">
-              ← Back to Team Architect
-          </Link>
+          <Link href={`/admin/leagues/${leagueId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors block mb-4">
+  ← Back to League Hub
+</Link>
           <h1 className="text-6xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] mt-2">
             Roster Control
           </h1>

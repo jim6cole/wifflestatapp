@@ -3,6 +3,11 @@ import prisma from '@/lib/prisma';
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
+export const dynamic = 'force-dynamic'; // <--- THE GHOST CACHE KILLER
+
+// --- TOGGLE SEASON STATE (ACTIVE / COMPLETED) ---
+// ... rest of the file remains exactly the same
+
 // --- TOGGLE SEASON STATE (ACTIVE / COMPLETED) ---
 export async function PATCH(
   request: Request,

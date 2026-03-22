@@ -2,15 +2,47 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from 'next/link';
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import prisma from "@/lib/prisma";
+
+export const dynamic = 'force-dynamic'; // Ensures fresh data on every load
 
 export default async function AdminDashboard() {
   const session = await getServerSession(authOptions);
+  if (!session?.user?.email) redirect('/admin/login');
 
-  if (!session || (session.user as any).role < 2) {
-    redirect('/admin/login');
+  // Fetch the user and all their connected leagues
+  const dbUser = await prisma.user.findUnique({
+    where: { email: session.user.email },
+    include: {
+      memberships: {
+        include: { league: true }
+      }
+    }
+  });
+
+  if (!dbUser) redirect('/admin/login');
+
+  const isGlobalAdmin = dbUser.isGlobalAdmin;
+  
+  let displayLeagues: any[] = [];
+  let pendingMemberships: any[] = [];
+
+  // GOD MODE BYPASS: If Global Admin, fetch all leagues directly
+  if (isGlobalAdmin) {
+    const allLeagues = await prisma.league.findMany({
+      orderBy: { name: 'asc' }
+    });
+    displayLeagues = allLeagues.map(l => ({
+      id: `root-${l.id}`,
+      leagueId: l.id,
+      roleLevel: 3, // Custom level for Root
+      league: l
+    }));
+  } else {
+    // Normal SaaS User: Filter their specific memberships
+    displayLeagues = dbUser.memberships.filter(m => m.isApproved);
+    pendingMemberships = dbUser.memberships.filter(m => !m.isApproved);
   }
-
-  const user = session.user as any;
 
   return (
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] font-sans border-[12px] border-[#c1121f]">
@@ -18,107 +50,94 @@ export default async function AdminDashboard() {
         
         <header className="flex flex-col md:flex-row md:items-center justify-between mb-16 border-b-4 border-[#669bbc] pb-8">
           <div>
-            <h1 className="text-8xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] leading-none">
+            <h1 className="text-6xl md:text-8xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] leading-none">
               wRC
             </h1>
             <p className="text-[#fdf0d5] font-bold uppercase text-xs tracking-[0.3em] mt-2">
-              Wiffle Recording & Creation // {user.role === 3 ? 'Global Root' : 'Commish Portal'}
+              Wiffle Reporting & Control // Operations
             </p>
           </div>
           
-          <div className="bg-[#c1121f] border-2 border-[#fdf0d5] p-6 shadow-xl skew-x-[-10deg]">
-            <p className="text-[10px] font-black uppercase text-[#fdf0d5] tracking-widest skew-x-[10deg]">Authorized User</p>
-            <p className="text-2xl font-black uppercase italic skew-x-[10deg]">{user?.name}</p>
+          <div className={`border-2 p-6 shadow-xl skew-x-[-10deg] mt-6 md:mt-0 ${isGlobalAdmin ? 'bg-black border-[#ffd60a]' : 'bg-[#c1121f] border-[#fdf0d5]'}`}>
+            <p className={`text-[10px] font-black uppercase tracking-widest skew-x-[10deg] ${isGlobalAdmin ? 'text-[#ffd60a]' : 'text-[#fdf0d5]'}`}>
+              {isGlobalAdmin ? 'Root Clearance' : 'Authorized Operator'}
+            </p>
+            <p className="text-2xl font-black uppercase italic skew-x-[10deg] text-white">{dbUser.name}</p>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
-          <ProStatCard label="Role" value={`Lvl ${user.role}`} sub="Authorization Level" />
-          <ProStatCard label="Affiliates" value={user.role === 3 ? "ALL" : "1"} sub="Manageable Leagues" />
-          <ProStatCard label="Status" value="OK" sub="System Integrity" />
-          <ProStatCard label="Session" value="ACTV" sub="Cloud Sync Live" />
-        </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* CATEGORY 1: LEAGUE ADMINISTRATION */}
-          <div className="bg-[#003566] border-2 border-[#669bbc] p-8 rounded-tr-[50px] shadow-lg flex flex-col h-full">
-            <h3 className="text-xl font-black uppercase italic text-[#fdf0d5] mb-6 border-b-2 border-[#c1121f] pb-2">
-              League Admin
-            </h3>
-            <div className="space-y-4 flex-1">
-              <ProButton 
-                title={user.role === 3 ? "Select League" : "My League"} 
-                desc="Manage your organization" 
-                href="/admin/global" 
-                highlight 
-              />
-              <ProButton 
-                title="Register League" 
-                desc="Establish a new organization" 
-                href="/admin/leagues/new" 
-              />
-              <ProButton 
-                title="View Live Action" 
-                desc="Monitor active scorekeepers" 
-                href="/admin/games/active" 
-              />
-            </div>
+          {/* COLUMN 1 & 2: LEAGUES */}
+          <div className="lg:col-span-2 space-y-8">
+            <h2 className="text-3xl font-black italic uppercase text-white border-b-2 border-[#c1121f] pb-2">
+              {isGlobalAdmin ? 'All Organizations (Root)' : 'My Organizations'}
+            </h2>
+            
+            {displayLeagues.length === 0 ? (
+              <div className="bg-[#003566] border-2 border-dashed border-[#669bbc] p-12 text-center opacity-70">
+                <p className="text-xl font-black uppercase italic text-white mb-2">No Organizations Found</p>
+                <p className="text-xs font-bold text-[#669bbc] uppercase tracking-widest">Create a league to populate this terminal.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {displayLeagues.map((m) => (
+                  <Link 
+                    key={m.id} 
+                    href={`/admin/leagues/${m.leagueId}`}
+                    className="bg-[#003566] border-2 border-[#669bbc] p-6 hover:bg-[#c1121f] hover:border-[#fdf0d5] transition-all group shadow-lg"
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <span className={`text-[9px] font-black px-2 py-1 uppercase tracking-widest ${m.roleLevel === 3 ? 'bg-[#ffd60a] text-black group-hover:bg-white' : 'bg-[#001d3d] text-[#669bbc] group-hover:text-white'}`}>
+                        {m.roleLevel === 3 ? 'Root Admin' : `Lvl ${m.roleLevel} ${m.roleLevel === 2 ? 'Commish' : 'Staff'}`}
+                      </span>
+                      <span className="text-[#669bbc] group-hover:text-white font-black">↗</span>
+                    </div>
+                    <h3 className="text-2xl font-black uppercase italic text-white">{m.league.name}</h3>
+                    <p className="text-[10px] font-bold uppercase text-[#669bbc] group-hover:text-red-200 mt-1">{m.league.location || 'Local'}</p>
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            {/* PENDING REQUESTS (Only for non-global admins) */}
+            {pendingMemberships.length > 0 && !isGlobalAdmin && (
+              <div className="mt-8">
+                <p className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest mb-3">Pending Authorizations</p>
+                <div className="space-y-2">
+                  {pendingMemberships.map(m => (
+                    <div key={m.id} className="bg-black/20 border border-[#669bbc]/30 p-4 flex justify-between items-center opacity-60">
+                      <span className="font-bold text-white uppercase">{m.league.name}</span>
+                      <span className="text-[9px] font-black text-[#ffd60a] uppercase tracking-widest animate-pulse">Awaiting Commish</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* CATEGORY 2: GLOBAL OPERATIONS - Hide for Level 2 if you want, or keep shared */}
-          <div className="bg-[#003566] border-2 border-[#669bbc] p-8 rounded-tr-[50px] shadow-lg flex flex-col h-full">
-            <h3 className="text-xl font-black uppercase italic text-[#fdf0d5] mb-6 border-b-2 border-[#c1121f] pb-2">
-              Management
-            </h3>
-            <div className="space-y-4 flex-1">
-              <ProButton 
-                title="Staff Approvals" 
-                desc="Authorize field access" 
-                href="/admin/staff" 
-              />
-              {user.role === 3 && (
-                 <ProButton 
-                    title="User Logs" 
-                    desc="Security & session history" 
-                    href="/admin/users" 
-                 />
-              )}
-            </div>
-          </div>
-
-          {/* CATEGORY 3: EDIT ADMIN */}
-          <div className="bg-[#003566] border-2 border-[#669bbc] p-8 rounded-tr-[50px] shadow-lg flex flex-col h-full">
-            <h3 className="text-xl font-black uppercase italic text-[#fdf0d5] mb-6 border-b-2 border-[#c1121f] pb-2">
-              Audit Tools
-            </h3>
-            <div className="space-y-4 flex-1">
-              <ProButton 
-                title="Edit Box Scores" 
-                desc="Manual correction terminal" 
-                href="/admin/stats/audit" 
-              />
-              <ProButton 
-                title="Global Roster" 
-                desc="Manage player registry" 
-                href="/admin/players" 
-              />
-            </div>
+          {/* COLUMN 3: SYSTEM ACTIONS */}
+          <div className="space-y-6">
+            <h2 className="text-3xl font-black italic uppercase text-white border-b-2 border-[#c1121f] pb-2">Portal</h2>
+            
+            <ProButton title="Establish League" desc="Create a new organization" href="/admin/leagues/new" highlight />
+            
+            {/* Standard users request access. Global Admins don't need to. */}
+            {!isGlobalAdmin && (
+              <ProButton title="Request Access" desc="Join an existing league" href="/admin/join" />
+            )}
+            
+            {/* GLOBAL ADMIN TOOLS */}
+            {isGlobalAdmin && (
+              <div className="mt-8 pt-8 border-t border-white/10 space-y-4">
+                <p className="text-[10px] font-black uppercase text-[#c1121f] tracking-widest">Root Clearance Tools</p>
+                <ProButton title="Affiliate Map" desc="Global League Directory" href="/admin/global" />
+                <ProButton title="User Registry" desc="Manage all system accounts" href="/admin/users" />
+              </div>
+            )}
           </div>
 
         </div>
-      </div>
-    </div>
-  );
-}
-
-function ProStatCard({ label, value, sub }: { label: string, value: string, sub: string }) {
-  return (
-    <div className="bg-gradient-to-br from-[#fdf0d5] to-[#c1121f] p-[2px] shadow-lg">
-      <div className="bg-[#001d3d] p-6 text-center border border-white/10">
-        <p className="text-[10px] font-black uppercase text-[#669bbc] mb-1 tracking-widest">{label}</p>
-        <p className="text-5xl font-black italic uppercase text-white leading-none mb-1">{value}</p>
-        <p className="text-[9px] font-bold uppercase text-[#c1121f] tracking-tighter">{sub}</p>
       </div>
     </div>
   );
@@ -126,15 +145,15 @@ function ProStatCard({ label, value, sub }: { label: string, value: string, sub:
 
 function ProButton({ title, desc, href, highlight = false }: { title: string, desc: string, href: string, highlight?: boolean }) {
   return (
-    <Link href={href} className={`group block relative overflow-hidden border transition-all duration-200 ${
-      highlight ? 'bg-[#c1121f] border-[#fdf0d5] hover:bg-white' : 'bg-white/5 border-white/10 hover:bg-black/40 hover:border-[#fdf0d5]'
-    } p-5 shadow-inner`}>
+    <Link href={href} className={`group block relative overflow-hidden border-2 transition-all duration-200 ${
+      highlight ? 'bg-[#c1121f] border-[#fdf0d5] hover:bg-white' : 'bg-[#003566] border-[#669bbc] hover:border-white'
+    } p-6 shadow-xl`}>
       <div className="flex justify-between items-center relative z-10">
         <div>
           <h4 className={`font-black italic uppercase tracking-tighter text-xl transition-colors ${highlight ? 'text-white group-hover:text-[#c1121f]' : 'text-white'}`}>{title}</h4>
-          <p className={`text-[9px] font-bold uppercase tracking-[0.15em] mt-1 transition-colors ${highlight ? 'text-red-200 group-hover:text-slate-500' : 'text-[#669bbc]'}`}>{desc}</p>
+          <p className={`text-[9px] font-bold uppercase tracking-[0.15em] mt-1 transition-colors ${highlight ? 'text-red-200 group-hover:text-slate-500' : 'text-[#669bbc] group-hover:text-white'}`}>{desc}</p>
         </div>
-        <span className={`text-xl transition-all ${highlight ? 'text-white group-hover:text-[#c1121f] group-hover:translate-x-1' : 'opacity-0 group-hover:opacity-100 group-hover:translate-x-1'}`}>★</span>
+        <span className={`text-xl transition-all ${highlight ? 'text-white group-hover:text-[#c1121f] group-hover:translate-x-1' : 'text-[#669bbc] group-hover:text-white group-hover:translate-x-1'}`}>→</span>
       </div>
     </Link>
   );
