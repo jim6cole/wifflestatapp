@@ -31,7 +31,7 @@ export default function SeasonDashboard({ params }: { params: Promise<{ leagueId
       body: JSON.stringify({ status: newStatus })
     });
     if (res.ok) fetchSeason();
-  };
+  }
 
   const deleteSeason = async () => {
     if (!confirm("CRITICAL WARNING: This will permanently erase this season and all associated games. Proceed?")) return;
@@ -65,43 +65,52 @@ export default function SeasonDashboard({ params }: { params: Promise<{ leagueId
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           
           <SeasonActionCard title="Stat Leaderboard" desc="Review records & leaders." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/stats`} highlight icon="★" />
+          
           <SeasonActionCard title="Team Architect" desc="Manage rosters & talent." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/teams`} icon="⚒" />
           
-          {/* SCHEDULE BUTTON (Disabled if season is completed) */}
           <SeasonActionCard 
             title="Schedule Games" 
-            desc={isCompleted ? "Season is closed for scheduling." : "Initialize new matchups."} 
+            desc={isCompleted ? "Season closed." : "Initialize new matchups."} 
             href={isCompleted ? "#" : `/admin/leagues/${leagueId}/seasons/${seasonId}/schedule/new`} 
             icon="📅"
             disabled={isCompleted}
           />
 
+          {/* NEW GAME DAY BUTTON */}
+          <SeasonActionCard 
+            title="Game Day" 
+            desc={isCompleted ? "Season closed." : "Set lineups & score live."} 
+            href={isCompleted ? "#" : `/admin/leagues/${leagueId}/seasons/${seasonId}/play`} 
+            icon="⚾"
+            disabled={isCompleted}
+          />
+
           {/* SYSTEM CONTROL CARD (Level 2 & 3 Only) */}
           {user?.role >= 2 && (
-            <div className="bg-black/40 border-2 border-red-900 p-8 shadow-[8px_8px_0px_#c1121f] flex flex-col justify-between">
+            <div className="lg:col-span-4 bg-black/40 border-2 border-red-900 p-8 shadow-[8px_8px_0px_#c1121f] flex flex-col md:flex-row md:items-center justify-between gap-6 mt-8">
               <div>
-                <h3 className="text-2xl font-black uppercase italic text-red-600 mb-2 leading-tight">System Control</h3>
-                <p className="text-[10px] font-bold uppercase text-slate-500 mb-6">Manage Lifecycle & Authorization</p>
+                <h3 className="text-2xl font-black uppercase italic text-red-600 mb-1 leading-tight">System Control</h3>
+                <p className="text-[10px] font-bold uppercase text-slate-500">Manage Lifecycle & Authorization</p>
               </div>
 
-              <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
                 <button 
                   onClick={() => updateStatus(isCompleted ? 'ACTIVE' : 'COMPLETED')}
-                  className={`w-full p-4 font-black uppercase italic text-xs border transition-all ${
+                  className={`px-8 py-4 font-black uppercase italic text-xs border transition-all ${
                     isCompleted 
                       ? 'border-green-600 text-green-600 hover:bg-green-600 hover:text-white' 
                       : 'border-yellow-600 text-yellow-600 hover:bg-yellow-600 hover:text-white'
                   }`}
                 >
-                  {isCompleted ? 'Re-Activate Season' : 'End Season (Lock Schedule)'}
+                  {isCompleted ? 'Re-Activate Season' : 'End Season (Lock)'}
                 </button>
 
                 <button 
                   onClick={deleteSeason}
-                  className="w-full p-4 font-black uppercase italic text-xs border border-red-900 text-red-900 hover:bg-red-900 hover:text-white transition-all"
+                  className="px-8 py-4 font-black uppercase italic text-xs border border-red-900 text-red-900 hover:bg-red-900 hover:text-white transition-all"
                 >
                   Delete Season (Purge)
                 </button>
@@ -129,7 +138,7 @@ function SeasonActionCard({ title, desc, href, icon, highlight = false, disabled
           <span className="text-4xl">{icon}</span>
           <span className={`text-[10px] font-black uppercase px-2 py-1 ${highlight ? 'bg-white text-[#c1121f]' : 'bg-[#c1121f] text-white'}`}>Module</span>
         </div>
-        <h3 className="text-3xl font-black italic uppercase text-white mb-2 leading-tight">{title}</h3>
+        <h3 className="text-2xl xl:text-3xl font-black italic uppercase text-white mb-2 leading-tight">{title}</h3>
         <p className={`text-xs font-bold uppercase ${highlight ? 'text-red-100' : 'text-[#669bbc]'}`}>{desc}</p>
       </div>
     </Link>

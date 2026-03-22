@@ -7,52 +7,73 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- AUTH & ADMIN MODELS ---
-
 model User {
-  id          Int      @id @default(autoincrement())
-  email       String   @unique
-  password    String
-  name        String?
-  roleLevel   Int      @default(1)
-  leagueId    Int?
-  // If a league is deleted, the user stays in the system but loses the league assignment
-  league      League?  @relation(fields: [leagueId], references: [id], onDelete: SetNull)
-  isApproved  Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  email      String   @unique
+  name       String?
+  password   String
+  roleLevel  Int      @default(1)
+  isApproved Boolean  @default(false)
+  leagueId   Int?
+  league     League?  @relation(fields: [leagueId], references: [id])
+  createdAt  DateTime @default(now())
 }
 
 model League {
   id          Int      @id @default(autoincrement())
-  name        String   @unique
-  fullName    String
+  name        String
+  fullName    String?
   location    String?
   description String?
-  isActive    Boolean  @default(true) // Archive toggle
-  
+  isActive    Boolean  @default(true)
   seasons     Season[]
-  teams       Team[]
   users       User[]
-  players     Player[] // Links players directly to a home league
   createdAt   DateTime @default(now())
 }
 
-// --- CORE GAME MODELS ---
+model Team {
+  id          Int          @id @default(autoincrement())
+  name        String
+  seasonId    Int
+  season      Season       @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  homeGames   Game[]       @relation("HomeTeam")
+  awayGames   Game[]       @relation("AwayTeam")
+  rosterSlots RosterSlot[]
+  createdAt   DateTime     @default(now())
+}
+
+model Player {
+  id             Int          @id @default(autoincrement())
+  name           String
+  rosterSlots    RosterSlot[]
+  atBats         AtBat[]      @relation("Batter")
+  pitchedAtBats  AtBat[]      @relation("Pitcher")
+  createdAt      DateTime     @default(now())
+}
+
+model RosterSlot {
+  id       Int    @id @default(autoincrement())
+  seasonId Int
+  season   Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  teamId   Int
+  team     Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  playerId Int
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, teamId, playerId])
+}
 
 model Season {
   id                   Int          @id @default(autoincrement())
   name                 String
   leagueId             Int
-  // Cascades deletion down from the League
   league               League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-  
+  status               String       @default("ACTIVE") 
   inningsPerGame       Int          @default(4)
   eraStandard          Int          @default(4)
   balls                Int          @default(4)
   strikes              Int          @default(3)
   outs                 Int          @default(3)
-  
-  // Custom Rules
   isSpeedRestricted    Boolean      @default(false)
   speedLimit           Int          @default(60) 
   isBaserunning        Boolean      @default(true)
@@ -60,126 +81,62 @@ model Season {
   ghostRunner          Boolean      @default(false)
   dpWithoutRunners     Boolean      @default(false)
   dpKeepsRunners       Boolean      @default(false)
-
-  // Mercy & Run Limits
   mercyRule            Int          @default(10)
   mercyRulePerInning   Int          @default(0)
   mercyRuleInningApply Int          @default(3) 
   unlimitedLastInning  Boolean      @default(false) 
-  
   games                Game[]
   teams                Team[]   
   rosterSlots          RosterSlot[]
   createdAt            DateTime     @default(now())
 }
 
-model Team {
-  id            Int           @id @default(autoincrement())
-  name          String
-  leagueId      Int
-  // Cascades deletion down from the League
-  league        League        @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-  
-  // Teams now find players through the RosterSlot join table
-  rosterSlots   RosterSlot[]
-  
-  homeGames     Game[]        @relation("HomeTeam")
-  awayGames     Game[]        @relation("AwayTeam")
-  lineupEntries LineupEntry[]
-  
-  seasonId      Int?
-  season        Season?       @relation(fields: [seasonId], references: [id], onDelete: SetNull)
-
-  @@unique([name, leagueId])
-}
-
-model Player {
-  id            Int           @id @default(autoincrement())
-  name          String
-  
-  // Players belong to a specific league so Free Agent pools don't mix globally
-  leagueId      Int?          
-  league        League?       @relation(fields: [leagueId], references: [id]) 
-  
-  // A player can have many roster spots (contracts) across different seasons/teams
-  rosterSlots   RosterSlot[]
-  
-  atBats        AtBat[]       @relation("Batter")
-  pitches       AtBat[]       @relation("Pitcher")
-  lineupEntries LineupEntry[]
-}
-
-// The "Join Table" that connects Players to Teams for a specific Season
-model RosterSlot {
-  id        Int    @id @default(autoincrement())
-  playerId  Int
-  player    Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  
-  teamId    Int
-  team      Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
-  seasonId  Int
-  season    Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-
-  // Ensures a player isn't added to the same team/season combo twice
-  @@unique([playerId, teamId, seasonId])
-}
-
 model Game {
   id                   Int           @id @default(autoincrement())
+  seasonId             Int
+  season               Season        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   homeTeamId           Int
   homeTeam             Team          @relation("HomeTeam", fields: [homeTeamId], references: [id])
   awayTeamId           Int
   awayTeam             Team          @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  
-  status               String        @default("UPCOMING") 
+  scheduledAt          DateTime
+  status               String        @default("SCHEDULED")
   homeScore            Int           @default(0)
   awayScore            Int           @default(0)
-  currentInning        Int           @default(1)
-  isTopInning          Boolean       @default(true)
-  
+  location             String?
+  liveState            String?       
   currentHomePitcherId Int?
   currentAwayPitcherId Int?
-
-  liveState            String?       // <-- ADD THIS LINE FOR CLOUD SAVING
-
+  inningScores         InningScore[]
   atBats               AtBat[]
-  lineups              LineupEntry[]
-  scheduledAt          DateTime      @default(now())
   createdAt            DateTime      @default(now())
+}
 
-  seasonId             Int?
-  season               Season?       @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+model InningScore {
+  id         Int     @id @default(autoincrement())
+  gameId     Int
+  game       Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  inning     Int
+  homeRuns   Int     @default(0)
+  awayRuns   Int     @default(0)
+  isComplete Boolean @default(false)
 }
 
 model AtBat {
-  id         Int      @id @default(autoincrement())
-  gameId     Int
-  game       Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  
-  batterId   Int
-  batter     Player   @relation("Batter", fields: [batterId], references: [id])
-  pitcherId  Int
-  pitcher    Player   @relation("Pitcher", fields: [pitcherId], references: [id])
-  
-  inning     Int      @default(1)
-  result     String?
-  runsScored Int      @default(0)
-  rbi        Int      @default(0)
-  balls      Int      @default(0)
-  strikes    Int      @default(0)
-  outs       Int      @default(0)
-  createdAt  DateTime @default(now())
-}
-
-model LineupEntry {
-  id           Int     @id @default(autoincrement())
-  gameId       Int
-  game         Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  playerId     Int
-  player       Player  @relation(fields: [playerId], references: [id])
-  teamId       Int
-  team         Team    @relation(fields: [teamId], references: [id])
-  battingOrder Int
-  isPitcher    Boolean @default(false)
+  id          Int      @id @default(autoincrement())
+  gameId      Int
+  game        Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  batterId    Int
+  batter      Player   @relation("Batter", fields: [batterId], references: [id])
+  pitcherId   Int
+  pitcher     Player   @relation("Pitcher", fields: [pitcherId], references: [id])
+  inning      Int      @default(1)
+  isTopInning Boolean  @default(true) 
+  result      String?
+  runsScored  Int      @default(0)
+  rbi         Int      @default(0)
+  balls       Int      @default(0)
+  strikes     Int      @default(0)
+  outs        Int      @default(0)
+  createdAt   DateTime @default(now())
 }

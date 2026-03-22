@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
+// MAGIC LINE: Force Next.js to recalculate stats on every single page load
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ seasonId: string }> }
@@ -13,7 +16,7 @@ export async function GET(
         game: { seasonId: parseInt(seasonId) }
       },
       include: {
-        batter: { select: { id: true, name: true } } // Changed from 'player' to 'batter'
+        batter: { select: { id: true, name: true } }
       }
     });
 
@@ -31,13 +34,23 @@ export async function GET(
       p.pa++;
 
       const res = ab.result;
-      if (res === 'SINGLE' || res === 'CLEAN_SINGLE') { p.ab++; p.h++; p.tb += 1; }
-      else if (res === 'DOUBLE' || res === 'CLEAN_DOUBLE' || res === 'GROUND_RULE_DOUBLE') { p.ab++; p.h++; p.tb += 2; }
-      else if (res === 'TRIPLE') { p.ab++; p.h++; p.tb += 3; }
-      else if (res === 'HR') { p.ab++; p.h++; p.hr++; p.tb += 4; }
-      else if (res === 'WALK' || res === 'BB') { p.bb++; }
-      else if (res === 'K') { p.ab++; p.k++; }
-      else if (['FLY_OUT', 'GROUND_OUT', 'DOUBLE_PLAY', 'TAG_UP'].includes(res)) { p.ab++; }
+      
+      // Null-safe checks
+      if (res === 'SINGLE' || res === 'CLEAN_SINGLE') { 
+        p.ab++; p.h++; p.tb += 1; 
+      } else if (res && (res.includes('DOUBLE') || res === 'GROUND_RULE_DOUBLE')) { 
+        p.ab++; p.h++; p.tb += 2; 
+      } else if (res === 'TRIPLE') { 
+        p.ab++; p.h++; p.tb += 3; 
+      } else if (res === 'HR') { 
+        p.ab++; p.h++; p.hr++; p.tb += 4; 
+      } else if (res === 'WALK' || res === 'BB') { 
+        p.bb++; 
+      } else if (res === 'K' || res === 'STRIKEOUT') { 
+        p.ab++; p.k++; 
+      } else if (res && ['FLY_OUT', 'GROUND_OUT', 'DOUBLE_PLAY', 'TAG_UP', 'OUT'].includes(res)) { 
+        p.ab++; 
+      }
     });
 
     const statsArray = Object.values(statsMap).map(p => {

@@ -6,12 +6,22 @@ export async function POST(
   { params }: { params: Promise<{ gameId: string }> } 
 ) {
   try {
-    const { batterId, pitcherId, result, runsScored, outs, inning, isTopInning } = await req.json();
+    // 1. Grab the raw body object
+    const body = await req.json();
     const resolvedParams = await params;
+    
+    // 2. Explicitly cast ALL variables to satisfy TypeScript and Prisma
     const gameId = parseInt(resolvedParams.gameId);
+    const batterId = parseInt(body.batterId);
+    const pitcherId = parseInt(body.pitcherId);
+    const runsScored = parseInt(body.runsScored) || 0;
+    const outs = parseInt(body.outs) || 0;
+    const inning = parseInt(body.inning) || 1;
+    const isTopInning = Boolean(body.isTopInning);
+    const result = body.result ? String(body.result) : null;
 
     const result_data = await prisma.$transaction(async (tx) => {
-      // 1. Record the At-Bat for the leaderboards
+      // 3. Record the At-Bat with strongly-typed data
       const atBat = await tx.atBat.create({
         data: { 
           gameId, 
@@ -25,7 +35,7 @@ export async function POST(
         }
       });
 
-      // 2. We skip updating the game score here because our 
+      // We skip updating the game score here because our 
       // 'live-state' API handles the master score sync.
       return { atBat };
     });
