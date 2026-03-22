@@ -1,21 +1,20 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
-// POST: Draft/Create a brand new player and attach them to the current league
+// POST: Draft/Create a brand new player
 export async function POST(request: Request) {
   try {
-    // Extract both name and leagueId from the incoming request
-    const { name, leagueId } = await request.json();
+    const { name } = await request.json();
 
     if (!name) {
       return NextResponse.json({ error: "Player name is required" }, { status: 400 });
     }
 
+    // Players are global in the database schema. 
+    // They are tied to leagues later when assigned to a RosterSlot.
     const newPlayer = await prisma.player.create({
       data: { 
-        name,
-        // Tie the player to the league if the ID was provided
-        leagueId: leagueId ? Number(leagueId) : null
+        name: name.trim()
       }
     });
 

@@ -32,23 +32,25 @@ model League {
 }
 
 model Team {
-  id          Int          @id @default(autoincrement())
+  id          Int           @id @default(autoincrement())
   name        String
   seasonId    Int
-  season      Season       @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  homeGames   Game[]       @relation("HomeTeam")
-  awayGames   Game[]       @relation("AwayTeam")
+  season      Season        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  homeGames   Game[]        @relation("HomeTeam")
+  awayGames   Game[]        @relation("AwayTeam")
   rosterSlots RosterSlot[]
-  createdAt   DateTime     @default(now())
+  lineups     LineupEntry[] 
+  createdAt   DateTime      @default(now())
 }
 
 model Player {
-  id             Int          @id @default(autoincrement())
+  id             Int           @id @default(autoincrement())
   name           String
   rosterSlots    RosterSlot[]
-  atBats         AtBat[]      @relation("Batter")
-  pitchedAtBats  AtBat[]      @relation("Pitcher")
-  createdAt      DateTime     @default(now())
+  atBats         AtBat[]       @relation("Batter")
+  pitchedAtBats  AtBat[]       @relation("Pitcher")
+  lineups        LineupEntry[] 
+  createdAt      DateTime      @default(now())
 }
 
 model RosterSlot {
@@ -109,6 +111,7 @@ model Game {
   currentAwayPitcherId Int?
   inningScores         InningScore[]
   atBats               AtBat[]
+  lineups              LineupEntry[] 
   createdAt            DateTime      @default(now())
 }
 
@@ -139,4 +142,16 @@ model AtBat {
   strikes     Int      @default(0)
   outs        Int      @default(0)
   createdAt   DateTime @default(now())
+}
+
+model LineupEntry {
+  id           Int     @id @default(autoincrement())
+  gameId       Int
+  game         Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  teamId       Int
+  team         Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  playerId     Int
+  player       Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  battingOrder Int
+  isPitcher    Boolean @default(false)
 }

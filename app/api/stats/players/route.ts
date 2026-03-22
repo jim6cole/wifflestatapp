@@ -1,32 +1,63 @@
 import prisma from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic'; // Magic cache-buster line
+
 export async function GET() {
   try {
     const players = await prisma.player.findMany({
       include: {
-        team: true,
+        rosterSlots: {
+          include: { team: true }
+        },
         atBats: true, // Hitting data
-        pitches: true  // Pitching data
+        // pitchedAtBats: true // (Optional: Pitching data for future use)
       }
     });
 
     const playerStats = players.map(player => {
       const abs = player.atBats;
-      const totalAB = abs.length;
-      const hits = abs.filter(ab => ['Single', 'Double', 'Triple', 'Home Run'].includes(ab.result || '')).length;
-      const homeRuns = abs.filter(ab => ab.result === 'Home Run').length;
-      const rbis = abs.reduce((sum, ab) => sum + ab.rbi, 0);
+      let pa = 0;
+      let abCount = 0;
+      let hits = 0;
+      let homeRuns = 0;
+      let rbis = 0;
+
+      abs.forEach(ab => {
+        pa++;
+        rbis += ab.rbi || 0;
+        const res = ab.result;
+
+        // Same null-safe logic used in the Season Terminal
+        if (res === 'SINGLE' || res === 'CLEAN_SINGLE') { 
+          abCount++; hits++; 
+        } else if (res && (res.includes('DOUBLE') || res === 'GROUND_RULE_DOUBLE')) { 
+          abCount++; hits++; 
+        } else if (res === 'TRIPLE') { 
+          abCount++; hits++; 
+        } else if (res === 'HR') { 
+          abCount++; hits++; homeRuns++; 
+        } else if (res === 'WALK' || res === 'BB') { 
+          // Walks do not count as At-Bats
+        } else if (res && ['FLY_OUT', 'GROUND_OUT', 'DOUBLE_PLAY', 'TAG_UP', 'OUT', 'K', 'STRIKEOUT'].includes(res)) { 
+          abCount++; 
+        }
+      });
       
-      // Calculate Average (e.g., .333)
-      const avg = totalAB > 0 ? (hits / totalAB).toFixed(3) : ".000";
+      // Calculate Average
+      const avg = abCount > 0 ? (hits / abCount).toFixed(3) : ".000";
+
+      // Find their most recent team name (or list them as a Free Agent)
+      const teamName = player.rosterSlots.length > 0 
+        ? player.rosterSlots[player.rosterSlots.length - 1].team.name 
+        : 'Free Agent';
 
       return {
         id: player.id,
         name: player.name,
-        teamName: player.team.name,
+        teamName: teamName,
         stats: {
-          ab: totalAB,
+          ab: abCount,
           hits,
           hr: homeRuns,
           rbi: rbis,
@@ -36,10 +67,11 @@ export async function GET() {
     });
 
     // Sort by Average by default
-    playerStats.sort((a, b) => Number(b.stats.avg) - Number(a.stats.avg));
+    playerStats.sort((a, b) => parseFloat(b.stats.avg) - parseFloat(a.stats.avg));
 
     return NextResponse.json(playerStats);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("Player Stats Error:", error.message);
+    return NextResponse.json({ error: "Failed to load player stats" }, { status: 500 });
   }
 }

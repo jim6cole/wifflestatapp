@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 export default function LiveScorer() {
   const { id } = useParams();
   const router = useRouter();
-  
+
   const [game, setGame] = useState<any>(null);
   const [currentBatterIdx, setCurrentBatterIdx] = useState(0); 
   const [isTopInning, setIsTopInning] = useState(true); 
@@ -14,10 +14,12 @@ export default function LiveScorer() {
   const [balls, setBalls] = useState(0);
   const [strikes, setStrikes] = useState(0);
   const [baseRunners, setBaseRunners] = useState<(any | null)[]>([null, null, null]); 
+  
   const [homeScore, setHomeScore] = useState(0);
   const [awayScore, setAwayScore] = useState(0);
   const [homePitches, setHomePitches] = useState(0);
   const [awayPitches, setAwayPitches] = useState(0);
+  
   const [playLog, setPlayLog] = useState<any[]>([]); 
   const [redoStack, setRedoStack] = useState<any[]>([]);
 
@@ -30,12 +32,12 @@ export default function LiveScorer() {
   const [jackassMessage, setJackassMessage] = useState("");
   const [showOtherModal, setShowOtherModal] = useState(false);
   const [showGhostModal, setShowGhostModal] = useState(false);
-  
+
   // Unified Placement State
   const [placementAction, setPlacementAction] = useState<string | null>(null);
   const [placementDetails, setPlacementDetails] = useState<any[]>([]);
   const [hitErrorData, setHitErrorData] = useState<any>(null);
-  
+
   // Game Over States
   const [showEndGameModal, setShowEndGameModal] = useState(false);
   const [gameOverMessage, setGameOverMessage] = useState("");
@@ -46,7 +48,6 @@ export default function LiveScorer() {
   // --- INITIAL LOAD & CLOUD RECOVERY ---
   useEffect(() => {
     if (!id) return;
-
     fetch(`/api/games/${id}/setup`)
       .then(async (res) => {
         if (!res.ok) throw new Error(await res.text());
@@ -82,7 +83,7 @@ export default function LiveScorer() {
 
   // --- AUTOSAVE TO DATABASE (CLOUD SYNC) ---
   useEffect(() => {
-    if (!game || !id) return; 
+    if (!game || !id) return;
     
     const stateToSave = {
       currentBatterIdx, isTopInning, inning, outs, balls, strikes,
@@ -91,7 +92,6 @@ export default function LiveScorer() {
     };
     
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-
     saveTimeoutRef.current = setTimeout(() => {
       fetch(`/api/games/${id}/live-state`, {
         method: 'PATCH',
@@ -102,7 +102,6 @@ export default function LiveScorer() {
 
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
   }, [game, id, currentBatterIdx, isTopInning, inning, outs, balls, strikes, baseRunners, homeScore, awayScore, homePitches, awayPitches, playLog, redoStack]);
-
 
   const clearRedo = () => { if (redoStack.length > 0) setRedoStack([]); };
 
@@ -152,13 +151,14 @@ export default function LiveScorer() {
     if (!isTopInning) setInning(prev => prev + 1);
   }, [game, isTopInning, inning, baseRunners, outs, balls, strikes, currentBatterIdx, homeScore, awayScore]);
 
-  // --- UPDATED RECORD PLAY (WITH PERMANENT STAT LOGGING) ---
+  // --- UPDATED RECORD PLAY (WITH PERMANENT STAT LOGGING ERROR CATCHER) ---
   const recordPlay = useCallback((result: string, newBases: (any|null)[], runs: number, extraOuts: number = 0) => {
     clearRedo();
     if (!game) return;
     
     const targetOuts = game.season?.outs || 3;
     const targetInnings = game.season?.inningsPerGame || 5;
+
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
     const lineup = game.lineups.filter((l: any) => l.teamId === battingTeamId);
     const batter = lineup[currentBatterIdx]?.player;
@@ -166,24 +166,31 @@ export default function LiveScorer() {
     // Determine Active Pitcher for the Stat Record
     const activePitcherId = isTopInning ? game.currentHomePitcherId : game.currentAwayPitcherId;
 
-    // 1. LOG TO PERMANENT STATS API
-    try {
-      fetch(`/api/games/${id}/at-bat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          batterId: batter.id,
-          pitcherId: activePitcherId,
-          result: result.toUpperCase().replace(/\s/g, '_'), // Formats "Fly Out" to "FLY_OUT"
-          runsScored: runs,
-          outs: extraOuts,
-          inning: inning,
-          isTopInning: isTopInning
-        })
-      });
-    } catch (e) {
-      console.error("Failed to sync at-bat to permanent records:", e);
-    }
+    // 1. LOG TO PERMANENT STATS API (NOW WITH ERROR ALERTING)
+    fetch(`/api/games/${id}/at-bat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batterId: batter?.id,
+        pitcherId: activePitcherId,
+        result: result.toUpperCase().replace(/\s/g, '_'), // Formats "Fly Out" to "FLY_OUT"
+        runsScored: runs,
+        outs: extraOuts,
+        inning: inning,
+        isTopInning: isTopInning
+      })
+    })
+    .then(async (res) => {
+      if (!res.ok) {
+        const err = await res.json();
+        console.error("CRITICAL STAT FAILURE:", err);
+        alert(`CRITICAL ERROR: Stat failed to save to database!\n\nReason: ${err.error}\n\nPlease check console.`);
+      }
+    })
+    .catch(e => {
+      console.error("Network failed to sync at-bat:", e);
+      alert("Network Error: Could not connect to database.");
+    });
 
     // 2. UPDATE LOCAL SCOREBOARD
     const newHomeScore = isTopInning ? homeScore : homeScore + runs;
@@ -219,10 +226,13 @@ export default function LiveScorer() {
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
     const lineup = game.lineups.filter((l: any) => l.teamId === battingTeamId);
     const batter = lineup[currentBatterIdx]?.player;
+
     let currentBases = [...baseRunners];
     let runs = 0;
+
     if (type === 'HR') { runs = 1 + currentBases.filter(b => b !== null).length; currentBases = [null, null, null]; }
     else { for (let i = 0; i < basesToMove; i++) { if (currentBases[2]) runs++; currentBases[2] = currentBases[1]; currentBases[1] = currentBases[0]; currentBases[0] = i === 0 ? batter : null; } }
+
     recordPlay(type, currentBases, runs);
   }, [game, isTopInning, currentBatterIdx, baseRunners, recordPlay]);
 
@@ -237,7 +247,6 @@ export default function LiveScorer() {
   const handleDPAction = () => {
     const rules = game?.season;
     const targetOuts = rules?.outs || 3;
-
     if (outs >= targetOuts - 1) { triggerJackass(`Can't get ${targetOuts + 1} outs jackass.`); return; }
     
     const runnersOn = baseRunners.filter(b => b !== null);
@@ -245,7 +254,6 @@ export default function LiveScorer() {
     if (runnersOn.length === 0 && !rules?.dpWithoutRunners) return alert("No runners on base!");
     if (runnersOn.length === 0 && rules?.dpWithoutRunners) { recordPlay('Double Play', [null, null, null], 0, 2); return; }
     if (rules?.dpKeepsRunners) { recordPlay('Double Play', [...baseRunners], 0, 2); return; }
-
     if (runnersOn.length === 1) { recordPlay('Double Play', [null, null, null], 0, 2); return; }
 
     setDpStep(1);
@@ -253,6 +261,7 @@ export default function LiveScorer() {
     if (baseRunners[2]) active.push({ player: baseRunners[2], from: '3rd', end: '3rd', internalId: 'b2' });
     if (baseRunners[1]) active.push({ player: baseRunners[1], from: '2nd', end: '2nd', internalId: 'b1' });
     if (baseRunners[0]) active.push({ player: baseRunners[0], from: '1st', end: '1st', internalId: 'b0' });
+
     const batter = game.lineups.filter((l: any) => l.teamId === (isTopInning ? game.awayTeamId : game.homeTeamId))[currentBatterIdx].player;
     setDpPlacements([...active, { player: batter, from: 'Batter', end: 'Out', internalId: 'bat' }]);
     setShowDPModal(true);
@@ -305,7 +314,6 @@ export default function LiveScorer() {
     const batter = game.lineups.filter((l: any) => l.teamId === (isTopInning ? game.awayTeamId : game.homeTeamId))[currentBatterIdx].player;
     
     const runnerAdvancement = isClean ? bases + 1 : bases;
-
     for (let i = 0; i < runnerAdvancement; i++) {
         if (current[2]) runs++;
         current[2] = current[1];
@@ -319,7 +327,6 @@ export default function LiveScorer() {
 
   const handleOtherAction = (actionType: string) => {
     setShowOtherModal(false);
-
     switch (actionType) {
       case 'Sac Fly':
         startPlacementFlow('Tag');
@@ -416,6 +423,7 @@ export default function LiveScorer() {
       }
       return;
     }
+
     if (type === 'K') { recordPlay('K', [...baseRunners], 0, 1); return; }
     if (type === 'BB') {
       let current = [...baseRunners]; let runs = 0;
@@ -438,25 +446,29 @@ export default function LiveScorer() {
         type: last.type, batterIdx: currentBatterIdx, isTopInning, inning, outs, balls, strikes, 
         baseRunners: [...baseRunners], homeScore, awayScore, homePitches, awayPitches, logEntry: last 
     };
+    
     setRedoStack(prev => [snapshot, ...prev]);
 
     setBaseRunners(last.prevBaseRunners);
     setOuts(last.prevOuts);
     setBalls(last.prevBalls);
     setStrikes(last.prevStrikes);
-
+    
     if (last.type === 'play') {
       if (isTopInning) setAwayScore(p => p - last.runs); else setHomeScore(p => p - last.runs);
       setCurrentBatterIdx(last.prevBatterIdx);
     }
+
     if (last.type === 'pitch' || last.type === 'play') {
         if (isTopInning) setHomePitches(p => Math.max(0, p-1)); else setAwayPitches(p => Math.max(0, p-1));
     }
+
     if (last.type === 'divider') {
       setIsTopInning(!isTopInning);
       if (isTopInning) setInning(i => i-1);
       setCurrentBatterIdx(last.prevBatterIdx);
     }
+
     setPlayLog(prev => prev.slice(1));
   };
 
@@ -466,6 +478,7 @@ export default function LiveScorer() {
     setCurrentBatterIdx(n.batterIdx); setIsTopInning(n.isTopInning); setInning(n.inning);
     setOuts(n.outs); setBalls(n.balls); setStrikes(n.strikes); setBaseRunners(n.baseRunners);
     setHomeScore(n.homeScore); setAwayScore(n.awayScore); setHomePitches(n.homePitches); setAwayPitches(n.awayPitches);
+    
     setPlayLog(prev => [n.logEntry, ...prev]);
     setRedoStack(prev => prev.slice(1));
   };
@@ -494,12 +507,14 @@ export default function LiveScorer() {
   const currentBatter = game.lineups.filter((l: any) => l.teamId === (isTopInning ? game.awayTeamId : game.homeTeamId))[currentBatterIdx]?.player;
   const activePitcherId = isTopInning ? game.currentHomePitcherId : game.currentAwayPitcherId;
   const currentPitcher = game.lineups.find((l: any) => l.playerId === activePitcherId)?.player;
+
   const runnersMarkedOut = dpPlacements.filter(p => p.internalId !== 'bat' && p.end === 'Out').length;
   const isDPValid = batterWasOut ? runnersMarkedOut === 1 : runnersMarkedOut === 2;
 
   const targetBalls = game.season?.balls || 4;
   const targetStrikes = game.season?.strikes || 3;
   const targetOuts = game.season?.outs || 3;
+
   const fieldingTeamId = isTopInning ? game.homeTeamId : game.awayTeamId;
   const fieldingLineup = game.lineups.filter((l: any) => l.teamId === fieldingTeamId);
 
@@ -617,7 +632,7 @@ export default function LiveScorer() {
                 <div className="grid grid-cols-3 gap-2">
                    {['Single', 'Double', 'Triple'].map(ht => (
                       <button 
-                         key={ht}
+                         key={ht} 
                          onClick={() => setHitErrorData({...hitErrorData, hitType: ht})}
                          className={`py-2 rounded-xl font-black text-xs uppercase border ${hitErrorData.hitType === ht ? 'bg-pink-600 border-white text-white shadow-inner' : 'border-white/20 text-slate-400'}`}
                       >
@@ -649,9 +664,9 @@ export default function LiveScorer() {
                      <div className="grid grid-cols-5 gap-1">
                        {['Out', '1st', '2nd', '3rd', 'Home'].map(base => (
                          <button 
-                           key={base} 
-                           onClick={() => setHitErrorData({...hitErrorData, placements: hitErrorData.placements.map((p: any) => p.internalId === rp.internalId ? {...p, end: base} : p)})} 
-                           className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? 'bg-pink-600 border-white text-white' : 'border-white/10 text-slate-500 hover:border-pink-500/50'}`}
+                            key={base} 
+                            onClick={() => setHitErrorData({...hitErrorData, placements: hitErrorData.placements.map((p: any) => p.internalId === rp.internalId ? {...p, end: base} : p)})}
+                            className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? 'bg-pink-600 border-white text-white' : 'border-white/10 text-slate-500 hover:border-pink-500/50'}`}
                          >
                            {base}
                          </button>
@@ -666,12 +681,12 @@ export default function LiveScorer() {
                 if (!validatePlacements(hitErrorData.placements)) return;
                 
                 let nB = [null, null, null] as (any|null)[]; let r = 0; let oX = 0; 
-                hitErrorData.placements.forEach((rp: any) => { 
-                   if (rp.end === '1st') nB[0] = rp.player; 
-                   else if (rp.end === '2nd') nB[1] = rp.player; 
-                   else if (rp.end === '3rd') nB[2] = rp.player; 
-                   else if (rp.end === 'Home') r++; 
-                   else if (rp.end === 'Out') oX++; 
+                hitErrorData.placements.forEach((rp: any) => {
+                    if (rp.end === '1st') nB[0] = rp.player;
+                    else if (rp.end === '2nd') nB[1] = rp.player;
+                    else if (rp.end === '3rd') nB[2] = rp.player;
+                    else if (rp.end === 'Home') r++;
+                    else if (rp.end === 'Out') oX++;
                 });
                 
                 const fielderName = fieldingLineup.find((l: any) => String(l.player.id) === String(hitErrorData.fielderId))?.player.name;
@@ -707,6 +722,7 @@ export default function LiveScorer() {
         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/95 p-6 backdrop-blur-sm">
           <div className="bg-[#002D62] border-2 border-purple-600 p-6 rounded-3xl w-full max-sm shadow-2xl">
             <h2 className="text-xl font-black uppercase italic mb-6 text-center text-purple-400 tracking-tighter">Special Actions</h2>
+            
             <div className="space-y-2">
               <p className="text-[10px] font-black uppercase text-slate-500 mb-2 tracking-widest">Base Running</p>
               {[ 'Sac Fly', 'Fielder\'s Choice', 'Ground Rule Double'].map(action => (
@@ -746,7 +762,9 @@ export default function LiveScorer() {
                     + Add Ghost Runner
                   </button>
               </div>
+
             </div>
+
             <button onClick={() => setShowOtherModal(false)} className="w-full mt-8 py-2 text-white/30 font-black uppercase text-[10px] tracking-widest hover:text-white">Close Menu</button>
           </div>
         </div>
@@ -758,7 +776,6 @@ export default function LiveScorer() {
            <span>{game.season?.name}</span>
            <span>{game.season?.inningsPerGame} INN | {targetBalls}B {targetStrikes}S {targetOuts}O {game.season?.mercyRule > 0 ? `| ${game.season.mercyRule} Run Mercy` : ''}</span>
         </div>
-
         <div className="flex">
             <div className="grid grid-cols-[1fr_auto] border-r border-white/20 bg-white text-black min-w-[210px]">
                 <div className="px-5 py-3 font-black flex items-center gap-3 border-b border-black/10">
@@ -772,6 +789,7 @@ export default function LiveScorer() {
                 </div>
                 <div className="px-6 py-3 bg-white font-black text-3xl flex items-center justify-center">{homeScore}</div>
             </div>
+
             <div className="flex-1 grid grid-cols-2 bg-[#002D62]">
                 <div className="flex flex-col items-center justify-center p-3 border-r border-white/10 text-center">
                     <div className="relative w-11 h-11 mb-2">
@@ -785,10 +803,12 @@ export default function LiveScorer() {
                 </div>
             </div>
         </div>
+
         <div className="bg-[#EAEAEA] text-black px-4 py-2 flex justify-between items-center border-t border-black/20 font-black italic text-[10px]">
           <div>PITCHING: {currentPitcher?.name}</div>
           <div>P: <span className="text-lg leading-none">{isTopInning ? homePitches : awayPitches}</span></div>
         </div>
+
         <div className="bg-white text-black px-4 py-2 flex justify-between items-center border-t border-black/10 font-black italic text-[10px]">
           <div>{currentBatterIdx + 1}. {currentBatter?.name}</div>
           <div className="opacity-50">AVG: .000</div>
@@ -821,8 +841,8 @@ export default function LiveScorer() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <button onClick={undoLastPlay} disabled={playLog.length === 0} className="bg-slate-900 border border-white/5 py-3 rounded-lg text-[10px] font-black uppercase text-slate-500 hover:text-white transition-all">Undo ⤾</button>
-        <button onClick={redoLastPlay} disabled={redoStack.length === 0} className="bg-slate-900 border border-white/5 py-3 rounded-lg text-[10px] font-black uppercase text-slate-500 hover:text-blue-400 transition-all">Redo ⤿</button>
+        <button onClick={undoLastPlay} disabled={playLog.length === 0} className="bg-slate-900 border border-white/5 py-3 rounded-lg text-[10px] font-black uppercase text-slate-500 hover:text-white transition-all">Undo ↩</button>
+        <button onClick={redoLastPlay} disabled={redoStack.length === 0} className="bg-slate-900 border border-white/5 py-3 rounded-lg text-[10px] font-black uppercase text-slate-500 hover:text-blue-400 transition-all">Redo ↪</button>
       </div>
 
       <div className="bg-slate-900/40 rounded-xl border border-white/5 overflow-hidden shadow-inner">
