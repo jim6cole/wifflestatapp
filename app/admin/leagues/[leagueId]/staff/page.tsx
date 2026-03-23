@@ -82,7 +82,7 @@ export default function StaffManager({ params }: { params: Promise<{ leagueId: s
                   key={member.id} 
                   member={member} 
                   onToggle={() => handleToggleApproval(member.id, member.isApproved)} 
-                  onChangeRole={(role) => handleRoleChange(member.id, role)}
+                  onChangeRole={(role: number) => handleRoleChange(member.id, role)}
                 />
               ))}
             </div>
@@ -101,7 +101,7 @@ export default function StaffManager({ params }: { params: Promise<{ leagueId: s
                   key={member.id} 
                   member={member} 
                   onToggle={() => handleToggleApproval(member.id, member.isApproved)} 
-                  onChangeRole={(role) => handleRoleChange(member.id, role)}
+                  onChangeRole={(role: number) => handleRoleChange(member.id, role)}
                 />
               ))}
             </div>

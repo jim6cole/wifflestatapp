@@ -1,0 +1,118 @@
+import { NextResponse } from 'next/server';
+import prisma from '@/lib/prisma';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  try {
+    const currentYear = new Date().getFullYear();
+    const startOfYear = new Date(currentYear, 0, 1);
+    const endOfYear = new Date(currentYear, 11, 31, 23, 59, 59);
+
+    const atBats = await prisma.atBat.findMany({
+      where: { createdAt: { gte: startOfYear, lte: endOfYear } },
+      include: {
+        batter: { select: { name: true } },
+        pitcher: { select: { name: true } },
+        game: {
+          include: {
+            season: {
+              include: { league: { select: { name: true } } }
+            }
+          }
+        }
+      },
+    });
+
+    const batterMap: Record<number, any> = {};
+    const pitcherMap: Record<number, any> = {};
+
+    atBats.forEach((ab) => {
+      const res = ab.result?.toUpperCase() || '';
+      const leagueName = ab.game.season.league.name;
+      
+      // Batting Aggregation Logic
+      if (ab.batterId && ab.batter) {
+        if (!batterMap[ab.batterId]) {
+          batterMap[ab.batterId] = { 
+            name: ab.batter.name, ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0,
+            leagues: new Set<string>() 
+          };
+        }
+        const b = batterMap[ab.batterId];
+        b.leagues.add(leagueName);
+        
+        const isHit = ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(h => res.includes(h));
+        const isOut = ['K', 'STRIKEOUT', 'FLY_OUT', 'GROUND_OUT', 'OUT', 'DP'].some(o => res.includes(o));
+        const isWalk = res.includes('WALK') || res.includes('BB');
+
+        if (isHit || isOut) b.ab++;
+        if (isHit) b.h++;
+        if (isWalk) b.bb++;
+        if (res.includes('DOUBLE')) b.d++;
+        if (res.includes('TRIPLE')) b.t++;
+        if (res.includes('HR')) b.hr++;
+        b.rbi += ab.rbi;
+      }
+
+      // Pitching Aggregation Logic (Expanded)
+      if (ab.pitcherId && ab.pitcher) {
+        if (!pitcherMap[ab.pitcherId]) {
+          pitcherMap[ab.pitcherId] = { 
+            name: ab.pitcher.name, 
+            outs: 0, k: 0, r: 0, er: 0, bb: 0, h: 0, hr: 0,
+            leagues: new Set<string>() 
+          };
+        }
+        const p = pitcherMap[ab.pitcherId];
+        p.leagues.add(leagueName);
+        
+        const isHit = ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(h => res.includes(h));
+        const isWalk = res.includes('WALK') || res.includes('BB');
+
+        p.outs += ab.outs;
+        if (isHit) p.h++;
+        if (isWalk) p.bb++;
+        if (res.includes('HR')) p.hr++;
+        if (res.includes('K') || res.includes('STRIKEOUT')) p.k++;
+        p.r += ab.runsScored;
+        p.er += ab.runsScored; // Using runs scored as ER for global baseline
+      }
+    });
+
+    const batters = Object.values(batterMap).map((b: any) => {
+      const leagueList = Array.from(b.leagues);
+      const singles = b.h - (b.d + b.t + b.hr);
+      const avg = b.ab > 0 ? (b.h / b.ab) : 0;
+      const obp = (b.ab + b.bb) > 0 ? (b.h + b.bb) / (b.ab + b.bb) : 0;
+      const slg = b.ab > 0 ? (singles + (2*b.d) + (3*b.t) + (4*b.hr)) / b.ab : 0;
+      const ops = obp + slg;
+
+      return {
+        ...b,
+        leagueDisplay: leagueList.length > 1 ? `${leagueList.length}LEAG` : (leagueList[0] || 'N/A'),
+        avg, obp, ops,
+      };
+    });
+
+    const pitchers = Object.values(pitcherMap).map((p: any) => {
+      const leagueList = Array.from(p.leagues);
+      const ipRaw = p.outs / 3;
+      const whip = ipRaw > 0 ? (p.bb + p.h) / ipRaw : 0;
+      const era = ipRaw > 0 ? (p.er * 4) / ipRaw : 0;
+
+      return {
+        ...p,
+        leagueDisplay: leagueList.length > 1 ? `${leagueList.length}LEAG` : (leagueList[0] || 'N/A'),
+        ip: `${Math.floor(p.outs / 3)}.${p.outs % 3}`,
+        ipRaw,
+        whip,
+        era
+      };
+    });
+
+    return NextResponse.json({ batters, pitchers, year: currentYear });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to aggregate stats" }, { status: 500 });
+  }
+}
