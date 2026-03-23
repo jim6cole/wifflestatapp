@@ -17,10 +17,14 @@ export async function GET(
       select: { leagueId: true }
     });
 
-    // FIX 1: Look THROUGH the season relation to find teams in this league
+    if (!season) {
+      return NextResponse.json({ error: "Season not found" }, { status: 404 });
+    }
+
+    // Return ALL teams in the entire league so the UI can build the "Franchise Archive"
     const allTeams = await prisma.team.findMany({
       where: { 
-        season: { leagueId: season?.leagueId } 
+        season: { leagueId: season.leagueId } 
       },
       include: { _count: { select: { rosterSlots: true } } }
     });
@@ -32,7 +36,7 @@ export async function GET(
   }
 }
 
-// POST: Add an existing team to this season OR create a new one
+// POST: Register a team name for this season
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ seasonId: string }> }
@@ -40,55 +44,36 @@ export async function POST(
   try {
     const resolvedParams = await params;
     const sId = parseInt(resolvedParams.seasonId);
-    const { teamId, name } = await request.json();
+    const { name } = await request.json();
 
-    if (teamId) {
-      // DIRECT IMPORT (Button Click)
-      const updatedTeam = await prisma.team.update({
-        where: { id: parseInt(teamId) },
-        data: { seasonId: sId }
-      });
-      return NextResponse.json(updatedTeam);
-    } else {
-      // FORM SUBMISSION
-      const season = await prisma.season.findUnique({
-        where: { id: sId },
-        select: { leagueId: true }
-      });
-
-      if (!season) {
-        return NextResponse.json({ error: "Season not found" }, { status: 404 });
-      }
-
-      // FIX 2: Check for duplicates by looking THROUGH the season relation
-      const allLeagueTeams = await prisma.team.findMany({
-        where: { 
-          season: { leagueId: season.leagueId } 
-        }
-      });
-      
-      const duplicateTeam = allLeagueTeams.find(
-        t => t.name.toLowerCase() === name.toLowerCase().trim()
-      );
-
-      if (duplicateTeam) {
-        // DUPLICATE FOUND! Don't create a new one, just activate the existing one.
-        const activatedTeam = await prisma.team.update({
-          where: { id: duplicateTeam.id },
-          data: { seasonId: sId }
-        });
-        return NextResponse.json(activatedTeam);
-      }
-
-      // FIX 3: NO DUPLICATE. Create a brand new franchise (removed leagueId).
-      const newTeam = await prisma.team.create({
-        data: {
-          name: name.trim(),
-          seasonId: sId
-        }
-      });
-      return NextResponse.json(newTeam);
+    if (!name || !name.trim()) {
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
+
+    const cleanName = name.trim();
+
+    // Check for duplicates ONLY within this specific season
+    const existingTeam = await prisma.team.findFirst({
+      where: { 
+        seasonId: sId,
+        name: { equals: cleanName }
+      }
+    });
+
+    if (existingTeam) {
+      return NextResponse.json({ error: "Team is already registered for this season." }, { status: 400 });
+    }
+
+    // Create a brand new team instance for this season
+    const newTeam = await prisma.team.create({
+      data: {
+        name: cleanName,
+        seasonId: sId
+      }
+    });
+    
+    return NextResponse.json(newTeam);
+    
   } catch (error) {
     console.error("Team Creation Error:", error);
     return NextResponse.json({ error: "Operation failed" }, { status: 500 });

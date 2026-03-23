@@ -3,10 +3,30 @@ import prisma from '@/lib/prisma';
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
-export const dynamic = 'force-dynamic'; // <--- THE GHOST CACHE KILLER
+export const dynamic = 'force-dynamic';
 
-// --- TOGGLE SEASON STATE (ACTIVE / COMPLETED) ---
-// ... rest of the file remains exactly the same
+// --- GET SEASON DETAILS ---
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ seasonId: string }> }
+) {
+  try {
+    const resolvedParams = await params;
+    const id = parseInt(resolvedParams.seasonId);
+    
+    if (isNaN(id)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+
+    const season = await prisma.season.findUnique({
+      where: { id }
+    });
+
+    if (!season) return NextResponse.json({ error: "Season not found" }, { status: 404 });
+
+    return NextResponse.json(season);
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
 
 // --- TOGGLE SEASON STATE (ACTIVE / COMPLETED) ---
 export async function PATCH(
@@ -25,7 +45,7 @@ export async function PATCH(
     const { status } = await request.json(); // Expected: 'ACTIVE' or 'COMPLETED'
     const resolvedParams = await params;
     const id = parseInt(resolvedParams.seasonId);
-
+    
     if (isNaN(id)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
 
     const updatedSeason = await prisma.season.update({
@@ -55,7 +75,7 @@ export async function DELETE(
   try {
     const resolvedParams = await params;
     const id = parseInt(resolvedParams.seasonId);
-
+    
     if (isNaN(id)) {
       return NextResponse.json({ error: "Invalid Season ID" }, { status: 400 });
     }

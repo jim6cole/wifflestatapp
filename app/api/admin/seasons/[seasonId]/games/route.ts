@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
-// GET: Fetch all scheduled games for this season
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ seasonId: string }> }
@@ -21,12 +20,10 @@ export async function GET(
 
     return NextResponse.json(games);
   } catch (error) {
-    console.error("Fetch Games Error:", error);
     return NextResponse.json({ error: "Failed to load schedule" }, { status: 500 });
   }
 }
 
-// POST: Schedule a new game
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ seasonId: string }> }
@@ -35,7 +32,8 @@ export async function POST(
     const resolvedParams = await params;
     const seasonId = parseInt(resolvedParams.seasonId);
     
-    const { homeTeamId, awayTeamId, scheduledAt } = await request.json();
+    // Extract the new isPlayoff flag from the request
+    const { homeTeamId, awayTeamId, scheduledAt, isPlayoff } = await request.json();
 
     if (!homeTeamId || !awayTeamId || !scheduledAt) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -51,7 +49,8 @@ export async function POST(
         homeTeamId: parseInt(homeTeamId),
         awayTeamId: parseInt(awayTeamId),
         scheduledAt: new Date(scheduledAt),
-        status: "UPCOMING"
+        status: "UPCOMING",
+        isPlayoff: isPlayoff || false // Pass it to the database
       },
       include: {
         homeTeam: { select: { name: true } },
@@ -61,7 +60,6 @@ export async function POST(
 
     return NextResponse.json(newGame);
   } catch (error) {
-    console.error("Create Game Error:", error);
     return NextResponse.json({ error: "Failed to schedule game" }, { status: 500 });
   }
 }

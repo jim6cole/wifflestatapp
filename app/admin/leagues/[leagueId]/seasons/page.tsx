@@ -8,15 +8,18 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
   const { leagueId } = use(params);
   const router = useRouter();
   
-  // Bring in the session to check Admin Levels
   const { data: session } = useSession();
   const user = session?.user as any;
+
+  // NEW MULTI-LEAGUE PERMISSION CHECK
+  const isCommish = user?.isGlobalAdmin || user?.memberships?.some(
+    (m: any) => m.leagueId === parseInt(leagueId) && m.roleLevel >= 2 && m.isApproved
+  );
 
   const [seasons, setSeasons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Added { cache: 'no-store' } to guarantee fresh data when returning to this page
     fetch(`/api/admin/leagues/${leagueId}/seasons`, { cache: 'no-store' })
       .then(res => res.json())
       .then(data => {
@@ -27,12 +30,10 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
 
   if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black uppercase text-white animate-pulse italic text-2xl">Loading Archive...</div>;
 
-  // CATEGORIZE SEASONS
   const activeSeasons = seasons.filter(s => s.status === 'ACTIVE');
   const upcomingSeasons = seasons.filter(s => s.status === 'UPCOMING');
   const endedSeasons = seasons.filter(s => s.status === 'COMPLETED');
 
-  // REUSABLE COMPONENT FOR A SEASON ROW
   const SeasonRow = ({ season }: { season: any }) => (
     <div className="bg-[#003566] border-2 border-[#669bbc] p-8 shadow-xl flex flex-col lg:flex-row justify-between items-center group hover:border-white transition-all">
       <div className="flex-1 text-center lg:text-left">
@@ -48,7 +49,6 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
         </div>
       </div>
       
-      {/* STATUS BADGE INSTEAD OF BUTTONS */}
       <div className="mt-6 lg:mt-0 lg:ml-8 flex items-center justify-center">
         <div className={`px-8 py-4 font-black italic uppercase tracking-widest text-xl border-2 transition-all ${
           season.status === 'ACTIVE' ? 'bg-green-600 text-white border-green-400 shadow-[6px_6px_0px_#001d3d]' :
@@ -74,7 +74,7 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
               Season Archive
             </h1>
           </div>
-          {user?.role >= 2 && (
+          {isCommish && (
             <Link href={`/admin/leagues/${leagueId}/seasons/new`} className="bg-[#c1121f] border-2 border-[#fdf0d5] px-8 py-4 font-black uppercase italic text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-xl">
               + New Season
             </Link>
@@ -83,7 +83,6 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
 
         <div className="space-y-16">
           
-          {/* 1. ACTIVE SEASONS (Visible to Everyone) */}
           <section>
             <h3 className="text-3xl font-black italic uppercase text-white mb-6 drop-shadow-[2px_2px_0px_#c1121f] flex items-center gap-3">
               <span className="w-4 h-4 bg-green-500 rounded-full animate-pulse border-2 border-white"></span> Active Campaigns
@@ -97,10 +96,8 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
             )}
           </section>
 
-          {/* 2 & 3. RESTRICTED SECTIONS (Level 2+ Only) */}
-          {user?.role >= 2 && (
+          {isCommish && (
             <>
-              {/* 2. UPCOMING SEASONS */}
               {upcomingSeasons.length > 0 && (
                 <section>
                   <h3 className="text-3xl font-black italic uppercase text-[#ffd60a] mb-6 drop-shadow-[2px_2px_0px_#003566]">
@@ -112,7 +109,6 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
                 </section>
               )}
 
-              {/* 3. ENDED SEASONS */}
               {endedSeasons.length > 0 && (
                 <section>
                   <h3 className="text-3xl font-black italic uppercase text-slate-400 mb-6 drop-shadow-[2px_2px_0px_#003566]">

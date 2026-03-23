@@ -13,58 +13,85 @@ export default function Sidebar() {
   // If session is still loading, we can show a neutral state
   if (isLoading) return null; 
 
+  // New Multi-League Permission Checks
+  const isGlobalAdmin = user?.isGlobalAdmin;
+  const isCommishAnywhere = isGlobalAdmin || user?.memberships?.some((m: any) => m.roleLevel >= 2 && m.isApproved);
+
   return (
     <>
       {/* MOBILE HAMBURGER TOGGLE */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed top-6 right-6 z-[100] bg-[#c1121f] p-3 border-2 border-[#fdf0d5] shadow-xl"
+        className="fixed top-6 right-6 z-[100] bg-[#001d3d] p-3 border-4 border-[#ffd60a] shadow-[6px_6px_0px_#c1121f] hover:bg-[#c1121f] hover:border-[#fdf0d5] transition-all group"
       >
-        <div className="w-6 h-1 bg-white mb-1"></div>
-        <div className="w-6 h-1 bg-white mb-1"></div>
-        <div className="w-6 h-1 bg-white"></div>
+        <div className="w-6 h-1 bg-white mb-1 group-hover:bg-[#001d3d] transition-colors"></div>
+        <div className="w-6 h-1 bg-white mb-1 group-hover:bg-[#001d3d] transition-colors"></div>
+        <div className="w-6 h-1 bg-white group-hover:bg-[#001d3d] transition-colors"></div>
       </button>
 
+      {/* OVERLAY */}
+      {isOpen && <div onClick={() => setIsOpen(false)} className="fixed inset-0 bg-black/60 backdrop-blur-md z-[80]"></div>}
+
       {/* SIDEBAR PANEL */}
-      <div className={`fixed top-0 right-0 h-full bg-[#001d3d] border-l-[12px] border-[#c1121f] z-[90] transition-transform duration-300 w-80 p-8 ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed top-0 right-0 h-full bg-[#fdf0d5] border-l-[16px] border-[#001d3d] z-[90] transition-transform duration-300 w-80 p-8 shadow-[-12px_0px_0px_#c1121f] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <nav className="flex flex-col h-full">
+          
           <div className="mb-12">
-            <h2 className="text-4xl font-black italic uppercase text-white tracking-tighter">Menu</h2>
-            <div className="h-1 w-12 bg-[#c1121f] mt-2"></div>
+            <h2 className="text-4xl font-black italic uppercase text-[#001d3d] tracking-tighter drop-shadow-[2px_2px_0px_#ffd60a]">WIFF+</h2>
+            <div className="h-2 w-16 bg-[#c1121f] mt-2"></div>
+            <p className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest mt-2">Operations Menu</p>
           </div>
 
           <div className="space-y-6 flex-1">
-            <Link href="/admin/dashboard" onClick={() => setIsOpen(false)} className="block text-xl font-black uppercase italic hover:text-[#c1121f]">Dashboard</Link>
+            <Link 
+              href="/admin/dashboard" 
+              onClick={() => setIsOpen(false)} 
+              className="block text-2xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors border-b-4 border-transparent hover:border-[#ffd60a] w-fit pb-1"
+            >
+              Dashboard
+            </Link>
             
-            {/* LEVEL 1, 2, 3: Show active leagues */}
-            <Link href="/admin/global" onClick={() => setIsOpen(false)} className="block text-xl font-black uppercase italic hover:text-[#c1121f]">Affiliate Map</Link>
-            
-            {/* LEVEL 2 & 3: Can see live games */}
-            {user?.role >= 2 && (
-               <Link href="/admin/games/active" onClick={() => setIsOpen(false)} className="block text-xl font-black uppercase italic hover:text-[#c1121f]">Live Action</Link>
+            {/* If they are a commissioner anywhere, let them access the live scoreboard master list */}
+            {isCommishAnywhere && (
+               <Link 
+                 href="/admin/games/active" 
+                 onClick={() => setIsOpen(false)} 
+                 className="block text-2xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors border-b-4 border-transparent hover:border-[#ffd60a] w-fit pb-1"
+               >
+                 Live Action
+               </Link>
             )}
 
-            {/* LEVEL 3 ONLY: Show System Root / Global Admin controls */}
-            {user?.role === 3 && (
-              <div className="pt-6 border-t border-white/10">
-                <p className="text-[10px] font-black uppercase text-[#669bbc] mb-4 tracking-widest">Global Ops</p>
-                <Link href="/admin/users" onClick={() => setIsOpen(false)} className="block text-xl font-black uppercase italic text-[#c1121f] hover:text-white">User Registry</Link>
-                <Link href="/admin/staff" onClick={() => setIsOpen(false)} className="block text-xl font-black uppercase italic text-[#c1121f] hover:text-white mt-4">Staff Approvals</Link>
+            {/* GLOBAL ADMIN ONLY */}
+            {isGlobalAdmin && (
+              <div className="pt-8 mt-8 border-t-4 border-[#001d3d]/10">
+                <p className="text-[10px] font-black uppercase text-[#c1121f] mb-4 tracking-widest">Root Clearance</p>
+                <Link 
+                  href="/admin/users" 
+                  onClick={() => setIsOpen(false)} 
+                  className="block text-xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors"
+                >
+                  User Registry
+                </Link>
+                <Link 
+                  href="/admin/staff" 
+                  onClick={() => setIsOpen(false)} 
+                  className="block text-xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors mt-4"
+                >
+                  Staff Approvals
+                </Link>
               </div>
             )}
           </div>
 
           <button 
             onClick={() => signOut({ callbackUrl: '/admin/login' })}
-            className="mt-auto bg-white/5 border border-white/10 p-4 text-[10px] font-black uppercase tracking-widest hover:bg-[#c1121f] hover:text-white transition-all"
+            className="mt-auto bg-[#c1121f] border-4 border-[#001d3d] p-4 text-[12px] text-white font-black italic uppercase tracking-widest hover:bg-[#001d3d] hover:text-[#ffd60a] transition-all shadow-[6px_6px_0px_#ffd60a] active:translate-y-1 active:shadow-none"
           >
-            Terminal Logout
+            System Logout
           </button>
         </nav>
       </div>
-
-      {/* OVERLAY */}
-      {isOpen && <div onClick={() => setIsOpen(false)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[80]"></div>}
     </>
   );
 }

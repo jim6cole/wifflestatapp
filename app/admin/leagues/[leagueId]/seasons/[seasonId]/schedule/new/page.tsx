@@ -5,6 +5,7 @@ import Link from 'next/link';
 export default function GameScheduler({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
   const { leagueId, seasonId } = use(params);
   
+  const [season, setSeason] = useState<any>(null);
   const [activeTeams, setActiveTeams] = useState<any[]>([]);
   const [games, setGames] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -14,21 +15,17 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
   const [awayTeamId, setAwayTeamId] = useState('');
   const [gameDate, setGameDate] = useState('');
   const [gameTime, setGameTime] = useState('');
+  const [isPlayoff, setIsPlayoff] = useState(false); // NEW STATE
 
-  // 1. GENERATE 15-MINUTE TIME SLOTS
   const generateTimeSlots = () => {
     const slots = [];
     for (let hour = 0; hour < 24; hour++) {
       for (let min = 0; min < 60; min += 15) {
         const h = hour.toString().padStart(2, '0');
         const m = min.toString().padStart(2, '0');
-        const value = `${h}:${m}`;
-        
         const period = hour >= 12 ? 'PM' : 'AM';
         const displayHour = hour % 12 === 0 ? 12 : hour % 12;
-        const label = `${displayHour}:${m} ${period}`;
-        
-        slots.push({ value, label });
+        slots.push({ value: `${h}:${m}`, label: `${displayHour}:${m} ${period}` });
       }
     }
     return slots;
@@ -39,6 +36,9 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
   useEffect(() => {
     async function fetchScheduleData() {
       try {
+        const seasonRes = await fetch(`/api/admin/seasons/${seasonId}`);
+        if (seasonRes.ok) setSeason(await seasonRes.json());
+
         const teamsRes = await fetch(`/api/admin/seasons/${seasonId}/teams`);
         if (teamsRes.ok) {
           const allTeams = await teamsRes.json();
@@ -46,9 +46,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
         }
 
         const gamesRes = await fetch(`/api/admin/seasons/${seasonId}/games`);
-        if (gamesRes.ok) {
-          setGames(await gamesRes.json());
-        }
+        if (gamesRes.ok) setGames(await gamesRes.json());
       } catch (error) {
         console.error("Failed to fetch schedule data:", error);
       } finally {
@@ -61,11 +59,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
   const handleScheduleGame = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!homeTeamId || !awayTeamId || !gameDate || !gameTime) return;
-
-    if (homeTeamId === awayTeamId) {
-      alert("A team cannot play itself!");
-      return;
-    }
+    if (homeTeamId === awayTeamId) return alert("A team cannot play itself!");
 
     const scheduledAt = new Date(`${gameDate}T${gameTime}`).toISOString();
 
@@ -73,16 +67,16 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
       const res = await fetch(`/api/admin/seasons/${seasonId}/games`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ homeTeamId, awayTeamId, scheduledAt }),
+        body: JSON.stringify({ homeTeamId, awayTeamId, scheduledAt, isPlayoff }),
       });
 
       if (res.ok) {
         const newGame = await res.json();
         setGames([...games, newGame].sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()));
-        
         setHomeTeamId('');
         setAwayTeamId('');
-        setGameTime(''); // Reset time after scheduling
+        setGameTime(''); 
+        // We leave Date and isPlayoff alone so you can rapidly schedule the rest of a tournament stage!
       } else {
         const err = await res.json();
         alert(`Error: ${err.error}`);
@@ -93,15 +87,14 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
   };
 
   return (
-    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] font-sans p-8 md:p-16 border-[12px] border-[#c1121f]">
+    <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] font-sans p-8 md:p-16 border-[16px] border-[#001d3d]">
       <div className="max-w-6xl mx-auto">
         
-        {/* BREADCRUMB / NAV */}
-        <div className="mb-12 border-b-4 border-[#669bbc] pb-6">
-          <Link href={`/admin/leagues/${leagueId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors block mb-4">
-  ← Back to League Hub
-</Link>
-          <h1 className="text-6xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] mt-2">
+        <div className="mb-12 border-b-8 border-[#c1121f] pb-6">
+          <Link href={`/admin/leagues/${leagueId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors block mb-4">
+            ← Back to League Hub
+          </Link>
+          <h1 className="text-6xl md:text-8xl font-black italic uppercase tracking-tighter text-[#001d3d] drop-shadow-[4px_4px_0px_#ffd60a] mt-2">
             Matchup Generator
           </h1>
         </div>
@@ -109,25 +102,25 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* LEFT COLUMN: SCHEDULER FORM */}
-          <div className="lg:col-span-1 h-fit bg-[#003566] border-2 border-[#669bbc] p-6 shadow-xl">
-            <h2 className="text-2xl font-black italic uppercase mb-6 text-white drop-shadow-[2px_2px_0px_#c1121f]">Schedule Game</h2>
+          <div className="lg:col-span-1 h-fit bg-white border-4 border-[#001d3d] p-6 shadow-[8px_8px_0px_#ffd60a]">
+            <h2 className="text-2xl font-black italic uppercase mb-6 text-[#001d3d] border-b-4 border-[#c1121f] pb-2">Schedule Game</h2>
             
             {activeTeams.length < 2 ? (
-              <div className="bg-[#c1121f]/20 border-2 border-[#c1121f] p-4 text-center">
-                <p className="font-bold text-[#fdf0d5] uppercase text-xs">Not enough active teams!</p>
-                <p className="text-[10px] text-white/70 mt-1">Activate at least two franchises in the Team Architect first.</p>
+              <div className="bg-[#c1121f]/10 border-2 border-[#c1121f] p-4 text-center">
+                <p className="font-bold text-[#c1121f] uppercase text-xs">Not enough active teams!</p>
+                <p className="text-[10px] text-slate-500 mt-1">Activate at least two franchises in the Team Architect first.</p>
               </div>
             ) : (
               <form onSubmit={handleScheduleGame} className="space-y-6">
                 
                 {/* MATCHUP ROW */}
-                <div className="space-y-4 bg-[#001d3d] border border-[#669bbc]/50 p-4">
+                <div className="space-y-4 bg-[#fdf0d5] border-2 border-[#001d3d] p-4 shadow-inner">
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Away Team</label>
                     <select 
                       value={awayTeamId} 
                       onChange={(e) => setAwayTeamId(e.target.value)}
-                      className="w-full bg-[#003566] border-2 border-[#669bbc] p-3 text-white font-bold uppercase outline-none focus:border-[#fdf0d5]"
+                      className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer"
                       required
                     >
                       <option value="">Select Away...</option>
@@ -135,14 +128,14 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                     </select>
                   </div>
 
-                  <div className="text-center font-black italic text-[#c1121f] text-xl">@</div>
+                  <div className="text-center font-black italic text-[#c1121f] text-2xl">@</div>
 
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Home Team</label>
                     <select 
                       value={homeTeamId} 
                       onChange={(e) => setHomeTeamId(e.target.value)}
-                      className="w-full bg-[#003566] border-2 border-[#669bbc] p-3 text-white font-bold uppercase outline-none focus:border-[#fdf0d5]"
+                      className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer"
                       required
                     >
                       <option value="">Select Home...</option>
@@ -150,6 +143,31 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                     </select>
                   </div>
                 </div>
+
+                {/* GAME STAGE TOGGLE (POOL vs BRACKET) */}
+                {season && (
+                  <div className="bg-white border-2 border-[#001d3d] p-4">
+                    <label className="block text-[10px] font-bold uppercase text-[#c1121f] tracking-widest mb-2 text-center">
+                      {season.isTournament ? "Tournament Stage" : "Season Stage"}
+                    </label>
+                    <div className="flex gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setIsPlayoff(false)} 
+                        className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest border-2 transition-all ${!isPlayoff ? 'bg-[#001d3d] text-white border-[#001d3d]' : 'bg-slate-100 text-slate-400 border-slate-300 hover:border-[#001d3d]'}`}
+                      >
+                        {season.isTournament ? "Pool Play" : "Regular Season"}
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setIsPlayoff(true)} 
+                        className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest border-2 transition-all ${isPlayoff ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d]' : 'bg-slate-100 text-slate-400 border-slate-300 hover:border-[#ffd60a]'}`}
+                      >
+                        {season.isTournament ? "Bracket Play" : "Playoffs"}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* DATE & TIME ROW */}
                 <div className="grid grid-cols-2 gap-4">
@@ -159,7 +177,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                       type="date" 
                       value={gameDate}
                       onChange={(e) => setGameDate(e.target.value)}
-                      className="w-full bg-[#001d3d] border-2 border-[#669bbc] p-3 text-white font-bold uppercase outline-none focus:border-[#fdf0d5] [color-scheme:dark]"
+                      className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f]"
                       required
                     />
                   </div>
@@ -168,14 +186,12 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                     <select 
                       value={gameTime}
                       onChange={(e) => setGameTime(e.target.value)}
-                      className="w-full bg-[#001d3d] border-2 border-[#669bbc] p-3 text-white font-bold uppercase outline-none focus:border-[#fdf0d5] cursor-pointer"
+                      className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer"
                       required
                     >
                       <option value="">Select...</option>
                       {timeSlots.map((slot) => (
-                        <option key={slot.value} value={slot.value}>
-                          {slot.label}
-                        </option>
+                        <option key={slot.value} value={slot.value}>{slot.label}</option>
                       ))}
                     </select>
                   </div>
@@ -183,7 +199,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                 
                 <button 
                   type="submit"
-                  className="w-full bg-[#c1121f] border-2 border-[#fdf0d5] px-4 py-4 font-black italic uppercase tracking-widest hover:bg-white hover:text-[#c1121f] transition-all shadow-lg active:scale-95"
+                  className="w-full bg-[#c1121f] border-4 border-[#001d3d] px-4 py-4 font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-[6px_6px_0px_#001d3d] active:translate-y-1 active:shadow-none"
                 >
                   + Add to Calendar
                 </button>
@@ -193,50 +209,56 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
 
           {/* RIGHT COLUMN: SEASON SCHEDULE */}
           <div className="lg:col-span-2 space-y-4">
-            <h2 className="text-3xl font-black italic uppercase text-white drop-shadow-[2px_2px_0px_#669bbc] mb-6">Upcoming Matches</h2>
+            <h2 className="text-3xl font-black italic uppercase text-[#001d3d] border-b-4 border-[#ffd60a] pb-2 inline-block mb-6">Upcoming Matches</h2>
             
             {loading ? (
-              <div className="bg-[#003566] border-2 border-[#669bbc] p-12 text-center">
-                <p className="text-2xl font-black italic uppercase animate-pulse">Scanning Calendar...</p>
+              <div className="bg-white border-4 border-[#001d3d] p-12 text-center shadow-[8px_8px_0px_#ffd60a]">
+                <p className="text-2xl font-black italic uppercase text-[#001d3d] animate-pulse">Scanning Calendar...</p>
               </div>
             ) : games.length === 0 ? (
-              <div className="bg-[#003566] border-2 border-[#669bbc] p-12 text-center">
-                <p className="text-2xl font-black italic uppercase opacity-50">Schedule is Empty</p>
-                <p className="text-[10px] font-bold uppercase text-[#669bbc] mt-2">Generate your first matchup using the console.</p>
+              <div className="bg-white border-4 border-[#001d3d] p-12 text-center shadow-[8px_8px_0px_#ffd60a]">
+                <p className="text-2xl font-black italic uppercase opacity-30 text-[#001d3d]">Schedule is Empty</p>
+                <p className="text-[10px] font-bold uppercase text-[#c1121f] mt-2">Generate your first matchup using the console.</p>
               </div>
             ) : (
-              <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
+              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
                 {games.map((game) => {
                   const gameDateObj = new Date(game.scheduledAt);
-                  const isLive = game.status === 'LIVE'; // Check if game is live
+                  const isLive = game.status === 'LIVE'; 
                   
                   return (
-                    <div key={game.id} className={`bg-[#003566] border-l-8 ${isLive ? 'border-[#fdf0d5] animate-pulse' : 'border-[#c1121f]'} border-y-2 border-r-2 border-[#669bbc] p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center hover:bg-[#001d3d] transition-colors gap-4`}>
+                    <div key={game.id} className={`bg-white border-4 ${isLive ? 'border-[#ffd60a] shadow-[6px_6px_0px_#ffd60a]' : 'border-[#001d3d] shadow-[4px_4px_0px_#001d3d]'} p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center hover:bg-[#fdf0d5] transition-colors gap-4`}>
                       
                       <div className="flex-1">
                         <div className="flex items-center gap-3">
-                          <span className="text-xl font-black italic uppercase text-[#fdf0d5]">{game.awayTeam?.name}</span>
+                          <span className="text-xl font-black italic uppercase text-[#001d3d]">{game.awayTeam?.name}</span>
                           <span className="text-[10px] font-black text-[#c1121f]">@</span>
-                          <span className="text-xl font-black italic uppercase text-white">{game.homeTeam?.name}</span>
+                          <span className="text-xl font-black italic uppercase text-[#001d3d]">{game.homeTeam?.name}</span>
+                          
+                          {/* STAGE BADGE */}
+                          {game.isPlayoff && (
+                            <span className="ml-2 bg-[#ffd60a] text-[#001d3d] px-2 py-0.5 text-[10px] font-black uppercase tracking-widest border-2 border-[#001d3d] shadow-sm">
+                              {season?.isTournament ? 'Bracket' : 'Playoffs'}
+                            </span>
+                          )}
                         </div>
-                        <p className="text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mt-1">
-                          Game ID: {game.id} | Status: <span className={isLive ? "text-green-400" : ""}>{game.status}</span>
+                        <p className="text-[10px] font-bold uppercase text-slate-500 tracking-widest mt-1">
+                          Game ID: {game.id} | Status: <span className={isLive ? "text-green-500" : ""}>{game.status}</span>
                         </p>
                       </div>
 
                       <div className="flex items-center gap-4">
-                        {/* ONLY SHOW "ENTER GAME" BUTTON IF LIVE */}
                         {isLive && (
                           <Link 
                             href={`/games/${game.id}/live`}
-                            className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border border-[#fdf0d5] hover:bg-white hover:text-[#c1121f] transition-all"
+                            className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border-2 border-[#001d3d] hover:bg-white hover:text-[#c1121f] transition-all"
                           >
                             Enter Game →
                           </Link>
                         )}
                         
-                        <div className="bg-[#001d3d] border border-[#669bbc]/50 px-4 py-2 text-right min-w-[140px]">
-                          <p className="font-bold text-sm text-white">
+                        <div className="bg-[#fdf0d5] border-2 border-[#001d3d] px-4 py-2 text-right min-w-[140px] shadow-inner">
+                          <p className="font-black text-sm text-[#001d3d]">
                             {gameDateObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                           </p>
                           <p className="text-[10px] font-black text-[#c1121f] tracking-widest uppercase mt-0.5">

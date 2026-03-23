@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function LineupConstructor({ params }: { params: Promise<{ gameId: string }> }) {
-  // 1. Unwrap params safely
   const resolvedParams = use(params);
   const gameId = resolvedParams?.gameId;
   const router = useRouter();
@@ -13,10 +12,14 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Global Player State for the Popup
+  // Global Player State
   const [allLeaguePlayers, setAllLeaguePlayers] = useState<any[]>([]);
   const [addingForTeam, setAddingForTeam] = useState<'home' | 'away' | null>(null);
   const [newPlayerName, setNewPlayerName] = useState('');
+  
+  // Search & Duplicate Check States
+  const [isSearching, setIsSearching] = useState(false);
+  const [potentialMatches, setPotentialMatches] = useState<any[]>([]);
   const [isCreatingPlayer, setIsCreatingPlayer] = useState(false);
 
   // Lineup & Bench States
@@ -24,7 +27,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
   const [homeBench, setHomeBench] = useState<any[]>([]);
   const [awayActive, setAwayActive] = useState<any[]>([]);
   const [awayBench, setAwayBench] = useState<any[]>([]);
-  
+
   // Pitcher States
   const [homePitcher, setHomePitcher] = useState('');
   const [awayPitcher, setAwayPitcher] = useState('');
@@ -38,7 +41,6 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
     async function init() {
       try {
-        // Fetch both the specific game rosters AND the global player list concurrently
         const [gameRes, playersRes] = await Promise.all([
           fetch(`/api/admin/games/${gameId}/prepare`),
           fetch('/api/players')
@@ -67,7 +69,6 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
         setLoading(false);
       }
     }
-
     init();
   }, [gameId]);
 
@@ -84,10 +85,8 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     
     const player = JSON.parse(playerData);
     const fromList = e.dataTransfer.getData("fromList");
-
     const remove = (list: any[]) => list.filter(p => p.id !== player.id);
 
-    // Reordering within the same Active List
     if (fromList === toList && toList.endsWith('Active')) {
       const currentList = toList === 'homeActive' ? [...homeActive] : [...awayActive];
       const oldIndex = currentList.findIndex(p => p.id === player.id);
@@ -98,7 +97,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       
       currentList.splice(oldIndex, 1);
       currentList.splice(newIndex, 0, player);
-
+      
       if (toList === 'homeActive') setHomeActive(currentList);
       else setAwayActive(currentList);
       return;
@@ -123,32 +122,51 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     if (toList === 'awayBench') setAwayBench(prev => [...prev, player]);
   };
 
-  // --- NON-ROSTERED PLAYER LOGIC ---
-  const handleAddFromGlobal = (player: any) => {
-    if (addingForTeam === 'home') setHomeBench(prev => [...prev, player]);
-    if (addingForTeam === 'away') setAwayBench(prev => [...prev, player]);
-    setAddingForTeam(null);
-  };
+  // Prevent players from appearing in search if they are already in the game somewhere
+  const usedPlayerIds = new Set([...homeActive, ...homeBench, ...awayActive, ...awayBench].map(p => p.id));
 
-  const handleCreateAndAdd = async (e: React.FormEvent) => {
+  // --- GLOBAL SEARCH & CREATE LOGIC ---
+  const handleInitiateSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPlayerName.trim()) return;
-    setIsCreatingPlayer(true);
+    
+    setIsSearching(true);
+    const nameParts = newPlayerName.trim().split(' ');
+    const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
 
+    try {
+      const res = await fetch(`/api/admin/players/search?lastName=${lastName}`);
+      const matches = await res.json();
+      
+      // Filter out players already active in this game
+      const availableMatches = matches.filter((m: any) => !usedPlayerIds.has(m.id));
+
+      if (availableMatches.length > 0) {
+        setPotentialMatches(availableMatches);
+      } else {
+        // No matches found, force create immediately
+        executeCreatePlayer(newPlayerName);
+      }
+    } catch (error) {
+      executeCreatePlayer(newPlayerName);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const executeCreatePlayer = async (nameToCreate: string) => {
+    setIsCreatingPlayer(true);
     try {
       const res = await fetch('/api/admin/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newPlayerName.trim() })
+        body: JSON.stringify({ name: nameToCreate.trim() })
       });
-
+      
       if (res.ok) {
         const newPlayer = await res.json();
-        // Add to the global pool so they exist in memory
-        setAllLeaguePlayers(prev => [...prev, newPlayer].sort((a, b) => a.name.localeCompare(b.name)));
-        // Immediately assign to the team bench we were adding for
-        handleAddFromGlobal(newPlayer);
-        setNewPlayerName('');
+        setAllLeaguePlayers(prev => [...prev, newPlayer]);
+        executeImportPlayer(newPlayer);
       } else {
         const err = await res.json();
         alert(err.error || "Failed to create player.");
@@ -160,12 +178,20 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     }
   };
 
-  // Prevent players from appearing in the popup if they are already in the game somewhere
-  const usedPlayerIds = new Set([...homeActive, ...homeBench, ...awayActive, ...awayBench].map(p => p.id));
-  const availableGlobalPlayers = allLeaguePlayers.filter(p => !usedPlayerIds.has(p.id));
+  const executeImportPlayer = (player: any) => {
+    if (addingForTeam === 'home') setHomeBench(prev => [...prev, player]);
+    if (addingForTeam === 'away') setAwayBench(prev => [...prev, player]);
+    resetModal();
+  };
+
+  const resetModal = () => {
+    setAddingForTeam(null);
+    setNewPlayerName('');
+    setPotentialMatches([]);
+  };
 
   // --- START GAME LOGIC ---
-const handlePlayBall = async () => {
+  const handlePlayBall = async () => {
     if (homeActive.length === 0 || awayActive.length === 0) {
       return alert("Both teams need at least one batter in their active lineup!");
     }
@@ -178,22 +204,18 @@ const handlePlayBall = async () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          // EXPLICITLY INJECTING teamId HERE
           homeLineup: homeActive.map((p) => ({ ...p, teamId: game.homeTeamId, isPitcher: p.id === Number(homePitcher) })),
-          awayLineup: awayActive.map((p) => ({ ...p, teamId: game.awayTeamId, isPitcher: p.id === Number(awayPitcher) }))
-         }),
+          awayLineup: awayActive.map((p) => ({ ...p, teamId: game.awayTeamId, isPitcher: p.id === Number(awayPitcher) })) 
+        }),
       });
 
       if (res.ok) {
          router.push(`/games/${gameId}/live`);
       } else {
-         // ADD THIS to see the exact error from the server
          const errData = await res.json();
-         console.error("Server Error:", errData);
          alert(`Failed to start game: ${errData.error || "Unknown Error"}`);
       }
     } catch (error) {
-      console.error("Network/Client Error:", error);
       alert("Error starting game. Check console.");
     }
   };
@@ -201,9 +223,9 @@ const handlePlayBall = async () => {
   // --- RENDER GUARDS ---
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#001d3d] flex items-center justify-center">
-        <div className="text-[#fdf0d5] font-black italic animate-pulse text-2xl uppercase">
-          Initializing Construction...
+      <div className="min-h-screen bg-[#fdf0d5] flex items-center justify-center">
+        <div className="text-[#001d3d] font-black italic animate-pulse text-4xl uppercase tracking-tighter">
+          Generating Lineup Cards...
         </div>
       </div>
     );
@@ -211,89 +233,102 @@ const handlePlayBall = async () => {
 
   if (error || !game) {
     return (
-      <div className="min-h-screen bg-[#001d3d] flex flex-col items-center justify-center text-[#fdf0d5] p-10 border-[12px] border-[#c1121f]">
+      <div className="min-h-screen bg-[#fdf0d5] flex flex-col items-center justify-center text-[#001d3d] p-10 border-[16px] border-[#001d3d]">
         <h1 className="text-5xl font-black uppercase italic text-[#c1121f] mb-4">Setup Error</h1>
-        <p className="text-xl font-bold bg-black/30 p-4 mb-8 border-l-4 border-[#c1121f]">
+        <p className="text-xl font-bold bg-white border-4 border-[#c1121f] p-4 mb-8 shadow-[8px_8px_0px_#001d3d]">
           {error || "Game object is null. Check API response."}
         </p>
         <div className="flex gap-4">
-          <button onClick={() => window.location.reload()} className="bg-white text-[#001d3d] px-6 py-3 font-black uppercase italic">Retry</button>
-          <Link href="/admin/games/active" className="bg-[#c1121f] text-white px-6 py-3 font-black uppercase italic border-2 border-white">Back to Dashboard</Link>
+          <button onClick={() => window.location.reload()} className="bg-[#001d3d] text-white px-8 py-4 font-black uppercase italic tracking-widest border-4 border-[#001d3d] hover:bg-white hover:text-[#001d3d] transition-all shadow-[6px_6px_0px_#001d3d]">Retry Connection</button>
+          <Link href="/admin/games/active" className="bg-white text-[#c1121f] px-8 py-4 font-black uppercase italic tracking-widest border-4 border-[#c1121f] hover:bg-[#c1121f] hover:text-white transition-all shadow-[6px_6px_0px_#001d3d]">Back to Command</Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-4 md:p-8 border-[12px] border-[#c1121f] relative">
+    <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-8 border-[16px] border-[#001d3d] relative">
       
-      {/* --- ADD PLAYER MODAL --- */}
+      {/* --- UNIFIED ADD PLAYER MODAL --- */}
       {addingForTeam && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm">
-          <div className="bg-[#002D62] border-2 border-[#c1121f] p-6 rounded-3xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center mb-6 border-b-2 border-[#669bbc]/30 pb-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="bg-white border-4 border-[#001d3d] p-8 rounded-none w-full max-w-md shadow-[12px_12px_0px_#c1121f] flex flex-col max-h-[90vh]">
+            
+            <div className="flex justify-between items-start mb-6 border-b-4 border-[#001d3d]/10 pb-4">
               <div>
-                <h2 className="text-2xl font-black uppercase italic text-white leading-none">Draft Player</h2>
-                <p className="text-[10px] font-bold text-[#669bbc] uppercase tracking-widest mt-1">
-                  To {addingForTeam === 'home' ? game.homeTeam.name : game.awayTeam.name} Bench
+                <h2 className="text-3xl font-black uppercase italic text-[#001d3d] leading-none drop-shadow-[2px_2px_0px_#ffd60a]">Sign Player</h2>
+                <p className="text-[10px] font-bold text-[#c1121f] uppercase tracking-widest mt-2">
+                  To {addingForTeam === 'home' ? game.homeTeam.name : game.awayTeam.name} Roster
                 </p>
               </div>
-              <button onClick={() => setAddingForTeam(null)} className="text-[#c1121f] font-black text-xl hover:text-white">✕</button>
+              <button onClick={resetModal} className="text-[#001d3d] font-black text-2xl hover:text-[#c1121f] transition-colors">X</button>
             </div>
 
-            {/* Create Brand New Player */}
-            <form onSubmit={handleCreateAndAdd} className="mb-6 space-y-2">
-              <label className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest">Create New Free Agent</label>
-              <div className="flex gap-2">
-                <input 
-                  type="text"
-                  value={newPlayerName}
-                  onChange={(e) => setNewPlayerName(e.target.value)}
-                  placeholder="Player Name"
-                  className="w-full bg-[#001d3d] border-2 border-[#669bbc]/50 p-3 text-white font-bold uppercase outline-none focus:border-[#fdf0d5]"
-                />
+            {potentialMatches.length > 0 ? (
+              <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                <p className="text-xs font-bold uppercase text-[#001d3d] tracking-widest text-center">Matches found for "{newPlayerName}"</p>
+                <div className="max-h-60 overflow-y-auto space-y-2 pr-2 border-y-2 border-[#001d3d]/10 py-4">
+                  {potentialMatches.map(match => (
+                    <div key={match.id} className="bg-[#fdf0d5] border-2 border-[#001d3d] p-3 flex justify-between items-center group hover:bg-[#001d3d] hover:text-white transition-all">
+                      <span className="font-black text-lg uppercase italic">{match.name}</span>
+                      <button 
+                        onClick={() => executeImportPlayer(match)}
+                        className="text-[10px] font-black uppercase tracking-widest bg-[#c1121f] text-white px-4 py-2 border-2 border-[#c1121f] group-hover:border-white transition-colors"
+                      >
+                        Draft
+                      </button>
+                    </div>
+                  ))}
+                </div>
                 <button 
-                  type="submit"
-                  disabled={isCreatingPlayer || !newPlayerName.trim()}
-                  className="bg-[#c1121f] px-4 font-black italic uppercase tracking-widest text-[10px] border border-[#c1121f] hover:border-white transition-all disabled:opacity-50"
+                  onClick={() => executeCreatePlayer(newPlayerName)}
+                  disabled={isCreatingPlayer}
+                  className="w-full bg-white text-[#c1121f] border-4 border-[#c1121f] py-4 font-black uppercase tracking-widest text-[10px] hover:bg-[#c1121f] hover:text-white transition-all disabled:opacity-50"
                 >
-                  {isCreatingPlayer ? '...' : 'Create'}
+                  {isCreatingPlayer ? 'PROCESSING...' : 'Not listed? Create Brand New'}
                 </button>
               </div>
-            </form>
-
-            {/* List Existing Global Players */}
-            <div className="flex-1 overflow-y-auto pr-2 space-y-2 border-t-2 border-[#669bbc]/30 pt-4">
-              <label className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest block mb-2">Or Select Existing</label>
-              {availableGlobalPlayers.length === 0 ? (
-                <p className="text-xs font-bold text-[#669bbc] uppercase italic">No free agents available.</p>
-              ) : (
-                availableGlobalPlayers.map(p => (
-                  <div key={p.id} className="flex justify-between items-center bg-[#003566] p-3 border border-[#669bbc]/50 group">
-                    <span className="font-bold text-white uppercase">{p.name}</span>
-                    <button 
-                      onClick={() => handleAddFromGlobal(p)}
-                      className="text-[10px] font-black uppercase tracking-widest bg-white text-[#001d3d] px-3 py-1 hover:bg-[#c1121f] hover:text-white transition-colors"
-                    >
-                      Add
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
+            ) : (
+              <form onSubmit={handleInitiateSearch} className="space-y-6">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest mb-2 block">Global Database Search</label>
+                  <input 
+                    type="text"
+                    value={newPlayerName}
+                    onChange={(e) => setNewPlayerName(e.target.value)}
+                    placeholder="Enter Player Name"
+                    className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-4 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] transition-colors shadow-inner"
+                    autoFocus
+                  />
+                </div>
+                <button 
+                  type="submit"
+                  disabled={isSearching || !newPlayerName.trim()}
+                  className="w-full bg-[#001d3d] text-white py-5 font-black italic uppercase tracking-widest text-lg border-4 border-[#001d3d] hover:bg-white hover:text-[#001d3d] transition-all shadow-[6px_6px_0px_#ffd60a] disabled:opacity-50 active:translate-y-1 active:shadow-none"
+                >
+                  {isSearching ? 'SCANNING...' : 'Search & Draft'}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}
 
       {/* --- MAIN UI --- */}
       <div className="max-w-7xl mx-auto">
-        <header className="mb-8 border-b-4 border-[#669bbc] pb-4 flex justify-between items-end">
+        
+        <header className="mb-12 border-b-8 border-[#c1121f] pb-6 flex flex-col md:flex-row justify-between md:items-end gap-6">
           <div>
-            <h1 className="text-4xl font-black italic uppercase text-white tracking-tighter">Lineup Constructor</h1>
-            <p className="text-[#669bbc] font-bold uppercase text-xs">Game ID: {gameId}</p>
+            <Link href="/admin/games/active" className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors block mb-4">
+              ← Game Command
+            </Link>
+            <h1 className="text-6xl md:text-7xl font-black italic uppercase text-[#001d3d] tracking-tighter drop-shadow-[4px_4px_0px_#ffd60a] leading-none">
+              Lineups
+            </h1>
+            <p className="text-[#c1121f] font-bold uppercase text-xs mt-3 tracking-[0.4em] italic">WIFF+ // Game ID: {gameId}</p>
           </div>
-          <button onClick={handlePlayBall} className="bg-[#c1121f] text-white px-8 py-4 font-black italic uppercase text-sm border-2 border-[#fdf0d5] hover:bg-white hover:text-[#c1121f] transition-all shadow-[6px_6px_0px_#003566]">
-            PLAY BALL 
+          <button onClick={handlePlayBall} className="bg-[#c1121f] text-white px-10 py-5 font-black italic uppercase tracking-widest text-xl border-4 border-[#001d3d] hover:bg-white hover:text-[#c1121f] transition-all shadow-[8px_8px_0px_#001d3d] active:translate-y-1 active:shadow-none">
+            PLAY BALL →
           </button>
         </header>
 
@@ -307,92 +342,93 @@ const handlePlayBall = async () => {
             const setPitcher = isHome ? setHomePitcher : setAwayPitcher;
 
             return (
-              <div key={side} className="space-y-4">
+              <div key={side} className="space-y-6 bg-white border-4 border-[#001d3d] p-6 shadow-[12px_12px_0px_#c1121f]">
                 
                 {/* TEAM HEADER */}
-                <div className="flex justify-between items-center bg-[#669bbc] text-[#001d3d] px-4 py-2 skew-x-[-10deg]">
-                  <h2 className="text-xl font-black italic uppercase skew-x-[10deg]">{team.name}</h2>
-                  <span className="text-[10px] font-bold uppercase tracking-widest skew-x-[10deg]">{isHome ? 'Home' : 'Visitor'}</span>
+                <div className="flex justify-between items-center bg-[#001d3d] text-white px-6 py-4 skew-x-[-10deg] shadow-[6px_6px_0px_#ffd60a]">
+                  <h2 className="text-3xl font-black italic uppercase skew-x-[10deg] tracking-tighter">{team.name}</h2>
+                  <span className="text-[10px] font-black uppercase tracking-widest skew-x-[10deg] text-[#ffd60a]">{isHome ? 'Home' : 'Visitor'}</span>
                 </div>
 
                 {/* PITCHER SELECTION */}
-                <div className="bg-[#001d3d] p-3 border-2 border-[#c1121f]">
-                  <label className="text-[10px] font-black text-[#c1121f] uppercase tracking-widest block mb-1">Starting Pitcher</label>
+                <div className="bg-[#fdf0d5] p-4 border-4 border-[#001d3d] shadow-inner">
+                  <label className="text-[10px] font-black text-[#c1121f] uppercase tracking-widest block mb-2">Starting Pitcher</label>
                   <select 
-                    className="w-full bg-[#003566] p-3 border border-[#669bbc] font-bold outline-none text-white uppercase"
+                    className="w-full bg-white p-3 border-2 border-[#001d3d] font-black uppercase text-[#001d3d] outline-none cursor-pointer"
                     value={pitcher} 
                     onChange={(e) => setPitcher(e.target.value)}
                   >
                     <option value="">-- SELECT PITCHER --</option>
                     {active.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
-                  {active.length === 0 && <p className="text-[9px] text-[#669bbc] mt-1 italic uppercase">Drag players to active roster to assign pitcher.</p>}
+                  {active.length === 0 && <p className="text-[9px] font-bold text-[#669bbc] mt-2 italic uppercase">Drag players to active roster to assign pitcher.</p>}
                 </div>
 
                 {/* ACTIVE LINEUP DROP ZONE */}
                 <div 
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => onDrop(e, `${side}Active`)}
-                  className="bg-[#003566] border-2 border-[#fdf0d5] p-4 min-h-[350px] shadow-inner"
+                  className="bg-[#001d3d] border-4 border-[#001d3d] p-4 min-h-[350px] shadow-inner relative"
                 >
-                  <h3 className="text-[10px] font-black text-[#fdf0d5] mb-4 uppercase tracking-widest border-b border-white/10 pb-2">
+                  <h3 className="text-[10px] font-black text-[#ffd60a] mb-4 uppercase tracking-widest border-b-2 border-white/10 pb-2">
                     Batting Order (Drag to Reorder)
                   </h3>
                   
                   {active.length === 0 && (
-                    <div className="h-full flex items-center justify-center opacity-50">
-                      <p className="text-[#669bbc] italic uppercase font-black">Drop Players Here</p>
+                    <div className="absolute inset-0 flex items-center justify-center opacity-30 pointer-events-none">
+                      <p className="text-white italic uppercase font-black text-2xl tracking-tighter">Drop Players Here</p>
                     </div>
                   )}
 
-                  {active.map((p, i) => (
-                    <div 
-                      key={p.id} 
-                      draggable 
-                      data-player-id={p.id}
-                      onDragStart={(e) => onDragStart(e, p, `${side}Active`)}
-                      className="bg-[#001d3d] p-4 mb-3 flex justify-between items-center border-2 border-[#669bbc]/50 cursor-grab active:cursor-grabbing hover:border-[#fdf0d5] transition-colors"
-                    >
-                      <div className="flex items-center gap-4 pointer-events-none">
-                        <span className="text-[#c1121f] font-black italic text-xl">#{i + 1}</span>
-                        <p className="font-black uppercase text-lg text-white">{p.name}</p>
+                  <div className="space-y-3 relative z-10">
+                    {active.map((p, i) => (
+                      <div 
+                        key={p.id} 
+                        draggable 
+                        data-player-id={p.id}
+                        onDragStart={(e) => onDragStart(e, p, `${side}Active`)}
+                        className="bg-white p-4 flex justify-between items-center border-4 border-[#001d3d] cursor-grab active:cursor-grabbing hover:border-[#c1121f] transition-colors shadow-[4px_4px_0px_#c1121f]"
+                      >
+                        <div className="flex items-center gap-4 pointer-events-none">
+                          <span className="text-[#669bbc] font-black italic text-2xl">#{i + 1}</span>
+                          <p className="font-black uppercase text-xl text-[#001d3d] leading-none">{p.name}</p>
+                        </div>
+                        {String(p.id) === pitcher && (
+                          <span className="bg-[#c1121f] text-white text-[9px] font-black px-3 py-1 uppercase tracking-widest pointer-events-none shadow-sm">Pitcher</span>
+                        )}
                       </div>
-                      {String(p.id) === pitcher && (
-                         <span className="bg-[#c1121f] text-white text-[9px] font-black px-2 py-1 uppercase tracking-widest pointer-events-none">Pitcher</span>
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
 
                 {/* BENCH DROP ZONE */}
                 <div 
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => onDrop(e, `${side}Bench`)}
-                  className="bg-black/40 border-2 border-dashed border-[#669bbc] p-4 min-h-[150px] flex flex-col"
+                  className="bg-[#fdf0d5] border-4 border-dashed border-[#001d3d]/30 p-6 min-h-[150px] flex flex-col"
                 >
-                  <h3 className="text-[10px] font-black text-[#669bbc] mb-3 uppercase tracking-widest">Available Bench</h3>
+                  <h3 className="text-[10px] font-black text-[#001d3d] mb-4 uppercase tracking-widest">Available Bench</h3>
                   
                   <div className="flex flex-wrap gap-2 flex-1">
-                    {bench.length === 0 && <p className="text-[10px] text-[#669bbc] italic uppercase w-full mt-2">Bench is empty</p>}
+                    {bench.length === 0 && <p className="text-[10px] font-bold text-[#669bbc] italic uppercase w-full">Bench is empty</p>}
                     
                     {bench.map(p => (
                       <div 
                         key={p.id} 
                         draggable 
                         onDragStart={(e) => onDragStart(e, p, `${side}Bench`)}
-                        className="bg-[#001d3d] px-4 py-2 text-sm font-bold text-[#669bbc] border border-[#669bbc]/50 cursor-grab hover:text-white hover:border-white transition-colors uppercase h-fit"
+                        className="bg-[#001d3d] px-4 py-2 text-sm font-bold text-white border-2 border-[#001d3d] cursor-grab hover:bg-[#c1121f] hover:border-[#c1121f] transition-colors uppercase h-fit shadow-sm"
                       >
                         {p.name}
                       </div>
                     ))}
                   </div>
 
-                  {/* ADD NON-ROSTERED PLAYER BUTTON */}
                   <button 
                     onClick={() => setAddingForTeam(side as 'home' | 'away')}
-                    className="w-full mt-4 bg-[#001d3d] border border-[#669bbc]/50 text-[#669bbc] py-3 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white transition-all border-dashed"
+                    className="w-full mt-6 bg-white border-4 border-[#001d3d] text-[#001d3d] py-4 text-[10px] font-black uppercase tracking-widest hover:bg-[#001d3d] hover:text-white transition-all shadow-[4px_4px_0px_#c1121f] active:translate-y-1 active:shadow-none"
                   >
-                    + Add Non-Rostered Player
+                    + Draft Non-Rostered Player
                   </button>
                 </div>
 
@@ -400,7 +436,6 @@ const handlePlayBall = async () => {
             );
           })}
         </div>
-
       </div>
     </div>
   );

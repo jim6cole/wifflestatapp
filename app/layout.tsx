@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "wRC | Wiffle Reporting & Control",
+  title: "WIFF+ | The Premier Wiffleball Platform",
   description: "The global platform for Wiffleball statistics and league management.",
 };
 

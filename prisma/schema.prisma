@@ -82,6 +82,8 @@ model Season {
   league               League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   status               String       @default("ACTIVE") 
   inningsPerGame       Int          @default(4)
+  isTournament         Boolean      @default(false)
+  playoffInnings       Int?         @default(5)
   eraStandard          Int          @default(4)
   balls                Int          @default(4)
   strikes              Int          @default(3)
@@ -116,7 +118,8 @@ model Game {
   homeScore            Int           @default(0)
   awayScore            Int           @default(0)
   location             String?
-  liveState            String?       
+  liveState            String?  
+  isPlayoff            Boolean       @default(false)     
   currentHomePitcherId Int?
   currentAwayPitcherId Int?
   inningScores         InningScore[]
