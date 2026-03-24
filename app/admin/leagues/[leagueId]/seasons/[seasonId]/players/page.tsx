@@ -29,27 +29,27 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
   const [isDraggingOverFreeAgents, setIsDraggingOverFreeAgents] = useState(false);
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const [playersRes, teamsRes] = await Promise.all([
-          fetch(`/api/admin/seasons/${seasonId}/players`),
-          fetch(`/api/admin/seasons/${seasonId}/teams`)
-        ]);
-        
-        if (playersRes.ok && teamsRes.ok) {
-          setLeaguePlayers(await playersRes.json());
-          setSeasonTeams(await teamsRes.json());
-        }
-      } catch (error) {
-        console.error("Failed to fetch roster data:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
     fetchData();
   }, [leagueId, seasonId]);
 
-  // Handle URL updates when team dropdown changes
+  async function fetchData() {
+    try {
+      const [playersRes, teamsRes] = await Promise.all([
+        fetch(`/api/admin/seasons/${seasonId}/players`),
+        fetch(`/api/admin/seasons/${seasonId}/teams`)
+      ]);
+      
+      if (playersRes.ok && teamsRes.ok) {
+        setLeaguePlayers(await playersRes.json());
+        setSeasonTeams(await teamsRes.json());
+      }
+    } catch (error) {
+      console.error("Failed to fetch roster data:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const handleTeamChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newTeamId = e.target.value;
     setActiveTeamFilter(newTeamId);
@@ -96,7 +96,7 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
       const res = await fetch(`/api/admin/players`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: nameToCreate, leagueId }), 
+        body: JSON.stringify({ name: nameToCreate, leagueId }), // Anchors to league!
       });
 
       if (res.ok) {
@@ -125,11 +125,14 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
     }
   };
 
-  const openGlobalLookup = async () => {
-    setShowGlobalModal(true);
+  // --- TARGETED SERVER-SIDE GLOBAL SEARCH ---
+  const handleGlobalSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!globalSearchTerm.trim()) return;
+    
     setIsFetchingGlobal(true);
     try {
-      const res = await fetch('/api/players');
+      const res = await fetch(`/api/admin/players/search?lastName=${globalSearchTerm.trim()}`);
       if (res.ok) {
         const data = await res.json();
         const existingIds = new Set(leaguePlayers.map(p => p.id));
@@ -140,6 +143,12 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
     } finally {
       setIsFetchingGlobal(false);
     }
+  };
+
+  const openGlobalLookup = () => {
+    setGlobalSearchTerm('');
+    setGlobalPlayers([]);
+    setShowGlobalModal(true);
   };
 
   const handleAssignToTeam = async (playerId: number, targetTeamId: string) => {
@@ -173,7 +182,6 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
     }
   };
 
-  // --- DRAG AND DROP HANDLERS ---
   const handleDragStart = (e: React.DragEvent, playerId: number) => {
     e.dataTransfer.setData('playerId', playerId.toString());
     e.dataTransfer.effectAllowed = "move";
@@ -199,7 +207,6 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
 
   const displayedPlayers = activeTeamFilter === 'all' ? leaguePlayers : leaguePlayers.filter(p => p.teamId === parseInt(activeTeamFilter));
   const unassignedPlayers = leaguePlayers.filter(p => !p.teamId);
-  const filteredGlobalPlayers = globalPlayers.filter(p => p.name.toLowerCase().includes(globalSearchTerm.toLowerCase()));
 
   if (loading) return <div className="text-center font-black italic uppercase animate-pulse text-2xl text-white mt-20">Loading Roster...</div>;
 
@@ -209,24 +216,36 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
       {showGlobalModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-[#001d3d] border-4 border-[#669bbc] p-8 max-w-lg w-full shadow-2xl flex flex-col max-h-[80vh]">
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-black italic uppercase text-white tracking-wide drop-shadow-[2px_2px_0px_#669bbc]">Global Database</h2>
                 <button onClick={() => setShowGlobalModal(false)} className="text-[#669bbc] hover:text-white font-black text-xl">X</button>
             </div>
-            <input 
-              type="text" 
-              placeholder="Search Global Roster..." 
-              value={globalSearchTerm}
-              onChange={(e) => setGlobalSearchTerm(e.target.value)}
-              className="bg-[#003566] border-2 border-[#669bbc]/50 p-3 text-white font-bold uppercase outline-none focus:border-[#fdf0d5] mb-4 w-full"
-            />
+            
+            <form onSubmit={handleGlobalSearch} className="flex gap-2 mb-4">
+              <input 
+                type="text" 
+                placeholder="Search by last name..." 
+                value={globalSearchTerm}
+                onChange={(e) => setGlobalSearchTerm(e.target.value)}
+                className="flex-1 bg-[#003566] border-2 border-[#669bbc]/50 p-3 text-white font-bold uppercase outline-none focus:border-[#fdf0d5]"
+                autoFocus
+              />
+              <button 
+                type="submit" 
+                disabled={isFetchingGlobal || !globalSearchTerm.trim()} 
+                className="bg-[#669bbc] text-[#001d3d] px-4 font-black uppercase tracking-widest hover:bg-white transition-colors disabled:opacity-50"
+              >
+                Search
+              </button>
+            </form>
+
             <div className="flex-1 overflow-y-auto space-y-2 pr-2">
               {isFetchingGlobal ? (
-                  <p className="text-center font-black italic text-[#669bbc] animate-pulse">Accessing Mainframe...</p>
-              ) : filteredGlobalPlayers.length === 0 ? (
+                  <p className="text-center font-black italic text-[#669bbc] animate-pulse py-4">Scanning Mainframe...</p>
+              ) : globalPlayers.length === 0 && globalSearchTerm !== '' ? (
                   <p className="text-center text-sm font-bold text-[#669bbc] uppercase mt-4">No matching players found.</p>
               ) : (
-                  filteredGlobalPlayers.map((p: any) => (
+                  globalPlayers.map((p: any) => (
                     <div key={p.id} className="bg-[#003566] border border-[#669bbc]/50 p-3 flex justify-between items-center group">
                       <div>
                           <span className="font-bold text-white block">{p.name}</span>
@@ -240,7 +259,7 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
                         }}
                         className="text-[9px] font-black uppercase tracking-widest bg-[#669bbc] text-[#001d3d] px-3 py-2 hover:bg-white transition-colors"
                       >
-                        {activeTeamFilter === 'all' ? 'Pull to League' : 'Sign Player'}
+                        {activeTeamFilter === 'all' ? 'Pull to Free Agency' : 'Sign Player'}
                       </button>
                     </div>
                   ))
@@ -297,7 +316,6 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
               {activeTeamFilter === 'all' ? 'All League Players' : 'Active Roster'}
             </h2>
             
-            {/* THE DROPDOWN */}
             <select 
               value={activeTeamFilter}
               onChange={handleTeamChange}
@@ -350,7 +368,6 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
                         </button>
                       )}
 
-                      {/* Explicit Release Button if currently active */}
                       {activeTeamFilter !== 'all' && player.teamId === parseInt(activeTeamFilter) && (
                         <button 
                           onClick={() => handleRemoveFromTeam(player.id)}
@@ -367,10 +384,9 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
           </div>
         </div>
 
-        {/* RIGHT COLUMN: FREE AGENTS NOW ON TOP */}
+        {/* RIGHT COLUMN: FREE AGENTS */}
         <div className="xl:col-span-1 space-y-6">
           
-          {/* FREE AGENTS */}
           <div 
             onDragOver={(e) => { e.preventDefault(); setIsDraggingOverFreeAgents(true); }}
             onDragLeave={() => setIsDraggingOverFreeAgents(false)}
@@ -414,7 +430,6 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
             </button>
           </div>
 
-          {/* SCOUT NEW PLAYER */}
           <div className="bg-[#c1121f] border-2 border-[#fdf0d5] p-6 shadow-xl relative overflow-hidden">
             {isSearching && <div className="absolute inset-0 bg-[#c1121f]/80 backdrop-blur flex items-center justify-center font-black italic uppercase text-white z-10 animate-pulse">Scanning DB...</div>}
             <h2 className="text-xl font-black italic uppercase mb-4 text-white">Scout New Player</h2>
@@ -444,7 +459,6 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
 }
 
 export default function PlayerManagerPage({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
-  // Use 'use' to unwrap the params inside the Server/Client boundary cleanly
   const { leagueId, seasonId } = use(params);
 
   return (

@@ -12,8 +12,6 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Global Player State
-  const [allLeaguePlayers, setAllLeaguePlayers] = useState<any[]>([]);
   const [addingForTeam, setAddingForTeam] = useState<'home' | 'away' | null>(null);
   const [newPlayerName, setNewPlayerName] = useState('');
   
@@ -42,14 +40,12 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
     async function init() {
       try {
-        const [gameRes, playersRes] = await Promise.all([
-          fetch(`/api/admin/games/${gameId}/prepare`),
-          fetch('/api/players')
-        ]);
+        // FIX: Removed the deprecated global player fetch that was causing the 405 error!
+        const res = await fetch(`/api/admin/games/${gameId}/prepare`);
         
-        if (!gameRes.ok) throw new Error(`API Error: ${await gameRes.text()}`);
+        if (!res.ok) throw new Error(`API Error: ${await res.text()}`);
         
-        const data = await gameRes.json();
+        const data = await res.json();
         
         if (data && data.game) {
           setGame(data.game);
@@ -58,11 +54,6 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
         } else {
           setError("The API returned data, but the game details are missing.");
         }
-
-        if (playersRes.ok) {
-          setAllLeaguePlayers(await playersRes.json());
-        }
-
       } catch (err: any) {
         console.error("Initialization Failed:", err);
         setError(err.message || "Failed to connect to API.");
@@ -166,8 +157,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       
       if (res.ok) {
         const newPlayer = await res.json();
-        setAllLeaguePlayers(prev => [...prev, newPlayer]);
-        await executeImportPlayer(newPlayer); // Ensure we wait for the import to sign them to the team!
+        await executeImportPlayer(newPlayer); 
       } else {
         const err = await res.json();
         alert(err.error || "Failed to create player.");
@@ -179,13 +169,13 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     }
   };
 
-  // FIX: Formally sign the player to the season roster so they enter the Master League Pool
   const executeImportPlayer = async (player: any) => {
     setShowDuplicateModal(false);
     
     const targetTeamId = addingForTeam === 'home' ? game.homeTeamId : game.awayTeamId;
     const targetSeasonId = game.seasonId;
 
+    // This officially signs the player to the team's roster!
     if (targetTeamId && targetSeasonId) {
       try {
         await fetch(`/api/admin/seasons/${targetSeasonId}/players`, {
@@ -230,7 +220,8 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       });
 
       if (res.ok) {
-         router.push(`/admin/games/${gameId}/live`);
+         // FIX: Redirect to the correct public live path
+         router.push(`/games/${gameId}/live`);
       } else {
          const errData = await res.json();
          alert(`Failed to start game: ${errData.error || "Unknown Error"}`);

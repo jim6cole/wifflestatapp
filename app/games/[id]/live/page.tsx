@@ -7,6 +7,8 @@ export default function LiveScorer() {
   const router = useRouter();
 
   const [game, setGame] = useState<any>(null);
+  const [isLoaded, setIsLoaded] = useState(false); // SAFETY GUARD: Prevents blank autosaves
+
   const [currentBatterIdx, setCurrentBatterIdx] = useState(0); 
   const [isTopInning, setIsTopInning] = useState(true); 
   const [inning, setInning] = useState(1);
@@ -42,12 +44,12 @@ export default function LiveScorer() {
   const [showEndGameModal, setShowEndGameModal] = useState(false);
   const [gameOverMessage, setGameOverMessage] = useState("");
 
-  // Cloud Save Debounce Ref
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // --- INITIAL LOAD & CLOUD RECOVERY ---
+  // --- 1. INITIAL LOAD & RECOVERY ---
   useEffect(() => {
     if (!id) return;
+    
     fetch(`/api/games/${id}/setup`)
       .then(async (res) => {
         if (!res.ok) throw new Error(await res.text());
@@ -56,40 +58,42 @@ export default function LiveScorer() {
       .then(data => {
         setGame(data);
         
-        // Recover Cloud Saved state if it exists
-        if (data.liveState) {
-          try {
-            const parsed = JSON.parse(data.liveState);
-            setCurrentBatterIdx(parsed.currentBatterIdx ?? 0);
-            setIsTopInning(parsed.isTopInning ?? true);
-            setInning(parsed.inning ?? 1);
-            setOuts(parsed.outs ?? 0);
-            setBalls(parsed.balls ?? 0);
-            setStrikes(parsed.strikes ?? 0);
-            setBaseRunners(parsed.baseRunners ?? [null, null, null]);
-            setHomeScore(parsed.homeScore ?? 0);
-            setAwayScore(parsed.awayScore ?? 0);
-            setHomePitches(parsed.homePitches ?? 0);
-            setAwayPitches(parsed.awayPitches ?? 0);
-            setPlayLog(parsed.playLog ?? []);
-            setRedoStack(parsed.redoStack ?? []);
-          } catch (e) {
-            console.error("Corrupted cloud save data.", e);
-          }
+        // RECOVERY PRIORITY: 1. LocalStorage (Instant) -> 2. Cloud Save (Backup)
+        const localData = localStorage.getItem(`game-sync-${id}`);
+        const savedState = localData ? JSON.parse(localData) : (data.liveState ? JSON.parse(data.liveState) : null);
+
+        if (savedState) {
+          setCurrentBatterIdx(savedState.currentBatterIdx ?? 0);
+          setIsTopInning(savedState.isTopInning ?? true);
+          setInning(savedState.inning ?? 1);
+          setOuts(savedState.outs ?? 0);
+          setBalls(savedState.balls ?? 0);
+          setStrikes(savedState.strikes ?? 0);
+          setBaseRunners(savedState.baseRunners ?? [null, null, null]);
+          setHomeScore(savedState.homeScore ?? 0);
+          setAwayScore(savedState.awayScore ?? 0);
+          setHomePitches(savedState.homePitches ?? 0);
+          setAwayPitches(savedState.awayPitches ?? 0);
+          setPlayLog(savedState.playLog ?? []);
+          setRedoStack(savedState.redoStack ?? []);
         }
+        
+        setIsLoaded(true); // Signal that it is safe to start autosaving
       })
       .catch(err => console.error("Error loading game:", err));
   }, [id]);
 
-  // --- AUTOSAVE TO DATABASE (CLOUD SYNC) ---
+  // --- 2. DUAL-SYNC AUTOSAVE ---
   useEffect(() => {
-    if (!game || !id) return;
+    if (!isLoaded || !game || !id) return; 
     
     const stateToSave = {
       currentBatterIdx, isTopInning, inning, outs, balls, strikes,
       baseRunners, homeScore, awayScore, homePitches, awayPitches,
       playLog, redoStack
     };
+
+    localStorage.setItem(`game-sync-${id}`, JSON.stringify(stateToSave));
     
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
@@ -101,7 +105,7 @@ export default function LiveScorer() {
     }, 1500);
 
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [game, id, currentBatterIdx, isTopInning, inning, outs, balls, strikes, baseRunners, homeScore, awayScore, homePitches, awayPitches, playLog, redoStack]);
+  }, [isLoaded, game, id, currentBatterIdx, isTopInning, inning, outs, balls, strikes, baseRunners, homeScore, awayScore, homePitches, awayPitches, playLog, redoStack]);
 
   const clearRedo = () => { if (redoStack.length > 0) setRedoStack([]); };
 
@@ -151,7 +155,6 @@ export default function LiveScorer() {
     if (!isTopInning) setInning(prev => prev + 1);
   }, [game, isTopInning, inning, baseRunners, outs, balls, strikes, currentBatterIdx, homeScore, awayScore]);
 
-  // --- UPDATED RECORD PLAY (WITH PERMANENT STAT LOGGING ERROR CATCHER) ---
   const recordPlay = useCallback((result: string, newBases: (any|null)[], runs: number, extraOuts: number = 0) => {
     clearRedo();
     if (!game) return;
@@ -163,17 +166,15 @@ export default function LiveScorer() {
     const lineup = game.lineups.filter((l: any) => l.teamId === battingTeamId);
     const batter = lineup[currentBatterIdx]?.player;
 
-    // Determine Active Pitcher for the Stat Record
     const activePitcherId = isTopInning ? game.currentHomePitcherId : game.currentAwayPitcherId;
 
-    // 1. LOG TO PERMANENT STATS API (NOW WITH ERROR ALERTING)
     fetch(`/api/games/${id}/at-bat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         batterId: batter?.id,
         pitcherId: activePitcherId,
-        result: result.toUpperCase().replace(/\s/g, '_'), // Formats "Fly Out" to "FLY_OUT"
+        result: result.toUpperCase().replace(/\s/g, '_'), 
         runsScored: runs,
         outs: extraOuts,
         inning: inning,
@@ -183,16 +184,13 @@ export default function LiveScorer() {
     .then(async (res) => {
       if (!res.ok) {
         const err = await res.json();
-        console.error("CRITICAL STAT FAILURE:", err);
-        alert(`CRITICAL ERROR: Stat failed to save to database!\n\nReason: ${err.error}\n\nPlease check console.`);
+        alert(`CRITICAL ERROR: Stat failed to save: ${err.error}`);
       }
     })
     .catch(e => {
       console.error("Network failed to sync at-bat:", e);
-      alert("Network Error: Could not connect to database.");
     });
 
-    // 2. UPDATE LOCAL SCOREBOARD
     const newHomeScore = isTopInning ? homeScore : homeScore + runs;
     const newAwayScore = isTopInning ? awayScore + runs : awayScore;
 
@@ -492,9 +490,11 @@ export default function LiveScorer() {
           homeTeamId: game.homeTeamId,
           awayTeamId: game.awayTeamId,
           scheduledAt: game.scheduledAt,
-          status: 'COMPLETED'
+          status: 'COMPLETED',
+          homeScore, awayScore
         })
       });
+      localStorage.removeItem(`game-sync-${id}`); 
       router.push(`/admin/leagues/${game.season.leagueId}`);
     } catch (error) {
       console.error("Error ending game:", error);

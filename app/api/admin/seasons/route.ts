@@ -11,50 +11,54 @@ export async function POST(request: Request) {
 
     const targetLeagueId = parseInt(body.leagueId);
 
-    // 1. Double check that the League actually exists in the DB before proceeding
+    if (!targetLeagueId) {
+      return NextResponse.json({ error: "Missing League ID." }, { status: 400 });
+    }
+
+    // 1. Check League Existence
     const leagueExists = await prisma.league.findUnique({
       where: { id: targetLeagueId }
     });
 
     if (!leagueExists) {
-       return NextResponse.json({ error: "Cannot create season: League not found in database." }, { status: 404 });
+       return NextResponse.json({ error: "League ID not found. Did you delete the league during reset?" }, { status: 404 });
     }
 
-    // 2. Secure the route: Check if user is a Global Admin OR a Level 2+ Member of THIS specific league
+    // 2. Security Check
     const isCommish = user?.isGlobalAdmin || user?.memberships?.some(
       (m: any) => m.leagueId === targetLeagueId && m.roleLevel >= 2 && m.isApproved
     );
 
     if (!session || !isCommish) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "You do not have Commissioner permissions for this league." }, { status: 401 });
     }
     
-    // 3. Explicitly parse every number so Prisma doesn't throw a 500 error
+    // 3. Create Season/Tournament
     const newSeason = await prisma.season.create({
       data: {
         name: body.name,
         leagueId: targetLeagueId,
         status: body.status || 'UPCOMING',
         
-        // Structure Settings
-        inningsPerGame: parseInt(body.inningsPerGame),
+        // Structure Settings (Ensuring safe integer parsing)
+        inningsPerGame: parseInt(body.inningsPerGame) || 4,
         isTournament: Boolean(body.isTournament),
-        playoffInnings: body.playoffInnings ? parseInt(body.playoffInnings) : parseInt(body.inningsPerGame),
-        balls: parseInt(body.balls),
-        strikes: parseInt(body.strikes),
-        outs: parseInt(body.outs),
+        playoffInnings: body.playoffInnings ? parseInt(body.playoffInnings) : (parseInt(body.inningsPerGame) || 5),
+        balls: parseInt(body.balls) || 4,
+        strikes: parseInt(body.strikes) || 3,
+        outs: parseInt(body.outs) || 3,
         
         // Custom Rules
         isSpeedRestricted: Boolean(body.isSpeedRestricted),
-        speedLimit: parseInt(body.speedLimit),
+        speedLimit: parseInt(body.speedLimit) || 60,
         isBaserunning: Boolean(body.isBaserunning),
         cleanHitRule: Boolean(body.cleanHitRule),
         ghostRunner: Boolean(body.ghostRunner),
         
         // Mercy Settings
-        mercyRule: parseInt(body.mercyRule),
-        mercyRulePerInning: parseInt(body.mercyRulePerInning),
-        mercyRuleInningApply: parseInt(body.mercyRuleInningApply),
+        mercyRule: parseInt(body.mercyRule) ?? 10,
+        mercyRulePerInning: parseInt(body.mercyRulePerInning) ?? 0,
+        mercyRuleInningApply: parseInt(body.mercyRuleInningApply) ?? 3,
         unlimitedLastInning: Boolean(body.unlimitedLastInning),
         
         // DP Logic
@@ -64,8 +68,8 @@ export async function POST(request: Request) {
     });
     
     return NextResponse.json(newSeason);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Season Creation Error:", error);
-    return NextResponse.json({ error: "Could not create season" }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Could not create season" }, { status: 500 });
   }
 }

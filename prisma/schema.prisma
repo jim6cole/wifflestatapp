@@ -63,6 +63,7 @@ model Team {
 model Player {
   id             Int           @id @default(autoincrement())
   name           String
+  leagueId    Int?
   rosterSlots    RosterSlot[]
   atBats         AtBat[]       @relation("Batter")
   pitchedAtBats  AtBat[]       @relation("Pitcher")

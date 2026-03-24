@@ -1,32 +1,21 @@
-import prisma from '@/lib/prisma';
 import { NextResponse } from 'next/server';
+import prisma from '@/lib/prisma';
 
-export async function GET() {
-  const players = await prisma.player.findMany({
-    include: { team: true },
-    orderBy: { name: 'asc' }
-  });
-  return NextResponse.json(players);
-}
-
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const { name, teamId } = await req.json();
-
-    // 1. Check for duplicate name (case-insensitive)
-    const existing = await prisma.player.findFirst({
-      where: { name: { equals: name } }
+    const body = await request.json();
+    
+    const newPlayer = await prisma.player.create({
+      data: {
+        name: body.name.trim(),
+        // Save the origin league so they stay in your Free Agent pool permanently!
+        leagueId: body.leagueId ? parseInt(body.leagueId) : null 
+      }
     });
 
-    if (existing) {
-      return NextResponse.json({ error: "Player already exists!" }, { status: 400 });
-    }
-
-    const player = await prisma.player.create({
-      data: { name, teamId: Number(teamId) }
-    });
-    return NextResponse.json(player);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(newPlayer);
+  } catch (error) {
+    console.error("Player Creation Error:", error);
+    return NextResponse.json({ error: "Failed to create player" }, { status: 500 });
   }
 }

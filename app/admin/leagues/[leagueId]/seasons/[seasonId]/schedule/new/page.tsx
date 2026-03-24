@@ -248,14 +248,15 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                       </div>
 
                       <div className="flex items-center gap-4">
-                        {isLive && (
-                          <Link 
-                            href={`/admin/games/${game.id}/live`}
-                            className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border-2 border-[#001d3d] hover:bg-white hover:text-[#c1121f] transition-all"
-                          >
-                            Enter Game →
-                          </Link>
-                        )}
+                          {isLive && (
+  <Link 
+    href={`/games/${game.id}/live`} // FIX: Removed /admin prefix
+    className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border-2 border-[#001d3d] hover:bg-white hover:text-[#c1121f] transition-all"
+  >
+    Enter Game →
+  </Link>
+)}
+                        
                         
                         <div className="bg-[#fdf0d5] border-2 border-[#001d3d] px-4 py-2 text-right min-w-[140px] shadow-inner">
                           <p className="font-black text-sm text-[#001d3d]">

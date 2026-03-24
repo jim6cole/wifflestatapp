@@ -12,9 +12,9 @@ export default function TournamentWizard() {
     name: '',
     leagueId: 0,
     status: 'UPCOMING',
-    isTournament: true, // Flags this as a Tournament in the DB for bracket logic
-    inningsPerGame: 4,  // Round Robin
-    playoffInnings: 5,  // Bracket
+    isTournament: true, 
+    inningsPerGame: 4,  
+    playoffInnings: 5,  
     balls: 4,
     strikes: 3,
     outs: 3,
@@ -39,6 +39,7 @@ export default function TournamentWizard() {
 
   const handleCreate = async () => {
     if (!rules.name) return alert("Please name this tournament!");
+    
     setLoading(true);
     try {
       const res = await fetch('/api/admin/seasons', {
@@ -47,12 +48,18 @@ export default function TournamentWizard() {
         body: JSON.stringify(rules),
       });
 
+      const data = await res.json();
+
       if (res.ok) {
         router.push(`/admin/leagues/${leagueId}`);
         router.refresh();
+      } else {
+        // REPORT THE SPECIFIC ERROR (Authorization, League Not Found, etc.)
+        alert(`LAUNCH FAILED: ${data.error || 'Unknown Server Error'}`);
       }
     } catch (err) { 
-      console.error(err); 
+      console.error(err);
+      alert("Network Error: Could not connect to the server.");
     } finally { 
       setLoading(false); 
     }
@@ -81,18 +88,21 @@ export default function TournamentWizard() {
             <input 
               className="w-full bg-white border-4 border-[#001d3d] p-5 text-4xl font-black italic uppercase text-[#001d3d] outline-none focus:border-[#c1121f] placeholder:opacity-20 shadow-inner"
               placeholder="e.g. 2026 SATURDAY SHOOTOUT"
-              onChange={(e) => setRules({...rules, name: e.target.value.toUpperCase()})}
+              value={rules.name}
+              onChange={(e) => setRules(prev => ({...prev, name: e.target.value.toUpperCase()}))}
             />
 
             <div className="mt-6 flex gap-4">
               <button 
-                onClick={() => setRules({...rules, status: 'UPCOMING'})} 
+                type="button"
+                onClick={() => setRules(prev => ({...prev, status: 'UPCOMING'}))} 
                 className={`flex-1 p-4 font-black italic uppercase text-sm border-4 transition-all ${rules.status === 'UPCOMING' ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d] shadow-[4px_4px_0px_#001d3d]' : 'bg-white text-slate-400 border-slate-200 hover:border-[#ffd60a]'}`}
               >
                 Planning (Draft)
               </button>
               <button 
-                onClick={() => setRules({...rules, status: 'ACTIVE'})} 
+                type="button"
+                onClick={() => setRules(prev => ({...prev, status: 'ACTIVE'}))} 
                 className={`flex-1 p-4 font-black italic uppercase text-sm border-4 transition-all ${rules.status === 'ACTIVE' ? 'bg-[#22c55e] text-white border-[#001d3d] shadow-[4px_4px_0px_#001d3d]' : 'bg-white text-slate-400 border-slate-200 hover:border-[#22c55e]'}`}
               >
                 Event Live
@@ -106,14 +116,14 @@ export default function TournamentWizard() {
               <h3 className="text-xl font-black italic uppercase text-[#001d3d] border-b-4 border-[#ffd60a] pb-2 text-center">Structure</h3>
               
               <div className="grid grid-cols-2 gap-4">
-                <WizardSelect label="Pool Play Innings" val={rules.inningsPerGame} options={[3,4,5,6,7]} onChange={(v: number) => setRules({...rules, inningsPerGame: v})} />
-                <WizardSelect label="Bracket Innings" val={rules.playoffInnings} options={[3,4,5,6,7]} onChange={(v: number) => setRules({...rules, playoffInnings: v})} />
+                <WizardSelect label="Pool Play Innings" val={rules.inningsPerGame} options={[3,4,5,6,7]} onChange={(v: number) => setRules(p => ({...p, inningsPerGame: v}))} />
+                <WizardSelect label="Bracket Innings" val={rules.playoffInnings} options={[3,4,5,6,7]} onChange={(v: number) => setRules(p => ({...p, playoffInnings: v}))} />
               </div>
 
               <div className="grid grid-cols-3 gap-4 pt-4 border-t-4 border-[#001d3d]/10">
-                <WizardSelect label="Outs/Inn" val={rules.outs} options={[2,3,4]} onChange={(v: number) => setRules({...rules, outs: v})} />
-                <WizardSelect label="Balls" val={rules.balls} options={[3,4,5,6]} onChange={(v: number) => setRules({...rules, balls: v})} />
-                <WizardSelect label="Strikes" val={rules.strikes} options={[2,3,4]} onChange={(v: number) => setRules({...rules, strikes: v})} />
+                <WizardSelect label="Outs/Inn" val={rules.outs} options={[2,3,4]} onChange={(v: number) => setRules(p => ({...p, outs: v}))} />
+                <WizardSelect label="Balls" val={rules.balls} options={[3,4,5,6]} onChange={(v: number) => setRules(p => ({...p, balls: v}))} />
+                <WizardSelect label="Strikes" val={rules.strikes} options={[2,3,4]} onChange={(v: number) => setRules(p => ({...p, strikes: v}))} />
               </div>
             </div>
 
@@ -122,15 +132,15 @@ export default function TournamentWizard() {
               <h3 className="text-xl font-black italic uppercase text-[#001d3d] border-b-4 border-[#ffd60a] pb-2 text-center">Rule Variations</h3>
               
               <div className="space-y-2">
-                <BinaryToggle label="Physical Baserunning" active={rules.isBaserunning} onToggle={(v: boolean) => setRules({...rules, isBaserunning: v})} />
-                <Toggle label="Ghost Runner in Extras" active={rules.ghostRunner} onToggle={() => setRules({...rules, ghostRunner: !rules.ghostRunner})} />
+                <BinaryToggle label="Physical Baserunning" active={rules.isBaserunning} onToggle={(v: boolean) => setRules(p => ({...p, isBaserunning: v}))} />
+                <Toggle label="Ghost Runner in Extras" active={rules.ghostRunner} onToggle={() => setRules(p => ({...p, ghostRunner: !p.ghostRunner}))} />
               </div>
 
               {!rules.isBaserunning && (
                 <div className="space-y-2 p-4 bg-[#fdf0d5] border-2 border-[#001d3d] shadow-inner">
-                  <Toggle label="Clean Hit Rule" active={rules.cleanHitRule} onToggle={() => setRules({...rules, cleanHitRule: !rules.cleanHitRule})} />
-                  <Toggle label="DP Without Runners" active={rules.dpWithoutRunners} onToggle={() => setRules({...rules, dpWithoutRunners: !rules.dpWithoutRunners})} />
-                  <Toggle label="DP Keeps Runners" active={rules.dpKeepsRunners} onToggle={() => setRules({...rules, dpKeepsRunners: !rules.dpKeepsRunners})} />
+                  <Toggle label="Clean Hit Rule" active={rules.cleanHitRule} onToggle={() => setRules(p => ({...p, cleanHitRule: !p.cleanHitRule}))} />
+                  <Toggle label="DP Without Runners" active={rules.dpWithoutRunners} onToggle={() => setRules(p => ({...p, dpWithoutRunners: !p.dpWithoutRunners}))} />
+                  <Toggle label="DP Keeps Runners" active={rules.dpKeepsRunners} onToggle={() => setRules(p => ({...p, dpKeepsRunners: !p.dpKeepsRunners}))} />
                 </div>
               )}
 
@@ -139,7 +149,7 @@ export default function TournamentWizard() {
                 <Toggle 
                   label="Speed Restricted (Radar Enforced)" 
                   active={rules.isSpeedRestricted} 
-                  onToggle={() => setRules({...rules, isSpeedRestricted: !rules.isSpeedRestricted})} 
+                  onToggle={() => setRules(p => ({...p, isSpeedRestricted: !p.isSpeedRestricted}))} 
                 />
                 
                 {rules.isSpeedRestricted && (
@@ -148,7 +158,7 @@ export default function TournamentWizard() {
                       label="Speed Limit (MPH)" 
                       val={rules.speedLimit} 
                       options={Array.from({length: 21}, (_, i) => i + 60)} 
-                      onChange={(v: number) => setRules({...rules, speedLimit: v})} 
+                      onChange={(v: number) => setRules(p => ({...p, speedLimit: v}))} 
                     />
                   </div>
                 )}
@@ -162,53 +172,50 @@ export default function TournamentWizard() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
-              {/* GAME MERCY RULE */}
               <div className="flex items-center justify-between p-5 bg-[#fdf0d5] border-2 border-[#001d3d] shadow-inner">
                 <div>
                   <p className="font-black italic uppercase text-sm text-[#001d3d]">Mercy Rule (Game)</p>
                   <p className="text-[9px] text-slate-500 font-bold uppercase mt-1">End game if lead exceeds amount</p>
                 </div>
-                <select value={rules.mercyRule} onChange={e => setRules({...rules, mercyRule: parseInt(e.target.value)})} className="bg-white text-[#001d3d] p-3 border-2 border-[#001d3d] font-black text-xs outline-none cursor-pointer">
+                <select value={rules.mercyRule} onChange={e => setRules(p => ({...p, mercyRule: parseInt(e.target.value)}))} className="bg-white text-[#001d3d] p-3 border-2 border-[#001d3d] font-black text-xs outline-none cursor-pointer">
                   {[0, 10, 12, 15, 20].map(n => <option key={n} value={n}>{n === 0 ? 'Off' : n + ' Runs'}</option>)}
                 </select>
               </div>
 
-              {/* WHEN MERCY RULE APPLIES */}
               {rules.mercyRule > 0 && (
                 <div className="flex items-center justify-between p-5 bg-[#c1121f] border-2 border-[#001d3d] shadow-[4px_4px_0px_#001d3d] animate-in fade-in zoom-in-95 duration-200">
                   <div>
                     <p className="font-black italic uppercase text-sm text-white">Applies After</p>
                     <p className="text-[9px] text-[#fdf0d5] font-bold uppercase mt-1">Inning game mercy takes effect</p>
                   </div>
-                  <select value={rules.mercyRuleInningApply} onChange={e => setRules({...rules, mercyRuleInningApply: parseInt(e.target.value)})} className="bg-white text-[#c1121f] p-3 border-2 border-[#001d3d] font-black text-xs outline-none cursor-pointer">
+                  <select value={rules.mercyRuleInningApply} onChange={e => setRules(p => ({...p, mercyRuleInningApply: parseInt(e.target.value)}))} className="bg-white text-[#c1121f] p-3 border-2 border-[#001d3d] font-black text-xs outline-none cursor-pointer">
                     {[2, 3, 4, 5].map(n => <option key={n} value={n}>Inning {n}</option>)}
                   </select>
                 </div>
               )}
 
-              {/* INNING RUN LIMIT */}
               <div className="flex items-center justify-between p-5 bg-[#fdf0d5] border-2 border-[#001d3d] shadow-inner">
                 <div>
                   <p className="font-black italic uppercase text-sm text-[#001d3d]">Run Limit (Inning)</p>
                   <p className="text-[9px] text-slate-500 font-bold uppercase mt-1">End half-inning if runs hit amount</p>
                 </div>
-                <select value={rules.mercyRulePerInning} onChange={e => setRules({...rules, mercyRulePerInning: parseInt(e.target.value)})} className="bg-white text-[#001d3d] p-3 border-2 border-[#001d3d] font-black text-xs outline-none cursor-pointer">
+                <select value={rules.mercyRulePerInning} onChange={e => setRules(p => ({...p, mercyRulePerInning: parseInt(e.target.value)}))} className="bg-white text-[#001d3d] p-3 border-2 border-[#001d3d] font-black text-xs outline-none cursor-pointer">
                   {[0, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n === 0 ? 'Off' : n + ' Runs'}</option>)}
                 </select>
               </div>
 
-              {/* UNLIMITED LAST INNING TOGGLE */}
               <div className="md:col-span-2 mt-2">
                 <Toggle 
                   label="Unlimited Final Inning (Suspend limits in last scheduled inning)" 
                   active={rules.unlimitedLastInning} 
-                  onToggle={() => setRules({...rules, unlimitedLastInning: !rules.unlimitedLastInning})} 
+                  onToggle={() => setRules(p => ({...p, unlimitedLastInning: !p.unlimitedLastInning}))} 
                 />
               </div>
             </div>
           </div>
 
           <button 
+            type="button"
             onClick={handleCreate}
             disabled={loading}
             className="w-full bg-[#c1121f] border-4 border-[#001d3d] py-6 text-3xl font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-[8px_8px_0px_#001d3d] disabled:opacity-50 mt-8"
@@ -221,7 +228,6 @@ export default function TournamentWizard() {
   );
 }
 
-// UI HELPERS 
 function WizardSelect({ label, val, options, onChange }: any) {
   return (
     <div className="bg-[#fdf0d5] p-3 border-2 border-[#001d3d] shadow-inner">
@@ -242,8 +248,8 @@ function BinaryToggle({ label, active, onToggle }: { label: string, active: bool
     <div className="flex justify-between items-center p-3 bg-white border-2 border-[#001d3d]">
       <span className="text-xs font-black uppercase italic text-[#001d3d]">{label}</span>
       <div className="flex gap-1">
-        <button onClick={() => onToggle(true)} className={`px-4 py-1 text-[10px] font-black uppercase transition-colors border-2 ${active ? 'bg-[#c1121f] text-white border-[#001d3d]' : 'bg-white text-slate-400 border-slate-200'}`}>On</button>
-        <button onClick={() => onToggle(false)} className={`px-4 py-1 text-[10px] font-black uppercase transition-colors border-2 ${!active ? 'bg-[#c1121f] text-white border-[#001d3d]' : 'bg-white text-slate-400 border-slate-200'}`}>Off</button>
+        <button type="button" onClick={() => onToggle(true)} className={`px-4 py-1 text-[10px] font-black uppercase transition-colors border-2 ${active ? 'bg-[#c1121f] text-white border-[#001d3d]' : 'bg-white text-slate-400 border-slate-200'}`}>On</button>
+        <button type="button" onClick={() => onToggle(false)} className={`px-4 py-1 text-[10px] font-black uppercase transition-colors border-2 ${!active ? 'bg-[#c1121f] text-white border-[#001d3d]' : 'bg-white text-slate-400 border-slate-200'}`}>Off</button>
       </div>
     </div>
   );
@@ -251,7 +257,7 @@ function BinaryToggle({ label, active, onToggle }: { label: string, active: bool
 
 function Toggle({ label, active, onToggle }: any) {
   return (
-    <button onClick={onToggle} className="w-full text-left p-3 bg-white border-2 border-[#001d3d] flex justify-between items-center hover:border-[#c1121f] transition-colors">
+    <button type="button" onClick={onToggle} className="w-full text-left p-3 bg-white border-2 border-[#001d3d] flex justify-between items-center hover:border-[#c1121f] transition-colors">
       <span className="text-[10px] font-black uppercase italic text-[#001d3d] pr-4">{label}</span>
       <div className={`w-8 h-4 border-2 flex items-center p-0.5 transition-colors flex-shrink-0 ${active ? 'bg-[#c1121f] border-[#001d3d]' : 'bg-slate-200 border-slate-400'}`}>
         <div className={`w-2 h-2 bg-[#001d3d] transition-transform ${active ? 'translate-x-3' : 'translate-x-0'}`}></div>
