@@ -12,12 +12,17 @@ export async function GET(
   try {
     const seasons = await prisma.season.findMany({
       where: { leagueId: parseInt(leagueId) },
+      // FIX: Include the teams so the Master Depot can show who is playing where
+      include: { 
+        teams: {
+          select: { id: true, name: true }
+        }
+      },
       orderBy: { id: 'desc' },
     });
     return NextResponse.json(seasons);
   } catch (error) {
+    console.error("League Seasons Fetch Error:", error);
     return NextResponse.json({ error: "Failed to fetch seasons" }, { status: 500 });
   }
 }
-
-// POST: If you wanted to create a new season, it would go here!

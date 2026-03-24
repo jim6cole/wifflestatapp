@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -8,10 +8,10 @@ export default function SeasonWizard() {
   const { leagueId } = useParams();
   const [loading, setLoading] = useState(false);
 
+  // Notice: leagueId is removed from this state object entirely!
   const [rules, setRules] = useState({
     name: '',
-    leagueId: 0,
-    status: 'UPCOMING', // Enforce lifecycle
+    status: 'UPCOMING',
     inningsPerGame: 5,
     balls: 4,
     strikes: 3,
@@ -29,25 +29,29 @@ export default function SeasonWizard() {
     dpKeepsRunners: false      
   });
 
-  useEffect(() => {
-    if (leagueId) {
-      setRules(prev => ({ ...prev, leagueId: parseInt(leagueId as string) }));
-    }
-  }, [leagueId]);
-
   const handleCreate = async () => {
     if (!rules.name) return alert("Please name this season!");
     setLoading(true);
+    
     try {
+      // WE INJECT THE LEAGUE ID DIRECTLY FROM THE URL RIGHT BEFORE SENDING
+      const payload = {
+        ...rules,
+        leagueId: parseInt(leagueId as string) 
+      };
+
       const res = await fetch('/api/admin/seasons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rules),
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
         router.push(`/admin/leagues/${leagueId}`);
         router.refresh();
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || "Failed to create season");
       }
     } catch (err) { 
       console.error(err); 

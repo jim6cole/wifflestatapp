@@ -66,9 +66,8 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
             <div className="space-y-4 mt-8">
               <HubButton 
                 title="Edit Teams" 
-                subtitle="Franchise Management" 
-                href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/teams` : '#'} 
-                disabled={!latestActiveSeason}
+                subtitle="Master Franchise Depot" 
+                href={`/admin/leagues/${leagueId}/teams`} 
               />
               <HubButton 
                 title="Edit Rosters" 

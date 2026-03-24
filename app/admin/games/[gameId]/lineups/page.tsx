@@ -21,6 +21,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
   const [isSearching, setIsSearching] = useState(false);
   const [potentialMatches, setPotentialMatches] = useState<any[]>([]);
   const [isCreatingPlayer, setIsCreatingPlayer] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false); 
 
   // Lineup & Bench States
   const [homeActive, setHomeActive] = useState<any[]>([]);
@@ -122,10 +123,9 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     if (toList === 'awayBench') setAwayBench(prev => [...prev, player]);
   };
 
-  // Prevent players from appearing in search if they are already in the game somewhere
   const usedPlayerIds = new Set([...homeActive, ...homeBench, ...awayActive, ...awayBench].map(p => p.id));
 
-  // --- GLOBAL SEARCH & CREATE LOGIC ---
+  // --- GLOBAL SEARCH & CREATE LOGIC (WITH DUPLICATE MODAL) ---
   const handleInitiateSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPlayerName.trim()) return;
@@ -138,13 +138,12 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       const res = await fetch(`/api/admin/players/search?lastName=${lastName}`);
       const matches = await res.json();
       
-      // Filter out players already active in this game
       const availableMatches = matches.filter((m: any) => !usedPlayerIds.has(m.id));
 
       if (availableMatches.length > 0) {
         setPotentialMatches(availableMatches);
+        setShowDuplicateModal(true); 
       } else {
-        // No matches found, force create immediately
         executeCreatePlayer(newPlayerName);
       }
     } catch (error) {
@@ -156,17 +155,19 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
   const executeCreatePlayer = async (nameToCreate: string) => {
     setIsCreatingPlayer(true);
+    setShowDuplicateModal(false);
+    
     try {
       const res = await fetch('/api/admin/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: nameToCreate.trim() })
+        body: JSON.stringify({ name: nameToCreate.trim(), leagueId: game.season?.leagueId || game.leagueId })
       });
       
       if (res.ok) {
         const newPlayer = await res.json();
         setAllLeaguePlayers(prev => [...prev, newPlayer]);
-        executeImportPlayer(newPlayer);
+        await executeImportPlayer(newPlayer); // Ensure we wait for the import to sign them to the team!
       } else {
         const err = await res.json();
         alert(err.error || "Failed to create player.");
@@ -178,7 +179,25 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     }
   };
 
-  const executeImportPlayer = (player: any) => {
+  // FIX: Formally sign the player to the season roster so they enter the Master League Pool
+  const executeImportPlayer = async (player: any) => {
+    setShowDuplicateModal(false);
+    
+    const targetTeamId = addingForTeam === 'home' ? game.homeTeamId : game.awayTeamId;
+    const targetSeasonId = game.seasonId;
+
+    if (targetTeamId && targetSeasonId) {
+      try {
+        await fetch(`/api/admin/seasons/${targetSeasonId}/players`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: player.id, teamId: targetTeamId })
+        });
+      } catch (e) {
+         console.error("Failed to officially sign player to season roster", e);
+      }
+    }
+
     if (addingForTeam === 'home') setHomeBench(prev => [...prev, player]);
     if (addingForTeam === 'away') setAwayBench(prev => [...prev, player]);
     resetModal();
@@ -188,6 +207,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     setAddingForTeam(null);
     setNewPlayerName('');
     setPotentialMatches([]);
+    setShowDuplicateModal(false);
   };
 
   // --- START GAME LOGIC ---
@@ -210,7 +230,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       });
 
       if (res.ok) {
-         router.push(`/games/${gameId}/live`);
+         router.push(`/admin/games/${gameId}/live`);
       } else {
          const errData = await res.json();
          alert(`Failed to start game: ${errData.error || "Unknown Error"}`);
@@ -249,8 +269,49 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
   return (
     <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-8 border-[16px] border-[#001d3d] relative">
       
-      {/* --- UNIFIED ADD PLAYER MODAL --- */}
-      {addingForTeam && (
+      {/* --- DUPLICATE CHECK MODAL (OVERLAY) --- */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[110] p-4 backdrop-blur-sm">
+          <div className="bg-[#001d3d] border-4 border-[#c1121f] p-8 max-w-lg w-full shadow-2xl">
+            <h2 className="text-3xl font-black italic uppercase text-white tracking-wide mb-2 text-center drop-shadow-[2px_2px_0px_#c1121f]">
+              Wait! Match Found
+            </h2>
+            <p className="text-xs font-bold uppercase text-[#669bbc] text-center tracking-widest mb-6">
+              Database shows players with a similar last name.
+            </p>
+            <div className="space-y-3 mb-6 max-h-60 overflow-y-auto pr-2">
+              {potentialMatches.map(match => (
+                <div key={match.id} className="bg-[#003566] border-2 border-[#669bbc] p-4 flex justify-between items-center group">
+                  <span className="font-bold text-lg text-white">{match.name}</span>
+                  <button 
+                    onClick={() => executeImportPlayer(match)}
+                    className="text-[10px] font-black uppercase tracking-widest bg-[#c1121f] text-white px-4 py-2 hover:bg-white hover:text-[#c1121f] transition-colors"
+                  >
+                    Import to Bench
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="border-t-2 border-[#669bbc]/30 pt-4 flex gap-4">
+              <button 
+                onClick={() => executeCreatePlayer(newPlayerName)}
+                className="flex-1 bg-transparent border-2 border-white/50 text-white/50 hover:text-white hover:border-white px-4 py-3 font-black uppercase text-[10px] tracking-widest transition-all"
+              >
+                No, Create Brand New
+              </button>
+              <button 
+                onClick={() => setShowDuplicateModal(false)}
+                className="flex-1 bg-transparent text-[#669bbc] hover:text-white px-4 py-3 font-black uppercase text-[10px] tracking-widest transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- ADD PLAYER MODAL --- */}
+      {addingForTeam && !showDuplicateModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <div className="bg-white border-4 border-[#001d3d] p-8 rounded-none w-full max-w-md shadow-[12px_12px_0px_#c1121f] flex flex-col max-h-[90vh]">
             
@@ -264,52 +325,26 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
               <button onClick={resetModal} className="text-[#001d3d] font-black text-2xl hover:text-[#c1121f] transition-colors">X</button>
             </div>
 
-            {potentialMatches.length > 0 ? (
-              <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-                <p className="text-xs font-bold uppercase text-[#001d3d] tracking-widest text-center">Matches found for "{newPlayerName}"</p>
-                <div className="max-h-60 overflow-y-auto space-y-2 pr-2 border-y-2 border-[#001d3d]/10 py-4">
-                  {potentialMatches.map(match => (
-                    <div key={match.id} className="bg-[#fdf0d5] border-2 border-[#001d3d] p-3 flex justify-between items-center group hover:bg-[#001d3d] hover:text-white transition-all">
-                      <span className="font-black text-lg uppercase italic">{match.name}</span>
-                      <button 
-                        onClick={() => executeImportPlayer(match)}
-                        className="text-[10px] font-black uppercase tracking-widest bg-[#c1121f] text-white px-4 py-2 border-2 border-[#c1121f] group-hover:border-white transition-colors"
-                      >
-                        Draft
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <button 
-                  onClick={() => executeCreatePlayer(newPlayerName)}
-                  disabled={isCreatingPlayer}
-                  className="w-full bg-white text-[#c1121f] border-4 border-[#c1121f] py-4 font-black uppercase tracking-widest text-[10px] hover:bg-[#c1121f] hover:text-white transition-all disabled:opacity-50"
-                >
-                  {isCreatingPlayer ? 'PROCESSING...' : 'Not listed? Create Brand New'}
-                </button>
+            <form onSubmit={handleInitiateSearch} className="space-y-6">
+              <div>
+                <label className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest mb-2 block">Global Database Search</label>
+                <input 
+                  type="text"
+                  value={newPlayerName}
+                  onChange={(e) => setNewPlayerName(e.target.value)}
+                  placeholder="Enter Player Name"
+                  className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-4 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] transition-colors shadow-inner"
+                  autoFocus
+                />
               </div>
-            ) : (
-              <form onSubmit={handleInitiateSearch} className="space-y-6">
-                <div>
-                  <label className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest mb-2 block">Global Database Search</label>
-                  <input 
-                    type="text"
-                    value={newPlayerName}
-                    onChange={(e) => setNewPlayerName(e.target.value)}
-                    placeholder="Enter Player Name"
-                    className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-4 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] transition-colors shadow-inner"
-                    autoFocus
-                  />
-                </div>
-                <button 
-                  type="submit"
-                  disabled={isSearching || !newPlayerName.trim()}
-                  className="w-full bg-[#001d3d] text-white py-5 font-black italic uppercase tracking-widest text-lg border-4 border-[#001d3d] hover:bg-white hover:text-[#001d3d] transition-all shadow-[6px_6px_0px_#ffd60a] disabled:opacity-50 active:translate-y-1 active:shadow-none"
-                >
-                  {isSearching ? 'SCANNING...' : 'Search & Draft'}
-                </button>
-              </form>
-            )}
+              <button 
+                type="submit"
+                disabled={isSearching || !newPlayerName.trim()}
+                className="w-full bg-[#001d3d] text-white py-5 font-black italic uppercase tracking-widest text-lg border-4 border-[#001d3d] hover:bg-white hover:text-[#001d3d] transition-all shadow-[6px_6px_0px_#ffd60a] disabled:opacity-50 active:translate-y-1 active:shadow-none"
+              >
+                {isSearching ? 'SCANNING...' : 'Search & Draft'}
+              </button>
+            </form>
           </div>
         </div>
       )}

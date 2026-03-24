@@ -25,7 +25,8 @@ model League {
   description String?
   isActive    Boolean            @default(true)
   seasons     Season[]
-  memberships LeagueMembership[] // Replaces the old Users array
+  memberships LeagueMembership[] 
+  teams       Team[]             // <--- ADD THIS LINE RIGHT HERE
   createdAt   DateTime           @default(now())
 }
 
@@ -44,8 +45,14 @@ model LeagueMembership {
 model Team {
   id          Int           @id @default(autoincrement())
   name        String
-  seasonId    Int
-  season      Season        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  
+  // CHANGED: Teams now belong to the Master League Pool
+  leagueId    Int           
+  league      League        @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  isActive    Boolean       @default(true) // <-- NEW FLAG
+  // CHANGED: Teams can now be toggled on/off in multiple seasons
+  seasons     Season[]      
+  
   homeGames   Game[]        @relation("HomeTeam")
   awayGames   Game[]        @relation("AwayTeam")
   rosterSlots RosterSlot[]

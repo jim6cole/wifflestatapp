@@ -1,47 +1,42 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 // GET: Fetch players in THIS league, and attach their teamId IF they are playing this season
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ seasonId: string }> }
 ) {
   try {
-    const resolvedParams = await params;
-    const seasonId = parseInt(resolvedParams.seasonId);
+    const { seasonId } = await params;
+    const sId = parseInt(seasonId);
 
-    // Get the league ID for this specific season
     const season = await prisma.season.findUnique({ 
-      where: { id: seasonId },
+      where: { id: sId },
       select: { leagueId: true } 
     });
 
-    if (!season) {
-      return NextResponse.json({ error: "Season not found" }, { status: 404 });
-    }
+    if (!season) return NextResponse.json({ error: "Season not found" }, { status: 404 });
 
-    // 1. Get players registered to THIS league OR who have played on a team in THIS league
+    // FIX: Removed the invalid `leagueId` field search. 
+    // We now safely fetch players by checking if they have a roster slot in this league.
     const allLeaguePlayers = await prisma.player.findMany({
       where: {
-        OR: [
-          { leagueId: season.leagueId },
-          { rosterSlots: { some: { season: { leagueId: season.leagueId } } } }
-        ]
+        rosterSlots: { some: { season: { leagueId: season.leagueId } } }
       },
       orderBy: { name: 'asc' }
     });
 
-    // 2. Get the active roster slots specifically for this season
     const activeSlots = await prisma.rosterSlot.findMany({
-      where: { seasonId: seasonId }
+      where: { seasonId: sId }
     });
 
-    // 3. Map them together for the frontend
     const mappedPlayers = allLeaguePlayers.map(player => {
       const slot = activeSlots.find(s => s.playerId === player.id);
       return {
         ...player,
-        teamId: slot ? slot.teamId : null // If they have a slot, assign the teamId. Otherwise, Free Agent.
+        teamId: slot ? slot.teamId : null
       };
     });
 
@@ -58,27 +53,21 @@ export async function POST(
   { params }: { params: Promise<{ seasonId: string }> }
 ) {
   try {
-    const resolvedParams = await params;
-    const seasonId = parseInt(resolvedParams.seasonId);
+    const { seasonId } = await params;
+    const sId = parseInt(seasonId);
     const { playerId, teamId } = await request.json();
 
     if (!playerId || !teamId) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // 1. First, remove any existing roster slot for this player in THIS season
-    // (This prevents them from being on two teams at once in the same season)
     await prisma.rosterSlot.deleteMany({
-      where: { 
-        seasonId: seasonId,
-        playerId: parseInt(playerId)
-      }
+      where: { seasonId: sId, playerId: parseInt(playerId) }
     });
 
-    // 2. Create the new RosterSlot (Signing the contract)
     const newSlot = await prisma.rosterSlot.create({
       data: {
-        seasonId: seasonId,
+        seasonId: sId,
         playerId: parseInt(playerId),
         teamId: parseInt(teamId)
       }
@@ -88,5 +77,30 @@ export async function POST(
   } catch (error: any) {
     console.error("Player Assignment Error:", error.message);
     return NextResponse.json({ error: "Failed to assign player" }, { status: 500 });
+  }
+}
+
+// DELETE: Remove a player from a team in THIS season (Back to Free Agency)
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ seasonId: string }> }
+) {
+  try {
+    const { seasonId } = await params;
+    const sId = parseInt(seasonId);
+    const { playerId } = await request.json();
+
+    if (!playerId) {
+      return NextResponse.json({ error: "Missing playerId" }, { status: 400 });
+    }
+
+    await prisma.rosterSlot.deleteMany({
+      where: { seasonId: sId, playerId: parseInt(playerId) }
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("Player Unassignment Error:", error.message);
+    return NextResponse.json({ error: "Failed to remove player" }, { status: 500 });
   }
 }

@@ -3,79 +3,54 @@ import prisma from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-// GET: Get all teams in the league and identify which are in this season
+// GET: Fetch all teams actively participating in THIS season
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ seasonId: string }> }
 ) {
   try {
-    const resolvedParams = await params;
-    const sId = parseInt(resolvedParams.seasonId);
-
+    const { seasonId } = await params;
     const season = await prisma.season.findUnique({
-      where: { id: sId },
-      select: { leagueId: true }
+      where: { id: parseInt(seasonId) },
+      include: { teams: { orderBy: { name: 'asc' } } }
     });
-
-    if (!season) {
-      return NextResponse.json({ error: "Season not found" }, { status: 404 });
-    }
-
-    // Return ALL teams in the entire league so the UI can build the "Franchise Archive"
-    const allTeams = await prisma.team.findMany({
-      where: { 
-        season: { leagueId: season.leagueId } 
-      },
-      include: { _count: { select: { rosterSlots: true } } }
-    });
-
-    return NextResponse.json(allTeams);
+    
+    return NextResponse.json(season?.teams || []);
   } catch (error) {
-    console.error("Fetch Teams Error:", error);
+    console.error("API Error fetching season teams:", error);
     return NextResponse.json({ error: "Failed to load teams" }, { status: 500 });
   }
 }
 
-// POST: Register a team name for this season
-export async function POST(
+// PATCH: Toggle a team into or out of the season
+export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ seasonId: string }> }
 ) {
   try {
-    const resolvedParams = await params;
-    const sId = parseInt(resolvedParams.seasonId);
-    const { name } = await request.json();
+    const { seasonId } = await params;
+    const { teamId, action } = await request.json();
 
-    if (!name || !name.trim()) {
-      return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    if (action === 'activate') {
+      await prisma.season.update({
+        where: { id: parseInt(seasonId) },
+        data: { teams: { connect: { id: parseInt(teamId) } } }
+      });
+    } else {
+      // Disconnect the team AND clean up their roster slots so players become Free Agents
+      await prisma.$transaction([
+        prisma.season.update({
+          where: { id: parseInt(seasonId) },
+          data: { teams: { disconnect: { id: parseInt(teamId) } } }
+        }),
+        prisma.rosterSlot.deleteMany({
+          where: { seasonId: parseInt(seasonId), teamId: parseInt(teamId) }
+        })
+      ]);
     }
-
-    const cleanName = name.trim();
-
-    // Check for duplicates ONLY within this specific season
-    const existingTeam = await prisma.team.findFirst({
-      where: { 
-        seasonId: sId,
-        name: { equals: cleanName }
-      }
-    });
-
-    if (existingTeam) {
-      return NextResponse.json({ error: "Team is already registered for this season." }, { status: 400 });
-    }
-
-    // Create a brand new team instance for this season
-    const newTeam = await prisma.team.create({
-      data: {
-        name: cleanName,
-        seasonId: sId
-      }
-    });
-    
-    return NextResponse.json(newTeam);
-    
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Team Creation Error:", error);
-    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
+    console.error("API Error toggling season team:", error);
+    return NextResponse.json({ error: "Toggle failed" }, { status: 500 });
   }
 }

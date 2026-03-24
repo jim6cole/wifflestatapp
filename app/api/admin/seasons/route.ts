@@ -9,45 +9,57 @@ export async function POST(request: Request) {
     const user = session?.user as any;
     const body = await request.json();
 
-    // Secure the route: Check if user is a Global Admin OR a Level 2+ Member of THIS specific league
+    const targetLeagueId = parseInt(body.leagueId);
+
+    // 1. Double check that the League actually exists in the DB before proceeding
+    const leagueExists = await prisma.league.findUnique({
+      where: { id: targetLeagueId }
+    });
+
+    if (!leagueExists) {
+       return NextResponse.json({ error: "Cannot create season: League not found in database." }, { status: 404 });
+    }
+
+    // 2. Secure the route: Check if user is a Global Admin OR a Level 2+ Member of THIS specific league
     const isCommish = user?.isGlobalAdmin || user?.memberships?.some(
-      (m: any) => m.leagueId === parseInt(body.leagueId) && m.roleLevel >= 2 && m.isApproved
+      (m: any) => m.leagueId === targetLeagueId && m.roleLevel >= 2 && m.isApproved
     );
 
     if (!session || !isCommish) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     
+    // 3. Explicitly parse every number so Prisma doesn't throw a 500 error
     const newSeason = await prisma.season.create({
       data: {
         name: body.name,
-        leagueId: body.leagueId,
+        leagueId: targetLeagueId,
         status: body.status || 'UPCOMING',
         
         // Structure Settings
-        inningsPerGame: body.inningsPerGame,
-        isTournament: body.isTournament || false,
-        playoffInnings: body.playoffInnings || body.inningsPerGame,
-        balls: body.balls,
-        strikes: body.strikes,
-        outs: body.outs,
+        inningsPerGame: parseInt(body.inningsPerGame),
+        isTournament: Boolean(body.isTournament),
+        playoffInnings: body.playoffInnings ? parseInt(body.playoffInnings) : parseInt(body.inningsPerGame),
+        balls: parseInt(body.balls),
+        strikes: parseInt(body.strikes),
+        outs: parseInt(body.outs),
         
         // Custom Rules
-        isSpeedRestricted: body.isSpeedRestricted,
-        speedLimit: body.speedLimit,
-        isBaserunning: body.isBaserunning,
-        cleanHitRule: body.cleanHitRule,
-        ghostRunner: body.ghostRunner,
+        isSpeedRestricted: Boolean(body.isSpeedRestricted),
+        speedLimit: parseInt(body.speedLimit),
+        isBaserunning: Boolean(body.isBaserunning),
+        cleanHitRule: Boolean(body.cleanHitRule),
+        ghostRunner: Boolean(body.ghostRunner),
         
         // Mercy Settings
-        mercyRule: body.mercyRule,
-        mercyRulePerInning: body.mercyRulePerInning,
-        mercyRuleInningApply: body.mercyRuleInningApply,
-        unlimitedLastInning: body.unlimitedLastInning,
+        mercyRule: parseInt(body.mercyRule),
+        mercyRulePerInning: parseInt(body.mercyRulePerInning),
+        mercyRuleInningApply: parseInt(body.mercyRuleInningApply),
+        unlimitedLastInning: Boolean(body.unlimitedLastInning),
         
         // DP Logic
-        dpWithoutRunners: body.dpWithoutRunners,
-        dpKeepsRunners: body.dpKeepsRunners
+        dpWithoutRunners: Boolean(body.dpWithoutRunners),
+        dpKeepsRunners: Boolean(body.dpKeepsRunners)
       },
     });
     

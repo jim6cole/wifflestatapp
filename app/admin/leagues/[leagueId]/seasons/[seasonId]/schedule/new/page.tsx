@@ -15,7 +15,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
   const [awayTeamId, setAwayTeamId] = useState('');
   const [gameDate, setGameDate] = useState('');
   const [gameTime, setGameTime] = useState('');
-  const [isPlayoff, setIsPlayoff] = useState(false); // NEW STATE
+  const [isPlayoff, setIsPlayoff] = useState(false);
 
   const generateTimeSlots = () => {
     const slots = [];
@@ -41,8 +41,8 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
 
         const teamsRes = await fetch(`/api/admin/seasons/${seasonId}/teams`);
         if (teamsRes.ok) {
-          const allTeams = await teamsRes.json();
-          setActiveTeams(allTeams.filter((t: any) => t.seasonId === parseInt(seasonId)));
+          // FIX: Since the API now returns exactly the active teams, we just set them directly
+          setActiveTeams(await teamsRes.json());
         }
 
         const gamesRes = await fetch(`/api/admin/seasons/${seasonId}/games`);
@@ -91,8 +91,8 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
       <div className="max-w-6xl mx-auto">
         
         <div className="mb-12 border-b-8 border-[#c1121f] pb-6">
-          <Link href={`/admin/leagues/${leagueId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors block mb-4">
-            ← Back to League Hub
+          <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors block mb-4">
+            ← Back to Season Hub
           </Link>
           <h1 className="text-6xl md:text-8xl font-black italic uppercase tracking-tighter text-[#001d3d] drop-shadow-[4px_4px_0px_#ffd60a] mt-2">
             Matchup Generator
@@ -108,7 +108,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
             {activeTeams.length < 2 ? (
               <div className="bg-[#c1121f]/10 border-2 border-[#c1121f] p-4 text-center">
                 <p className="font-bold text-[#c1121f] uppercase text-xs">Not enough active teams!</p>
-                <p className="text-[10px] text-slate-500 mt-1">Activate at least two franchises in the Team Architect first.</p>
+                <p className="text-[10px] text-slate-500 mt-1">Activate at least two franchises in the Season Architect first.</p>
               </div>
             ) : (
               <form onSubmit={handleScheduleGame} className="space-y-6">
@@ -250,7 +250,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                       <div className="flex items-center gap-4">
                         {isLive && (
                           <Link 
-                            href={`/games/${game.id}/live`}
+                            href={`/admin/games/${game.id}/live`}
                             className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border-2 border-[#001d3d] hover:bg-white hover:text-[#c1121f] transition-all"
                           >
                             Enter Game →
