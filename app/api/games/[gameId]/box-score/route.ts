@@ -9,88 +9,166 @@ export async function GET(
   const gId = parseInt(gameId);
 
   try {
-    // 1. Get the current game's details to find the Season and the Timestamp
     const currentGame = await prisma.game.findUnique({
       where: { id: gId },
-      select: { seasonId: true, scheduledAt: true }
+      select: { seasonId: true, scheduledAt: true, homeTeamId: true, awayTeamId: true }
     });
 
-    if (!currentGame || !currentGame.seasonId) {
-      return NextResponse.json({ error: "Game or Season not found" }, { status: 404 });
-    }
+    if (!currentGame) return NextResponse.json({ error: "Game not found" }, { status: 404 });
 
-    // 2. Fetch all AtBats in this season that occurred UP TO this game's date
-    // This ensures the AVG/OPS includes the current game's performance
-    const seasonAtBats = await prisma.atBat.findMany({
-      where: {
-        game: {
-          seasonId: currentGame.seasonId,
-          scheduledAt: { lte: currentGame.scheduledAt } // "Less than or equal to" this game
-        }
-      },
-      include: { batter: true }
-    });
-
-    // 3. Identify which players actually played in THIS specific game
-    // We only want to display rows for players who appeared in Game ID: gId
-    const playersInThisGame = await prisma.lineupEntry.findMany({
+    // 1. Fetch the lineup for this game. This gives us the correct team for every player.
+    const lineups = await prisma.lineupEntry.findMany({
       where: { gameId: gId },
-      select: { playerId: true }
+      include: { player: true }
     });
-    const activePlayerIds = new Set(playersInThisGame.map(p => p.playerId));
 
-    // 4. Aggregate the stats
-    const stats: Record<number, any> = {};
+    const batterStats: Record<string, any> = {};
+    const pitcherStats: Record<number, any> = {};
+    
+    // Create a map to quickly find a player's team and name from the lineup
+    const playerLookup: Record<number, { name: string, teamId: number }> = {};
 
-    seasonAtBats.forEach((ab) => {
-      const bId = ab.batterId;
-      
-      // Initialize if not exists
-      if (!stats[bId]) {
-        stats[bId] = {
-          id: bId,
-          name: ab.batter.name,
-          game_ab: 0, game_r: 0, game_h: 0, game_rbi: 0, game_bb: 0, game_k: 0, // Current Game Stats
-          season_ab: 0, season_h: 0, season_bb: 0, season_tb: 0, // For Season AVG/OPS
-          playedInThisGame: activePlayerIds.has(bId)
+    lineups.forEach(entry => {
+      playerLookup[entry.playerId] = { 
+        name: entry.player.name, 
+        teamId: entry.teamId 
+      };
+
+      if (!pitcherStats[entry.playerId]) {
+        pitcherStats[entry.playerId] = {
+          id: entry.playerId, name: entry.player.name, teamId: entry.teamId,
+          outs: 0, k: 0, h: 0, bb: 0, hr: 0, r: 0, er: 0,
+          season_outs: 0, season_er: 0, season_h: 0, season_bb: 0, faced: 0
         };
       }
+    });
 
-      const s = stats[bId];
-
-      // Is this AtBat part of the current game? (For the R/H/RBI columns)
-      const isCurrentGame = ab.gameId === gId;
-
-      if (isCurrentGame) {
-        s.game_rbi += ab.rbi;
-        s.game_r += ab.runsScored;
-      }
-
-      // Calculate for Season Running Totals (Always)
-      if (ab.result === 'WALK') {
-        s.season_bb += 1;
-        if (isCurrentGame) s.game_bb += 1;
-      } else {
-        s.season_ab += 1;
-        if (isCurrentGame) {
-          s.game_ab += 1;
-          if (ab.result === 'STRIKEOUT') s.game_k += 1;
-        }
-        
-        if (['SINGLE', 'DOUBLE', 'TRIPLE', 'HR'].includes(ab.result || '')) {
-          const bases = ab.result === 'SINGLE' ? 1 : ab.result === 'DOUBLE' ? 2 : ab.result === 'TRIPLE' ? 3 : 4;
-          s.season_h += 1;
-          s.season_tb += bases;
-          if (isCurrentGame) s.game_h += 1;
-        }
+    // 2. Fetch all AtBats. We only need the raw data because we have our playerLookup map.
+    const seasonAtBats = await prisma.atBat.findMany({
+      where: {
+        game: { seasonId: currentGame.seasonId, scheduledAt: { lte: currentGame.scheduledAt } }
       }
     });
 
-    // 5. Filter the list to only show players who were in THIS game
-    const boxScoreRows = Object.values(stats).filter((s: any) => s.playedInThisGame);
+    seasonAtBats.forEach((ab) => {
+      const isCurrent = ab.gameId === gId;
+      const res = ab.result?.toUpperCase() || '';
+      
+      const isHit = ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
+      const isOut = ['K', 'STRIKEOUT', 'FLY_OUT', 'GROUND_OUT', 'OUT', 'DP', 'DOUBLE PLAY', 'TAG UP', 'SAC FLY'].some(o => res.includes(o));
+      const isWalk = res.includes('WALK') || res.includes('BB') || res.includes('HBP');
 
-    return NextResponse.json(boxScoreRows);
+      // HITTING LOGIC
+      const bKey = `${ab.batterId}-${ab.slot}`;
+      const playerData = playerLookup[ab.batterId];
+      
+      // We only care about batters who are actually in the lineup for THIS game
+      if (playerData && (isCurrent || ab.gameId !== gId)) {
+        if (!batterStats[bKey]) {
+          batterStats[bKey] = {
+            id: ab.batterId, name: playerData.name, teamId: playerData.teamId, slot: ab.slot,
+            ab: 0, r: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0, k: 0, tb: 0,
+            season_ab: 0, season_h: 0, season_bb: 0, season_tb: 0, playedInThisGame: false
+          };
+        }
+
+        const b = batterStats[bKey];
+        if (isCurrent) { 
+          b.playedInThisGame = true;
+          b.rbi += ab.rbi || 0; 
+          b.r += ab.runsScored || 0; 
+        }
+        
+        if (isWalk) {
+          b.season_bb++;
+          if (isCurrent) b.bb++;
+        } else if (isHit || isOut) {
+          b.season_ab++;
+          if (isCurrent) {
+            b.ab++;
+            if (res.includes('K')) b.k++;
+          }
+          if (isHit) {
+            let bases = 1;
+            if (res.includes('DOUBLE') || res.includes('2B')) { bases = 2; if (isCurrent) b.d++; }
+            else if (res.includes('TRIPLE') || res.includes('3B')) { bases = 3; if (isCurrent) b.t++; }
+            else if (res.includes('HR') || res.includes('4B')) { bases = 4; if (isCurrent) b.hr++; }
+            b.season_h++;
+            b.season_tb += bases;
+            if (isCurrent) { b.h++; b.tb += bases; }
+          }
+        }
+      }
+
+      // PITCHING LOGIC
+      const p = pitcherStats[ab.pitcherId];
+      if (p) {
+        p.season_outs += ab.outs;
+        p.season_h += isHit ? 1 : 0;
+        p.season_bb += isWalk ? 1 : 0;
+
+        if (isCurrent) {
+          p.faced++;
+          p.outs += ab.outs;
+          if (isHit) p.h++;
+          if (isWalk) p.bb++;
+          if (res.includes('K')) p.k++;
+          if (res.includes('HR')) p.hr++;
+        }
+      }
+
+      // --- RUN ATTRIBUTION ENGINE ---
+      if (isCurrent && ab.runAttribution && ab.runsScored > 0) {
+         const chargedIds = ab.runAttribution.split(',').map(id => parseInt(id.trim()));
+         chargedIds.forEach(pid => {
+           const rp = pitcherStats[pid];
+           if (rp) {
+             rp.r++;
+             rp.er++;
+           }
+         });
+      } else if (isCurrent && !ab.runAttribution && ab.runsScored > 0) {
+        if (p) { p.r += ab.runsScored; p.er += ab.runsScored; }
+      }
+      
+      // Season ERA calculation tracking
+      if (ab.runAttribution) {
+        ab.runAttribution.split(',').forEach(pid => {
+          const rp = pitcherStats[parseInt(pid)];
+          if (rp) rp.season_er++;
+        });
+      } else {
+        const rp = pitcherStats[ab.pitcherId];
+        if (rp) rp.season_er += ab.runsScored;
+      }
+    });
+
+    const mapRow = (s: any) => {
+      const avg = s.season_ab > 0 ? (s.season_h / s.season_ab).toFixed(3).replace(/^0/, '') : '.000';
+      const obp = (s.season_ab + s.season_bb) > 0 ? (s.season_h + s.season_bb) / (s.season_ab + s.season_bb) : 0;
+      const slg = s.season_ab > 0 ? s.season_tb / s.season_ab : 0;
+      const ops = (s.season_ab + s.season_bb) === 0 ? '.000' : (obp + slg).toFixed(3).replace(/^0/, '');
+      return { ...s, avg, ops };
+    };
+
+    const mapPitcher = (p: any) => {
+      const seasonIp = p.season_outs / 3;
+      const era = seasonIp > 0 ? (p.season_er * 4) / seasonIp : 0;
+      const whip = seasonIp > 0 ? (p.season_h + p.season_bb) / seasonIp : 0;
+      return {
+        ...p,
+        ip: `${Math.floor(p.outs / 3)}.${p.outs % 3}`,
+        era: era.toFixed(2),
+        whip: whip.toFixed(2)
+      };
+    };
+
+    return NextResponse.json({
+      batters: Object.values(batterStats).filter(b => b.playedInThisGame).sort((a, b) => a.slot - b.slot),
+      pitchers: Object.values(pitcherStats).filter(p => p.faced > 0 || p.r > 0).map(mapPitcher)
+    });
   } catch (error) {
-    return NextResponse.json({ error: "Failed to calculate totals" }, { status: 500 });
+    console.error("Box Score Error:", error);
+    return NextResponse.json({ error: "Failed to calculate stats" }, { status: 500 });
   }
 }

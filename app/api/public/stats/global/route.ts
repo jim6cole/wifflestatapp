@@ -3,14 +3,29 @@ import prisma from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const style = searchParams.get('style'); // 'fast', 'medium', or null/all
+
     const currentYear = new Date().getFullYear();
     const startOfYear = new Date(currentYear, 0, 1);
     const endOfYear = new Date(currentYear, 11, 31, 23, 59, 59);
 
+    // Build the filter object
+    const whereClause: any = {
+      createdAt: { gte: startOfYear, lte: endOfYear }
+    };
+
+    // Filter based on Pitch Speed Style
+    if (style === 'fast') {
+      whereClause.game = { season: { isSpeedRestricted: false } };
+    } else if (style === 'medium') {
+      whereClause.game = { season: { isSpeedRestricted: true } };
+    }
+
     const atBats = await prisma.atBat.findMany({
-      where: { createdAt: { gte: startOfYear, lte: endOfYear } },
+      where: whereClause,
       include: {
         batter: { select: { name: true } },
         pitcher: { select: { name: true } },
@@ -44,7 +59,8 @@ export async function GET() {
         
         const isHit = ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(h => res.includes(h));
         const isOut = ['K', 'STRIKEOUT', 'FLY_OUT', 'GROUND_OUT', 'OUT', 'DP'].some(o => res.includes(o));
-        const isWalk = res.includes('WALK') || res.includes('BB');
+        // FIX: HBP is now recognized as a walk for OBP calculations!
+        const isWalk = res.includes('WALK') || res.includes('BB') || res.includes('HBP');
 
         if (isHit || isOut) b.ab++;
         if (isHit) b.h++;
@@ -55,7 +71,7 @@ export async function GET() {
         b.rbi += ab.rbi;
       }
 
-      // Pitching Aggregation Logic (Expanded)
+      // Pitching Aggregation Logic
       if (ab.pitcherId && ab.pitcher) {
         if (!pitcherMap[ab.pitcherId]) {
           pitcherMap[ab.pitcherId] = { 
@@ -68,7 +84,8 @@ export async function GET() {
         p.leagues.add(leagueName);
         
         const isHit = ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(h => res.includes(h));
-        const isWalk = res.includes('WALK') || res.includes('BB');
+        // FIX: Ensure pitchers are also penalized with a walk for hitting a batter
+        const isWalk = res.includes('WALK') || res.includes('BB') || res.includes('HBP');
 
         p.outs += ab.outs;
         if (isHit) p.h++;
@@ -76,7 +93,7 @@ export async function GET() {
         if (res.includes('HR')) p.hr++;
         if (res.includes('K') || res.includes('STRIKEOUT')) p.k++;
         p.r += ab.runsScored;
-        p.er += ab.runsScored; // Using runs scored as ER for global baseline
+        p.er += ab.runsScored; 
       }
     });
 

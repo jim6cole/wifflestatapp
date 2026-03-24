@@ -12,13 +12,12 @@ export async function PATCH(
     await prisma.game.update({
       where: { id: parseInt(resolvedParams.gameId) },
       data: {
-        // Save the entire React state snapshot as a JSON string
+        // This JSON string ALREADY contains the inning and top/bottom status
         liveState: JSON.stringify(body.state),
-        // Keep the top-level database score synced just in case
+        
+        // These fields exist in your schema, so they are safe to update
         homeScore: body.state.homeScore,
-        awayScore: body.state.awayScore,
-        currentInning: body.state.inning,
-        isTopInning: body.state.isTopInning
+        awayScore: body.state.awayScore
       }
     });
 

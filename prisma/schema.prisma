@@ -154,6 +154,8 @@ model AtBat {
   batter      Player   @relation("Batter", fields: [batterId], references: [id])
   pitcherId   Int
   pitcher     Player   @relation("Pitcher", fields: [pitcherId], references: [id])
+  runAttribution       String?
+  slot                 Int
   inning      Int      @default(1)
   isTopInning Boolean  @default(true) 
   result      String?
