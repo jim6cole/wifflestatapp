@@ -2,12 +2,15 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
 // GET: Fetch game details for the Scorecard
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ gameId: string }> }
-) {
+export async function GET(request: Request) {
   try {
-    const { gameId } = await params;
+    const { searchParams } = new URL(request.url);
+    const gameId = searchParams.get('gameId');
+
+    if (!gameId) {
+      return NextResponse.json({ error: "Missing gameId parameter" }, { status: 400 });
+    }
+
     const game = await prisma.game.findUnique({
       where: { id: parseInt(gameId) },
       include: {
@@ -28,12 +31,15 @@ export async function GET(
 }
 
 // PATCH: Update game details (Teams, Date, Status)
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ gameId: string }> }
-) {
+export async function PATCH(request: Request) {
   try {
-    const { gameId } = await params;
+    const { searchParams } = new URL(request.url);
+    const gameId = searchParams.get('gameId');
+
+    if (!gameId) {
+      return NextResponse.json({ error: "Missing gameId parameter" }, { status: 400 });
+    }
+
     const body = await request.json();
 
     const updatedGame = await prisma.game.update({
@@ -55,12 +61,15 @@ export async function PATCH(
 }
 
 // DELETE: Remove a game
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ gameId: string }> }
-) {
+export async function DELETE(request: Request) {
   try {
-    const { gameId } = await params;
+    const { searchParams } = new URL(request.url);
+    const gameId = searchParams.get('gameId');
+
+    if (!gameId) {
+      return NextResponse.json({ error: "Missing gameId parameter" }, { status: 400 });
+    }
+
     await prisma.game.delete({ where: { id: parseInt(gameId) } });
     return NextResponse.json({ success: true });
   } catch (error: any) {

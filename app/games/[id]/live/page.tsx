@@ -14,6 +14,7 @@ export default function LiveScorer() {
   const [baseRunnerPitchers, setBaseRunnerPitchers] = useState<(number | null)[]>([null, null, null]);
   const [showSubModal, setShowSubModal] = useState<'pitcher' | 'batter' | null>(null);
   const [availableSubs, setAvailableSubs] = useState<any[]>([]);
+  const [retiredPitchers, setRetiredPitchers] = useState<number[]>([]); // <-- TRACK BURNED PITCHERS
 
   // --- CORE GAME STATE ---
   const [isTopInning, setIsTopInning] = useState(true); 
@@ -82,6 +83,7 @@ export default function LiveScorer() {
           setAwayPitches(savedState.awayPitches ?? 0);
           setPlayLog(savedState.playLog ?? []);
           setRedoStack(savedState.redoStack ?? []);
+          setRetiredPitchers(savedState.retiredPitchers ?? []);
         }
         
         setIsLoaded(true); 
@@ -96,7 +98,7 @@ export default function LiveScorer() {
     const stateToSave = {
       batterIndices, isTopInning, inning, outs, balls, strikes,
       baseRunners, baseRunnerPitchers, homeScore, awayScore, homePitches, awayPitches,
-      playLog, redoStack
+      playLog, redoStack, retiredPitchers
     };
 
     localStorage.setItem(`game-sync-${id}`, JSON.stringify(stateToSave));
@@ -111,7 +113,7 @@ export default function LiveScorer() {
     }, 1500);
 
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [isLoaded, game, id, batterIndices, isTopInning, inning, outs, balls, strikes, baseRunners, baseRunnerPitchers, homeScore, awayScore, homePitches, awayPitches, playLog, redoStack]);
+  }, [isLoaded, game, id, batterIndices, isTopInning, inning, outs, balls, strikes, baseRunners, baseRunnerPitchers, homeScore, awayScore, homePitches, awayPitches, playLog, redoStack, retiredPitchers]);
 
   const activePitcherId = isTopInning ? game?.currentHomePitcherId : game?.currentAwayPitcherId;
 
@@ -132,6 +134,11 @@ export default function LiveScorer() {
         newLineups = game.lineups.map((l: any) => 
           l.id === oldPitcherInLineup.id ? { ...l, playerId: newPlayer.id, player: newPlayer } : l
         );
+      }
+
+      // ENFORCER: Burn the old pitcher if re-entry is disabled
+      if (!game.season?.allowPitcherReentry && activePitcherId) {
+        setRetiredPitchers(prev => [...prev, activePitcherId]);
       }
 
       const updatedGame = { ...game, [sideKey]: newPlayer.id, lineups: newLineups };
@@ -169,7 +176,12 @@ export default function LiveScorer() {
     const activeIdsInLineup = new Set(game.lineups.filter((l: any) => l.teamId === teamId).map((l: any) => l.playerId));
     
     if (type === 'pitcher') {
-      setAvailableSubs(teamRoster.filter((p: any) => p.id !== activePitcherId));
+      setAvailableSubs(teamRoster.filter((p: any) => {
+        if (p.id === activePitcherId) return false;
+        // Filter out burned pitchers if the rule is active
+        if (!game.season?.allowPitcherReentry && retiredPitchers.includes(p.id)) return false;
+        return true;
+      }));
     } else {
       setAvailableSubs(teamRoster.filter((p: any) => !activeIdsInLineup.has(p.id)));
     }
@@ -590,6 +602,7 @@ export default function LiveScorer() {
 
   const currentBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
   const currentBatter = game.lineups.filter((l: any) => l.teamId === (isTopInning ? game.awayTeamId : game.homeTeamId))[currentBatterIdx]?.player;
+  const currentBatterPosition = game.lineups.find((l: any) => l.playerId === currentBatter?.id)?.position || 'Fielder';
   const currentPitcher = game.lineups.find((l: any) => l.playerId === activePitcherId)?.player;
 
   const getBatterStats = (playerId: number) => {
@@ -647,7 +660,11 @@ export default function LiveScorer() {
             </h2>
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
               {availableSubs.length === 0 ? (
-                <p className="text-slate-400 font-bold uppercase text-xs italic">No available players on bench.</p>
+                <p className="text-slate-400 font-bold uppercase text-xs italic">
+                  {showSubModal === 'pitcher' && !game.season?.allowPitcherReentry 
+                    ? 'No available pitchers. (Re-entry disabled)' 
+                    : 'No available players on bench.'}
+                </p>
               ) : (
                 availableSubs.map(player => (
                   <button 
@@ -774,7 +791,7 @@ export default function LiveScorer() {
                 >
                    <option value="">-- Select Fielder --</option>
                    {fieldingLineup.map((l: any) => (
-                      <option key={l.player.id} value={l.player.id}>{l.player.name}</option>
+                      <option key={l.player.id} value={l.player.id}>{l.player.name} ({l.position})</option>
                    ))}
                 </select>
              </div>
@@ -901,7 +918,10 @@ export default function LiveScorer() {
           <div>P: <span className="text-lg leading-none">{isTopInning ? homePitches : awayPitches}</span></div>
         </div>
         <div className="bg-white text-black px-4 py-2 flex justify-between items-center border-t border-black/10 font-black italic text-[10px]">
-          <div>{currentBatterIdx + 1}. {currentBatter?.name}</div>
+          <div>
+            {currentBatterIdx + 1}. {currentBatter?.name}
+            <span className="ml-2 text-slate-400 uppercase not-italic text-[9px]">({currentBatterPosition})</span>
+          </div>
           <div className="flex gap-4">
              <span className="opacity-40">{currentStats.gameH}-{currentStats.gameAb} TODAY</span>
              <span className="text-[#002D62]">AVG: {currentStats.avg}</span>

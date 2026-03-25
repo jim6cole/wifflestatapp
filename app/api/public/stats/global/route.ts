@@ -50,7 +50,9 @@ export async function GET(request: Request) {
       if (ab.batterId && ab.batter) {
         if (!batterMap[ab.batterId]) {
           batterMap[ab.batterId] = { 
-            name: ab.batter.name, ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0,
+            id: ab.batterId, // <-- INJECTED HERE FOR PLAYER CARD LINKS
+            name: ab.batter.name, 
+            ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0,
             leagues: new Set<string>() 
           };
         }
@@ -68,13 +70,15 @@ export async function GET(request: Request) {
         if (res.includes('DOUBLE')) b.d++;
         if (res.includes('TRIPLE')) b.t++;
         if (res.includes('HR')) b.hr++;
-        b.rbi += ab.rbi;
+        const playRbi = ab.rbi > 0 ? ab.rbi : ab.runsScored;
+b.rbi += playRbi;
       }
 
       // Pitching Aggregation Logic
       if (ab.pitcherId && ab.pitcher) {
         if (!pitcherMap[ab.pitcherId]) {
           pitcherMap[ab.pitcherId] = { 
+            id: ab.pitcherId, // <-- INJECTED HERE FOR PLAYER CARD LINKS
             name: ab.pitcher.name, 
             outs: 0, k: 0, r: 0, er: 0, bb: 0, h: 0, hr: 0,
             leagues: new Set<string>() 

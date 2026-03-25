@@ -7,7 +7,7 @@ export default function GlobalLeaderboard() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'batters' | 'pitchers'>('batters');
   const [sortConfig, setSortConfig] = useState({ key: 'ops', direction: 'desc' });
-  const [pitchStyle, setPitchStyle] = useState('all'); // NEW: all, fast, medium
+  const [pitchStyle, setPitchStyle] = useState('all');
 
   useEffect(() => {
     setLoading(true);
@@ -18,13 +18,11 @@ export default function GlobalLeaderboard() {
         setStats(data); 
         setLoading(false); 
       });
-  }, [pitchStyle]); // Re-fetch data when pitchStyle changes
+  }, [pitchStyle]);
 
   const requestSort = (key: string) => {
     let direction = 'desc';
-    if (sortConfig.key === key && sortConfig.direction === 'desc') {
-      direction = 'asc';
-    }
+    if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     setSortConfig({ key, direction });
   };
 
@@ -39,11 +37,59 @@ export default function GlobalLeaderboard() {
 
   const displayData = getSortedData();
 
+  // --- CSV EXPORT LOGIC ---
+  const exportToCSV = () => {
+    if (!displayData || displayData.length === 0) return;
+
+    let csvContent = "";
+    let headers = [];
+
+    if (viewMode === 'batters') {
+      headers = ["Rank", "Player", "League", "AB", "H", "2B", "3B", "HR", "BB", "RBI", "AVG", "OBP", "OPS"];
+      csvContent += headers.join(",") + "\n";
+      displayData.forEach((p, index) => {
+        const row = [
+          index + 1,
+          `"${p.name}"`, 
+          `"${p.leagueDisplay}"`, 
+          p.ab, p.h, p.d, p.t, p.hr, p.bb, p.rbi,
+          p.avg.toFixed(3).replace(/^0/, ''), 
+          p.obp.toFixed(3).replace(/^0/, ''), 
+          p.ops.toFixed(3).replace(/^0/, '')
+        ];
+        csvContent += row.join(",") + "\n";
+      });
+    } else {
+      headers = ["Rank", "Player", "League", "IP", "K", "H", "BB", "HR", "R", "WHIP", "ERA"];
+      csvContent += headers.join(",") + "\n";
+      displayData.forEach((p, index) => {
+        const row = [
+          index + 1,
+          `"${p.name}"`, 
+          `"${p.leagueDisplay}"`, 
+          p.ip, p.k, p.h, p.bb, p.hr, p.r,
+          p.whip.toFixed(2), 
+          p.era.toFixed(2)
+        ];
+        csvContent += row.join(",") + "\n";
+      });
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `AWAA_${stats.year || 'Career'}_${viewMode.toUpperCase()}_${pitchStyle.toUpperCase()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-16 border-[16px] border-[#001d3d] selection:bg-[#ffd60a]">
       <div className="max-w-7xl mx-auto">
         
-        <header className="mb-12 flex flex-col md:flex-row md:items-end justify-between border-b-8 border-[#c1121f] pb-8 gap-6">
+        <header className="mb-12 flex flex-col xl:flex-row xl:items-end justify-between border-b-8 border-[#c1121f] pb-8 gap-6">
           <div>
             <Link href="/stats/select" className="text-xs font-black uppercase text-[#669bbc] hover:text-[#c1121f] mb-4 block tracking-widest">← STAT HUB</Link>
             <h1 className="text-7xl md:text-9xl font-black italic uppercase tracking-tighter text-[#001d3d] drop-shadow-[6px_6px_0px_#ffd60a]">
@@ -51,13 +97,23 @@ export default function GlobalLeaderboard() {
             </h1>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
+            
+            {/* EXPORT CSV BUTTON */}
+            <button 
+              onClick={exportToCSV} 
+              className="bg-[#2b9348] text-white px-6 py-3 font-black italic uppercase text-sm border-4 border-[#001d3d] shadow-[8px_8px_0px_#c1121f] hover:bg-white hover:text-[#2b9348] transition-all flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              EXPORT CSV
+            </button>
+
             {/* PITCH SPEED DROPDOWN */}
             <div className="bg-[#001d3d] p-1 border-4 border-[#001d3d] shadow-[8px_8px_0px_#c1121f]">
               <select 
                 value={pitchStyle} 
                 onChange={(e) => setPitchStyle(e.target.value)}
-                className="bg-white text-[#001d3d] px-4 py-3 font-black italic uppercase text-sm outline-none cursor-pointer hover:bg-[#ffd60a] transition-all"
+                className="bg-white text-[#001d3d] px-4 py-3 font-black italic uppercase text-sm outline-none cursor-pointer hover:bg-[#ffd60a] transition-all h-full"
               >
                 <option value="all">ALL LEAGUES</option>
                 <option value="fast">FAST PITCH (UNRESTRICTED)</option>
@@ -67,9 +123,9 @@ export default function GlobalLeaderboard() {
 
             <div className="flex bg-[#001d3d] border-4 border-[#001d3d] shadow-[8px_8px_0px_#c1121f]">
               <button onClick={() => { setViewMode('batters'); setSortConfig({key: 'ops', direction: 'desc'}); }} 
-                className={`px-10 py-4 font-black italic uppercase text-sm transition-all ${viewMode === 'batters' ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-white hover:text-[#ffd60a]'}`}>HITTING</button>
+                className={`px-8 py-4 font-black italic uppercase text-sm transition-all ${viewMode === 'batters' ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-white hover:text-[#ffd60a]'}`}>HITTING</button>
               <button onClick={() => { setViewMode('pitchers'); setSortConfig({key: 'era', direction: 'asc'}); }} 
-                className={`px-10 py-4 font-black italic uppercase text-sm transition-all ${viewMode === 'pitchers' ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-white hover:text-[#ffd60a]'}`}>PITCHING</button>
+                className={`px-8 py-4 font-black italic uppercase text-sm transition-all ${viewMode === 'pitchers' ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-white hover:text-[#ffd60a]'}`}>PITCHING</button>
             </div>
           </div>
         </header>
@@ -114,7 +170,11 @@ export default function GlobalLeaderboard() {
                 {displayData.map((p, i) => (
                   <tr key={i} className="hover:bg-[#ffd60a]/10 transition-colors group">
                     <td className="p-6 text-left font-black italic uppercase text-2xl border-r-4 border-[#fdf0d5]">
-                      <span className="text-[#c1121f] text-xs mr-4 not-italic font-bold">{i + 1}</span> {p.name}
+                      <span className="text-[#c1121f] text-xs mr-4 not-italic font-bold">{i + 1}</span> 
+                      {/* --- LINK TO PLAYER CARD --- */}
+                      <Link href={`/players/${p.id}`} className="hover:text-[#c1121f] hover:underline transition-all">
+                        {p.name}
+                      </Link>
                     </td>
                     <td className="p-6 border-r-4 border-[#fdf0d5]">
                       <span className="bg-[#669bbc] text-white px-4 py-1 font-black text-xs uppercase italic rounded-sm shadow-md">

@@ -8,7 +8,6 @@ export default function SeasonWizard() {
   const { leagueId } = useParams();
   const [loading, setLoading] = useState(false);
 
-  // Notice: leagueId is removed from this state object entirely!
   const [rules, setRules] = useState({
     name: '',
     status: 'UPCOMING',
@@ -26,7 +25,9 @@ export default function SeasonWizard() {
     mercyRuleInningApply: 3,
     unlimitedLastInning: false,
     dpWithoutRunners: false,
-    dpKeepsRunners: false      
+    dpKeepsRunners: false,
+    maxDh: 1, 
+    minBatters: 0 
   });
 
   const handleCreate = async () => {
@@ -34,7 +35,6 @@ export default function SeasonWizard() {
     setLoading(true);
     
     try {
-      // WE INJECT THE LEAGUE ID DIRECTLY FROM THE URL RIGHT BEFORE SENDING
       const payload = {
         ...rules,
         leagueId: parseInt(leagueId as string) 
@@ -86,7 +86,6 @@ export default function SeasonWizard() {
               onChange={(e) => setRules({...rules, name: e.target.value.toUpperCase()})}
             />
 
-            {/* INITIAL STATUS SELECTOR */}
             <div className="mt-6 flex gap-4">
               <button 
                 onClick={() => setRules({...rules, status: 'UPCOMING'})} 
@@ -113,31 +112,38 @@ export default function SeasonWizard() {
                 <WizardSelect label="Balls" val={rules.balls} options={[3,4,5,6]} onChange={(v: number) => setRules({...rules, balls: v})} />
                 <WizardSelect label="Strikes" val={rules.strikes} options={[2,3,4]} onChange={(v: number) => setRules({...rules, strikes: v})} />
               </div>
+
+              {/* NEW: LINEUP RESTRICTIONS */}
+              <div className="pt-4 border-t border-white/5 space-y-4">
+                <h4 className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest text-center">Lineup Restrictions</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <WizardSelect label="Max DH" val={rules.maxDh} options={[0, 1, 2, 3, 4]} onChange={(v: number) => setRules({...rules, maxDh: v})} />
+                  <WizardSelect label="Min Batters" val={rules.minBatters} options={[0, 3, 4, 5, 6, 7, 8, 9]} onChange={(v: number) => setRules({...rules, minBatters: v})} />
+                </div>
+              </div>
               
               <div className="pt-4 border-t border-white/5 space-y-4">
                 <BinaryToggle label="Baserunning" active={rules.isBaserunning} onToggle={(v: boolean) => setRules({...rules, isBaserunning: v})} />
-                <Toggle label='Ghost Runner in Extras (Runner on 2nd)' active={rules.ghostRunner} onToggle={() => setRules({...rules, ghostRunner: !rules.ghostRunner})} />
+                <Toggle label='Ghost Runner in Extras' active={rules.ghostRunner} onToggle={() => setRules({...rules, ghostRunner: !rules.ghostRunner})} />
               </div>
             </div>
 
             {/* COLUMN 2: CUSTOM RULES */}
             <div className="space-y-4">
-              {/* GHOST BASE LOGIC SECTION */}
               {!rules.isBaserunning ? (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                   <Toggle 
                     label="Clean Hit Rule" 
-                    desc="(A single or double which no fielder touches moves baserunners an extra base)" 
                     active={rules.cleanHitRule} 
                     onToggle={() => setRules({...rules, cleanHitRule: !rules.cleanHitRule})} 
                   />
                   <Toggle 
-                    label="Double Play Without Runners" 
+                    label="DP Without Runners" 
                     active={rules.dpWithoutRunners} 
                     onToggle={() => setRules({...rules, dpWithoutRunners: !rules.dpWithoutRunners})} 
                   />
                   <Toggle 
-                    label="Double Play Keeps Baserunners" 
+                    label="DP Keeps Baserunners" 
                     active={rules.dpKeepsRunners} 
                     onToggle={() => setRules({...rules, dpKeepsRunners: !rules.dpKeepsRunners})} 
                   />
@@ -148,7 +154,6 @@ export default function SeasonWizard() {
                 </div>
               )}
 
-              {/* SPEED RESTRICTION SECTION */}
               <div className="pt-6 border-t border-white/5 space-y-4">
                 <Toggle 
                   label="Speed Restricted" 
@@ -176,7 +181,6 @@ export default function SeasonWizard() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
-              {/* GAME MERCY RULE */}
               <div className="flex items-center justify-between p-5 bg-[#001d3d] rounded-2xl border border-white/5 shadow-inner">
                 <div>
                   <p className="font-black italic uppercase text-sm">Mercy Rule (Game)</p>
@@ -187,7 +191,6 @@ export default function SeasonWizard() {
                 </select>
               </div>
 
-              {/* WHEN MERCY RULE APPLIES */}
               {rules.mercyRule > 0 && (
                 <div className="flex items-center justify-between p-5 bg-[#001d3d] rounded-2xl border border-[#c1121f]/50 shadow-inner animate-in fade-in zoom-in-95 duration-200">
                   <div>
@@ -200,7 +203,6 @@ export default function SeasonWizard() {
                 </div>
               )}
 
-              {/* INNING RUN LIMIT */}
               <div className="flex items-center justify-between p-5 bg-[#001d3d] rounded-2xl border border-white/5 shadow-inner">
                 <div>
                   <p className="font-black italic uppercase text-sm">Run Limit (Inning)</p>
@@ -211,11 +213,9 @@ export default function SeasonWizard() {
                 </select>
               </div>
 
-              {/* UNLIMITED LAST INNING TOGGLE */}
               <div className="md:col-span-2 mt-2">
                 <Toggle 
                   label="Unlimited Final Inning" 
-                  desc="Suspend game mercy and inning run limits during the final scheduled inning." 
                   active={rules.unlimitedLastInning} 
                   onToggle={() => setRules({...rules, unlimitedLastInning: !rules.unlimitedLastInning})} 
                 />
@@ -236,7 +236,6 @@ export default function SeasonWizard() {
   );
 }
 
-// UI HELPERS
 function WizardSelect({ label, val, options, onChange }: any) {
   return (
     <div className="bg-[#001d3d] p-3 border border-white/10 shadow-inner">
@@ -246,7 +245,7 @@ function WizardSelect({ label, val, options, onChange }: any) {
         onChange={(e) => onChange(parseInt(e.target.value))}
         className="bg-transparent text-2xl font-black italic text-white w-full outline-none cursor-pointer"
       >
-        {options.map((opt: number) => <option key={opt} value={opt} className="bg-[#001d3d]">{opt} {label === "Speed Limit" ? "MPH" : ""}</option>)}
+        {options.map((opt: number) => <option key={opt} value={opt} className="bg-[#001d3d]">{opt === 0 ? 'Off' : opt}</option>)}
       </select>
     </div>
   );
@@ -264,7 +263,7 @@ function BinaryToggle({ label, active, onToggle }: { label: string, active: bool
   );
 }
 
-function Toggle({ label, desc, active, onToggle }: any) {
+function Toggle({ label, active, onToggle }: any) {
   return (
     <button onClick={onToggle} className="w-full text-left p-3 bg-black/20 border border-white/5 group hover:border-[#fdf0d5] transition-all">
       <div className="flex justify-between items-center">
@@ -273,7 +272,6 @@ function Toggle({ label, desc, active, onToggle }: any) {
           <div className={`w-2 h-2 transition-transform ${active ? 'translate-x-3 bg-white' : 'translate-x-0 bg-[#669bbc]'}`}></div>
         </div>
       </div>
-      {desc && <p className="text-[8px] font-bold uppercase text-[#669bbc] mt-1 group-hover:text-white transition-colors">{desc}</p>}
     </button>
   );
 }

@@ -12,9 +12,9 @@ export default function CircuitWizard() {
     name: '',
     leagueId: 0,
     status: 'UPCOMING',
-    isTournament: true, // Treated as a tournament for pool/bracket rules
-    inningsPerGame: 4,  // Pool Play
-    playoffInnings: 5,  // Bracket
+    isTournament: true, 
+    inningsPerGame: 4,  
+    playoffInnings: 5,  
     balls: 4,
     strikes: 3,
     outs: 3,
@@ -23,12 +23,15 @@ export default function CircuitWizard() {
     isBaserunning: false,
     cleanHitRule: true,
     ghostRunner: true,
-    mercyRule: 12, // Slightly higher default for circuits
+    mercyRule: 12, 
     mercyRulePerInning: 0,
     mercyRuleInningApply: 3,
     unlimitedLastInning: false,
     dpWithoutRunners: false,
-    dpKeepsRunners: false      
+    dpKeepsRunners: false,
+    // NEW LINEUP LOGIC
+    maxDh: 1,
+    minBatters: 0      
   });
 
   useEffect(() => {
@@ -113,6 +116,15 @@ export default function CircuitWizard() {
                 <WizardSelect label="Outs/Inn" val={rules.outs} options={[2,3,4]} onChange={(v: number) => setRules({...rules, outs: v})} />
                 <WizardSelect label="Balls" val={rules.balls} options={[3,4,5,6]} onChange={(v: number) => setRules({...rules, balls: v})} />
                 <WizardSelect label="Strikes" val={rules.strikes} options={[2,3,4]} onChange={(v: number) => setRules({...rules, strikes: v})} />
+              </div>
+
+              {/* NEW: LINEUP RESTRICTIONS */}
+              <div className="pt-4 border-t-4 border-[#001d3d]/10 space-y-4">
+                <h4 className="text-[10px] font-black uppercase text-[#c1121f] tracking-widest text-center">Lineup Restrictions</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <WizardSelect label="Max DH" val={rules.maxDh} options={[0, 1, 2, 3, 4]} onChange={(v: number) => setRules(p => ({...p, maxDh: v}))} />
+                  <WizardSelect label="Min Batters" val={rules.minBatters} options={[0, 3, 4, 5, 6, 7, 8, 9]} onChange={(v: number) => setRules(p => ({...p, minBatters: v}))} />
+                </div>
               </div>
             </div>
 
@@ -220,7 +232,7 @@ export default function CircuitWizard() {
   );
 }
 
-// UI HELPERS (Same as the others)
+// UI HELPERS
 function WizardSelect({ label, val, options, onChange }: any) {
   return (
     <div className="bg-[#fdf0d5] p-3 border-2 border-[#001d3d] shadow-inner">

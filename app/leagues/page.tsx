@@ -2,50 +2,58 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-export default function LeaguesDirectory() {
+export default function LeagueSelector() {
   const [leagues, setLeagues] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/public/leagues', { cache: 'no-store' })
+    fetch('/api/public/leagues')
       .then(res => res.json())
       .then(data => {
-        setLeagues(data);
+        setLeagues(Array.isArray(data) ? data : []);
         setLoading(false);
-      });
+      })
+      .catch(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black uppercase text-white animate-pulse italic text-2xl">Accessing Directory...</div>;
-
   return (
-    <div className="p-8 md:p-16 bg-[#001d3d] min-h-screen text-[#fdf0d5] border-[12px] border-[#c1121f]">
-      <div className="max-w-6xl mx-auto">
-        <header className="mb-16 border-b-4 border-[#669bbc] pb-8">
-          <Link href="/" className="text-[10px] font-black uppercase text-[#669bbc] hover:text-white mb-4 block tracking-widest">← Back to Launcher</Link>
-          <h1 className="text-8xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f]">
-            Active Leagues
-          </h1>
+    <div className="min-h-screen bg-[#fdf0d5] p-8 md:p-24 border-[16px] border-[#001d3d] flex flex-col items-center">
+      <div className="max-w-4xl w-full">
+        <header className="mb-16 border-b-8 border-[#c1121f] pb-8 flex justify-between items-end">
+          <div>
+            <Link href="/" className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors">
+              ← Main Menu
+            </Link>
+            <h1 className="text-7xl md:text-9xl font-black italic uppercase text-[#001d3d] tracking-tighter mt-4">
+              Select League
+            </h1>
+          </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {leagues.map((league) => (
-            <Link 
-              key={league.id} 
-              href={`/leagues/${league.id}`}
-              className="bg-[#003566] border-2 border-[#669bbc] p-8 hover:bg-[#c1121f] transition-all group shadow-xl"
-            >
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-4xl font-black italic uppercase text-white leading-none group-hover:scale-105 transition-transform origin-left">
-                  {league.name}
-                </h2>
-                <span className="text-xl text-[#669bbc] group-hover:text-white">→</span>
-              </div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] group-hover:text-red-200">
-                📍 {league.location || 'Undisclosed Sector'}
-              </p>
-            </Link>
-          ))}
-        </div>
+        {loading ? (
+          <div className="text-4xl font-black italic uppercase animate-pulse text-[#001d3d]">Scanning Affiliates...</div>
+        ) : (
+          <div className="grid gap-6">
+            {leagues.map((league) => (
+              <Link 
+                key={league.id} 
+                href={`/leagues/${league.id}`} 
+                className="group bg-white border-4 border-[#001d3d] p-10 shadow-[12px_12px_0px_#c1121f] hover:shadow-[12px_12px_0px_#ffd60a] hover:-translate-y-1 transition-all flex justify-between items-center"
+              >
+                <div>
+                  <h2 className="text-4xl md:text-6xl font-black italic uppercase text-[#001d3d] group-hover:text-[#c1121f] transition-colors">
+                    {league.name}
+                  </h2>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#669bbc] mt-2 italic">
+                    WIFF+ Certified Organization
+                  </p>
+                </div>
+                <span className="text-4xl font-black text-[#001d3d] group-hover:translate-x-4 transition-transform italic">↗</span>
+              </Link>
+            ))}
+            {leagues.length === 0 && <p className="text-slate-400 font-bold uppercase italic">No leagues found in system.</p>}
+          </div>
+        )}
       </div>
     </div>
   );

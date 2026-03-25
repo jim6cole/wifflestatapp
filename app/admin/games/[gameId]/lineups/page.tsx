@@ -7,14 +7,14 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
   const resolvedParams = use(params);
   const gameId = resolvedParams?.gameId;
   const router = useRouter();
-  
+
   const [game, setGame] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [addingForTeam, setAddingForTeam] = useState<'home' | 'away' | null>(null);
   const [newPlayerName, setNewPlayerName] = useState('');
-  
+
   // Search & Duplicate Check States
   const [isSearching, setIsSearching] = useState(false);
   const [potentialMatches, setPotentialMatches] = useState<any[]>([]);
@@ -40,7 +40,6 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
     async function init() {
       try {
-        // FIX: Removed the deprecated global player fetch that was causing the 405 error!
         const res = await fetch(`/api/admin/games/${gameId}/prepare`);
         
         if (!res.ok) throw new Error(`API Error: ${await res.text()}`);
@@ -49,8 +48,9 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
         
         if (data && data.game) {
           setGame(data.game);
-          setHomeBench(data.homeRoster || []);
-          setAwayBench(data.awayRoster || []);
+          // Initialize players with a default 'position' of Fielder
+          setHomeBench(data.homeRoster?.map((p:any) => ({...p, position: 'Fielder'})) || []);
+          setAwayBench(data.awayRoster?.map((p:any) => ({...p, position: 'Fielder'})) || []);
         } else {
           setError("The API returned data, but the game details are missing.");
         }
@@ -63,6 +63,15 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     }
     init();
   }, [gameId]);
+
+  // --- POSITION HANDLER ---
+  const handlePositionChange = (side: 'home' | 'away', playerId: number, newPosition: string) => {
+    if (side === 'home') {
+      setHomeActive(prev => prev.map(p => p.id === playerId ? { ...p, position: newPosition } : p));
+    } else {
+      setAwayActive(prev => prev.map(p => p.id === playerId ? { ...p, position: newPosition } : p));
+    }
+  };
 
   // --- DRAG AND DROP LOGIC ---
   const onDragStart = (e: any, player: any, fromList: string) => {
@@ -77,6 +86,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     
     const player = JSON.parse(playerData);
     const fromList = e.dataTransfer.getData("fromList");
+
     const remove = (list: any[]) => list.filter(p => p.id !== player.id);
 
     if (fromList === toList && toList.endsWith('Active')) {
@@ -85,6 +95,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       
       const targetId = e.target.closest('[data-player-id]')?.getAttribute('data-player-id');
       if (!targetId || Number(targetId) === player.id) return;
+
       const newIndex = currentList.findIndex(p => p.id === Number(targetId));
       
       currentList.splice(oldIndex, 1);
@@ -108,9 +119,9 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     }
     if (fromList === 'awayBench') setAwayBench(remove);
 
-    if (toList === 'homeActive') setHomeActive(prev => [...prev, player]);
+    if (toList === 'homeActive') setHomeActive(prev => [...prev, { ...player, position: player.position || 'Fielder' }]);
     if (toList === 'homeBench') setHomeBench(prev => [...prev, player]);
-    if (toList === 'awayActive') setAwayActive(prev => [...prev, player]);
+    if (toList === 'awayActive') setAwayActive(prev => [...prev, { ...player, position: player.position || 'Fielder' }]);
     if (toList === 'awayBench') setAwayBench(prev => [...prev, player]);
   };
 
@@ -157,7 +168,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       
       if (res.ok) {
         const newPlayer = await res.json();
-        await executeImportPlayer(newPlayer); 
+        await executeImportPlayer({...newPlayer, position: 'Fielder'}); 
       } else {
         const err = await res.json();
         alert(err.error || "Failed to create player.");
@@ -175,7 +186,6 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     const targetTeamId = addingForTeam === 'home' ? game.homeTeamId : game.awayTeamId;
     const targetSeasonId = game.seasonId;
 
-    // This officially signs the player to the team's roster!
     if (targetTeamId && targetSeasonId) {
       try {
         await fetch(`/api/admin/seasons/${targetSeasonId}/players`, {
@@ -183,13 +193,14 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ playerId: player.id, teamId: targetTeamId })
         });
-      } catch (e) {
-         console.error("Failed to officially sign player to season roster", e);
+      } catch (e) { 
+        console.error("Failed to officially sign player to season roster", e); 
       }
     }
 
-    if (addingForTeam === 'home') setHomeBench(prev => [...prev, player]);
-    if (addingForTeam === 'away') setAwayBench(prev => [...prev, player]);
+    if (addingForTeam === 'home') setHomeBench(prev => [...prev, { ...player, position: 'Fielder' }]);
+    if (addingForTeam === 'away') setAwayBench(prev => [...prev, { ...player, position: 'Fielder' }]);
+
     resetModal();
   };
 
@@ -209,18 +220,21 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       return alert("Please select a starting pitcher for both teams!");
     }
 
+    // Force the designated starting pitchers to have the 'Pitcher' role for safety
+    const safeHomeActive = homeActive.map(p => p.id === Number(homePitcher) ? { ...p, position: 'Pitcher' } : p);
+    const safeAwayActive = awayActive.map(p => p.id === Number(awayPitcher) ? { ...p, position: 'Pitcher' } : p);
+
     try {
       const res = await fetch(`/api/admin/games/${gameId}/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          homeLineup: homeActive.map((p) => ({ ...p, teamId: game.homeTeamId, isPitcher: p.id === Number(homePitcher) })),
-          awayLineup: awayActive.map((p) => ({ ...p, teamId: game.awayTeamId, isPitcher: p.id === Number(awayPitcher) })) 
+          homeLineup: safeHomeActive.map((p) => ({ ...p, teamId: game.homeTeamId, isPitcher: p.id === Number(homePitcher) })),
+          awayLineup: safeAwayActive.map((p) => ({ ...p, teamId: game.awayTeamId, isPitcher: p.id === Number(awayPitcher) })) 
         }),
       });
 
       if (res.ok) {
-         // FIX: Redirect to the correct public live path
          router.push(`/games/${gameId}/live`);
       } else {
          const errData = await res.json();
@@ -231,7 +245,6 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     }
   };
 
-  // --- RENDER GUARDS ---
   if (loading) {
     return (
       <div className="min-h-screen bg-[#fdf0d5] flex items-center justify-center">
@@ -336,6 +349,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
                 {isSearching ? 'SCANNING...' : 'Search & Draft'}
               </button>
             </form>
+
           </div>
         </div>
       )}
@@ -346,7 +360,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
         <header className="mb-12 border-b-8 border-[#c1121f] pb-6 flex flex-col md:flex-row justify-between md:items-end gap-6">
           <div>
             <Link href="/admin/games/active" className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors block mb-4">
-              ← Game Command
+                Game Command
             </Link>
             <h1 className="text-6xl md:text-7xl font-black italic uppercase text-[#001d3d] tracking-tighter drop-shadow-[4px_4px_0px_#ffd60a] leading-none">
               Lineups
@@ -354,7 +368,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
             <p className="text-[#c1121f] font-bold uppercase text-xs mt-3 tracking-[0.4em] italic">WIFF+ // Game ID: {gameId}</p>
           </div>
           <button onClick={handlePlayBall} className="bg-[#c1121f] text-white px-10 py-5 font-black italic uppercase tracking-widest text-xl border-4 border-[#001d3d] hover:bg-white hover:text-[#c1121f] transition-all shadow-[8px_8px_0px_#001d3d] active:translate-y-1 active:shadow-none">
-            PLAY BALL →
+            PLAY BALL 
           </button>
         </header>
 
@@ -364,6 +378,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
             const team = isHome ? game.homeTeam : game.awayTeam;
             const active = isHome ? homeActive : awayActive;
             const bench = isHome ? homeBench : awayBench;
+            
             const pitcher = isHome ? homePitcher : awayPitcher;
             const setPitcher = isHome ? setHomePitcher : setAwayPitcher;
 
@@ -413,15 +428,31 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
                         draggable 
                         data-player-id={p.id}
                         onDragStart={(e) => onDragStart(e, p, `${side}Active`)}
-                        className="bg-white p-4 flex justify-between items-center border-4 border-[#001d3d] cursor-grab active:cursor-grabbing hover:border-[#c1121f] transition-colors shadow-[4px_4px_0px_#c1121f]"
+                        className="bg-white p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center border-4 border-[#001d3d] cursor-grab active:cursor-grabbing hover:border-[#c1121f] transition-colors shadow-[4px_4px_0px_#c1121f] gap-3"
                       >
                         <div className="flex items-center gap-4 pointer-events-none">
                           <span className="text-[#669bbc] font-black italic text-2xl">#{i + 1}</span>
                           <p className="font-black uppercase text-xl text-[#001d3d] leading-none">{p.name}</p>
                         </div>
-                        {String(p.id) === pitcher && (
-                          <span className="bg-[#c1121f] text-white text-[9px] font-black px-3 py-1 uppercase tracking-widest pointer-events-none shadow-sm">Pitcher</span>
-                        )}
+                        
+                        <div className="flex items-center gap-3 w-full sm:w-auto mt-2 sm:mt-0">
+                          {/* POSITION SELECTOR */}
+                          <select 
+                            value={String(p.id) === pitcher ? 'Pitcher' : (p.position || 'Fielder')}
+                            disabled={String(p.id) === pitcher}
+                            onChange={(e) => handlePositionChange(side as 'home' | 'away', p.id, e.target.value)}
+                            className="bg-[#fdf0d5] text-[#001d3d] p-2 border-2 border-[#001d3d] text-[10px] font-black uppercase tracking-widest outline-none cursor-pointer w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <option value="Pitcher">Pitcher</option>
+                            <option value="Fielder">Fielder</option>
+                            <option value="DH">DH</option>
+                            <option value="EH">EH</option>
+                          </select>
+
+                          {String(p.id) === pitcher && (
+                            <span className="bg-[#c1121f] text-white text-[9px] font-black px-3 py-2 uppercase tracking-widest shadow-sm ml-auto">PITCHER</span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -462,6 +493,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
             );
           })}
         </div>
+
       </div>
     </div>
   );

@@ -26,7 +26,7 @@ model League {
   isActive    Boolean            @default(true)
   seasons     Season[]
   memberships LeagueMembership[] 
-  teams       Team[]             // <--- ADD THIS LINE RIGHT HERE
+  teams       Team[]             
   createdAt   DateTime           @default(now())
 }
 
@@ -63,7 +63,7 @@ model Team {
 model Player {
   id             Int           @id @default(autoincrement())
   name           String
-  leagueId    Int?
+  leagueId       Int?
   rosterSlots    RosterSlot[]
   atBats         AtBat[]       @relation("Batter")
   pitchedAtBats  AtBat[]       @relation("Pitcher")
@@ -85,6 +85,7 @@ model RosterSlot {
 
 model Season {
   id                   Int          @id @default(autoincrement())
+  events              Event[]
   name                 String
   leagueId             Int
   league               League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
@@ -107,10 +108,23 @@ model Season {
   mercyRulePerInning   Int          @default(0)
   mercyRuleInningApply Int          @default(3) 
   unlimitedLastInning  Boolean      @default(false) 
+  allowPitcherReentry  Boolean      @default(true) // <-- Added here
+  maxDh                Int          @default(1)
+  minBatters           Int          @default(0) // 0 = Off
   games                Game[]
   teams                Team[]   
   rosterSlots          RosterSlot[]
   createdAt            DateTime     @default(now())
+}
+
+model Event {
+  id          Int      @id @default(autoincrement())
+  name        String   // e.g., "Saturday Shootout"
+  status      String   @default("UPCOMING") // UPCOMING, ACTIVE, COMPLETED
+  seasonId    Int
+  season      Season   @relation(fields: [seasonId], references: [id])
+  games       Game[]   // Games belonging to this specific event
+  createdAt   DateTime @default(now())
 }
 
 model Game {
@@ -126,7 +140,7 @@ model Game {
   homeScore            Int           @default(0)
   awayScore            Int           @default(0)
   location             String?
-  liveState            String?  
+  liveState            String?
   isPlayoff            Boolean       @default(false)     
   currentHomePitcherId Int?
   currentAwayPitcherId Int?
@@ -134,6 +148,9 @@ model Game {
   atBats               AtBat[]
   lineups              LineupEntry[] 
   createdAt            DateTime      @default(now())
+  fieldNumber    Int?
+  eventId     Int?     // Optional: regular season games might not have an event
+  event       Event?   @relation(fields: [eventId], references: [id])
 }
 
 model InningScore {
@@ -147,24 +164,24 @@ model InningScore {
 }
 
 model AtBat {
-  id          Int      @id @default(autoincrement())
-  gameId      Int
-  game        Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  batterId    Int
-  batter      Player   @relation("Batter", fields: [batterId], references: [id])
-  pitcherId   Int
-  pitcher     Player   @relation("Pitcher", fields: [pitcherId], references: [id])
-  runAttribution       String?
-  slot                 Int
-  inning      Int      @default(1)
-  isTopInning Boolean  @default(true) 
-  result      String?
-  runsScored  Int      @default(0)
-  rbi         Int      @default(0)
-  balls       Int      @default(0)
-  strikes     Int      @default(0)
-  outs        Int      @default(0)
-  createdAt   DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  gameId         Int
+  game           Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  batterId       Int
+  batter         Player   @relation("Batter", fields: [batterId], references: [id])
+  pitcherId      Int
+  pitcher        Player   @relation("Pitcher", fields: [pitcherId], references: [id])
+  runAttribution String?
+  slot           Int
+  inning         Int      @default(1)
+  isTopInning    Boolean  @default(true) 
+  result         String?
+  runsScored     Int      @default(0)
+  rbi            Int      @default(0)
+  balls          Int      @default(0)
+  strikes        Int      @default(0)
+  outs           Int      @default(0)
+  createdAt      DateTime @default(now())
 }
 
 model LineupEntry {
@@ -177,4 +194,5 @@ model LineupEntry {
   player       Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
   battingOrder Int
   isPitcher    Boolean @default(false)
+  position     String  @default("Fielder") // <-- Added here
 }

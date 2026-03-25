@@ -40,7 +40,7 @@ export async function POST(request: Request) {
         leagueId: targetLeagueId,
         status: body.status || 'UPCOMING',
         
-        // Structure Settings (Ensuring safe integer parsing)
+        // Structure Settings
         inningsPerGame: parseInt(body.inningsPerGame) || 4,
         isTournament: Boolean(body.isTournament),
         playoffInnings: body.playoffInnings ? parseInt(body.playoffInnings) : (parseInt(body.inningsPerGame) || 5),
@@ -61,9 +61,14 @@ export async function POST(request: Request) {
         mercyRuleInningApply: parseInt(body.mercyRuleInningApply) ?? 3,
         unlimitedLastInning: Boolean(body.unlimitedLastInning),
         
-        // DP Logic
+        // DP & Pitcher Logic
         dpWithoutRunners: Boolean(body.dpWithoutRunners),
-        dpKeepsRunners: Boolean(body.dpKeepsRunners)
+        dpKeepsRunners: Boolean(body.dpKeepsRunners),
+        allowPitcherReentry: body.allowPitcherReentry !== undefined ? Boolean(body.allowPitcherReentry) : true,
+        
+        // --- NEW LINEUP LOGIC ---
+        maxDh: body.maxDh !== undefined ? parseInt(body.maxDh) : 1,
+        minBatters: body.minBatters !== undefined ? parseInt(body.minBatters) : 0
       },
     });
     

@@ -8,19 +8,21 @@ export async function POST(
   try {
     const { gameId } = await params;
     const gId = parseInt(gameId);
+
     const { homeLineup, awayLineup } = await request.json();
 
     const result = await prisma.$transaction(async (tx) => {
       // 1. Clear existing lineups
       await tx.lineupEntry.deleteMany({ where: { gameId: gId } });
 
-      // 2. Prepare Home Team Entries (Ensuring Int conversion)
+      // 2. Prepare Home Team Entries (Now capturing the Position)
       const homeEntries = homeLineup.map((p: any, idx: number) => ({
         gameId: gId,
         playerId: parseInt(p.id),
         teamId: parseInt(p.teamId), 
         battingOrder: idx + 1,
         isPitcher: Boolean(p.isPitcher),
+        position: p.position || (p.isPitcher ? 'Pitcher' : 'Fielder') // <-- ADDED THIS
       }));
 
       // 3. Prepare Away Team Entries
@@ -30,6 +32,7 @@ export async function POST(
         teamId: parseInt(p.teamId),
         battingOrder: idx + 1,
         isPitcher: Boolean(p.isPitcher),
+        position: p.position || (p.isPitcher ? 'Pitcher' : 'Fielder') // <-- ADDED THIS
       }));
 
       await tx.lineupEntry.createMany({

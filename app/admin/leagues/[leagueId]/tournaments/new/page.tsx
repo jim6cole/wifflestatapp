@@ -28,7 +28,9 @@ export default function TournamentWizard() {
     mercyRuleInningApply: 3,
     unlimitedLastInning: false,
     dpWithoutRunners: false,
-    dpKeepsRunners: false      
+    dpKeepsRunners: false,
+    maxDh: 1,
+    minBatters: 0      
   });
 
   useEffect(() => {
@@ -54,7 +56,6 @@ export default function TournamentWizard() {
         router.push(`/admin/leagues/${leagueId}`);
         router.refresh();
       } else {
-        // REPORT THE SPECIFIC ERROR (Authorization, League Not Found, etc.)
         alert(`LAUNCH FAILED: ${data.error || 'Unknown Server Error'}`);
       }
     } catch (err) { 
@@ -125,6 +126,15 @@ export default function TournamentWizard() {
                 <WizardSelect label="Balls" val={rules.balls} options={[3,4,5,6]} onChange={(v: number) => setRules(p => ({...p, balls: v}))} />
                 <WizardSelect label="Strikes" val={rules.strikes} options={[2,3,4]} onChange={(v: number) => setRules(p => ({...p, strikes: v}))} />
               </div>
+
+              {/* NEW: LINEUP RESTRICTIONS */}
+              <div className="pt-4 border-t-4 border-[#001d3d]/10 space-y-4">
+                <h4 className="text-[10px] font-black uppercase text-[#c1121f] tracking-widest text-center">Lineup Restrictions</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <WizardSelect label="Max DH" val={rules.maxDh} options={[0, 1, 2, 3, 4]} onChange={(v: number) => setRules(p => ({...p, maxDh: v}))} />
+                  <WizardSelect label="Min Batters" val={rules.minBatters} options={[0, 3, 4, 5, 6, 7, 8, 9]} onChange={(v: number) => setRules(p => ({...p, minBatters: v}))} />
+                </div>
+              </div>
             </div>
 
             {/* CUSTOM RULES */}
@@ -144,10 +154,9 @@ export default function TournamentWizard() {
                 </div>
               )}
 
-              {/* VELOCITY SETTINGS */}
               <div className="pt-4 border-t-4 border-[#001d3d]/10 space-y-4">
                 <Toggle 
-                  label="Speed Restricted (Radar Enforced)" 
+                  label="Speed Restricted" 
                   active={rules.isSpeedRestricted} 
                   onToggle={() => setRules(p => ({...p, isSpeedRestricted: !p.isSpeedRestricted}))} 
                 />
@@ -206,7 +215,7 @@ export default function TournamentWizard() {
 
               <div className="md:col-span-2 mt-2">
                 <Toggle 
-                  label="Unlimited Final Inning (Suspend limits in last scheduled inning)" 
+                  label="Unlimited Final Inning" 
                   active={rules.unlimitedLastInning} 
                   onToggle={() => setRules(p => ({...p, unlimitedLastInning: !p.unlimitedLastInning}))} 
                 />
@@ -220,7 +229,7 @@ export default function TournamentWizard() {
             disabled={loading}
             className="w-full bg-[#c1121f] border-4 border-[#001d3d] py-6 text-3xl font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-[8px_8px_0px_#001d3d] disabled:opacity-50 mt-8"
           >
-            {loading ? 'BUILDING BRACKET...' : 'Launch Tournament'}
+            {loading ? 'BUILDING...' : 'Launch Tournament'}
           </button>
         </div>
       </div>

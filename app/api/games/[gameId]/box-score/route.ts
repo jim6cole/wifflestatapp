@@ -16,7 +16,7 @@ export async function GET(
 
     if (!currentGame) return NextResponse.json({ error: "Game not found" }, { status: 404 });
 
-    // 1. Fetch the lineup for this game. This gives us the correct team for every player.
+    // 1. Fetch the lineup.
     const lineups = await prisma.lineupEntry.findMany({
       where: { gameId: gId },
       include: { player: true }
@@ -25,13 +25,14 @@ export async function GET(
     const batterStats: Record<string, any> = {};
     const pitcherStats: Record<number, any> = {};
     
-    // Create a map to quickly find a player's team and name from the lineup
-    const playerLookup: Record<number, { name: string, teamId: number }> = {};
+    // Create a map to quickly find a player's team, name, and POSITION from the lineup
+    const playerLookup: Record<number, { name: string, teamId: number, position: string }> = {};
 
     lineups.forEach(entry => {
       playerLookup[entry.playerId] = { 
         name: entry.player.name, 
-        teamId: entry.teamId 
+        teamId: entry.teamId,
+        position: entry.position // <-- NEW: Grab position
       };
 
       if (!pitcherStats[entry.playerId]) {
@@ -43,7 +44,7 @@ export async function GET(
       }
     });
 
-    // 2. Fetch all AtBats. We only need the raw data because we have our playerLookup map.
+    // 2. Fetch all AtBats
     const seasonAtBats = await prisma.atBat.findMany({
       where: {
         game: { seasonId: currentGame.seasonId, scheduledAt: { lte: currentGame.scheduledAt } }
@@ -62,11 +63,14 @@ export async function GET(
       const bKey = `${ab.batterId}-${ab.slot}`;
       const playerData = playerLookup[ab.batterId];
       
-      // We only care about batters who are actually in the lineup for THIS game
       if (playerData && (isCurrent || ab.gameId !== gId)) {
         if (!batterStats[bKey]) {
           batterStats[bKey] = {
-            id: ab.batterId, name: playerData.name, teamId: playerData.teamId, slot: ab.slot,
+            id: ab.batterId, 
+            name: playerData.name, 
+            teamId: playerData.teamId, 
+            slot: ab.slot,
+            position: playerData.position, // <-- NEW: Pass to frontend
             ab: 0, r: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0, k: 0, tb: 0,
             season_ab: 0, season_h: 0, season_bb: 0, season_tb: 0, playedInThisGame: false
           };
@@ -75,7 +79,8 @@ export async function GET(
         const b = batterStats[bKey];
         if (isCurrent) { 
           b.playedInThisGame = true;
-          b.rbi += ab.rbi || 0; 
+          const rbiVal = ab.rbi > 0 ? ab.rbi : (ab.runsScored || 0); // Include RBI fix
+          b.rbi += rbiVal; 
           b.r += ab.runsScored || 0; 
         }
         
@@ -122,10 +127,7 @@ export async function GET(
          const chargedIds = ab.runAttribution.split(',').map(id => parseInt(id.trim()));
          chargedIds.forEach(pid => {
            const rp = pitcherStats[pid];
-           if (rp) {
-             rp.r++;
-             rp.er++;
-           }
+           if (rp) { rp.r++; rp.er++; }
          });
       } else if (isCurrent && !ab.runAttribution && ab.runsScored > 0) {
         if (p) { p.r += ab.runsScored; p.er += ab.runsScored; }
@@ -164,7 +166,8 @@ export async function GET(
     };
 
     return NextResponse.json({
-      batters: Object.values(batterStats).filter(b => b.playedInThisGame).sort((a, b) => a.slot - b.slot),
+      // We map the batting rows to include our rate stats
+      batters: Object.values(batterStats).filter(b => b.playedInThisGame).map(mapRow).sort((a, b) => a.slot - b.slot),
       pitchers: Object.values(pitcherStats).filter(p => p.faced > 0 || p.r > 0).map(mapPitcher)
     });
   } catch (error) {

@@ -16,16 +16,18 @@ export default function NewSeasonWizard() {
     cleanHitRule: false,
     ghostRunner: true,
     mercyRule: 10,
-    // NEW GHOST BASE LOGIC
-    dpWithoutRunners: false, // Record 2 outs even if bases are empty
-    dpKeepsRunners: false    // Record 2 outs but don't clear the runners from the bases
+    dpWithoutRunners: false, 
+    dpKeepsRunners: false,
+    // NEW LINEUP LOGIC
+    maxDh: 1,
+    minBatters: 0
   });
 
   const handleCreate = async () => {
     if (!rules.name) return alert("Please name this season first!");
     setLoading(true);
     try {
-      const res = await fetch('/api/seasons', {
+      const res = await fetch('/api/admin/seasons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(rules),
@@ -93,6 +95,23 @@ export default function NewSeasonWizard() {
               <label className="text-[9px] font-black uppercase text-slate-600 mb-2 block">Outs / Inn</label>
               <select value={rules.outs} onChange={e => setRules({...rules, outs: parseInt(e.target.value)})} className="w-full bg-slate-950 p-3 rounded-lg border border-white/5 font-black text-center text-red-500 text-sm">
                 {[2, 3].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* NEW: LINEUP RESTRICTIONS */}
+          <div className="grid grid-cols-2 gap-6 pt-4 border-t border-white/5">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Max DH Spots</label>
+              <select value={rules.maxDh} onChange={e => setRules({...rules, maxDh: parseInt(e.target.value)})} className="w-full bg-slate-950 p-4 rounded-xl border border-white/10 font-black outline-none appearance-none">
+                {[0, 1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Min Batters</label>
+              <select value={rules.minBatters} onChange={e => setRules({...rules, minBatters: parseInt(e.target.value)})} className="w-full bg-slate-950 p-4 rounded-xl border border-white/10 font-black outline-none appearance-none text-blue-400">
+                <option value={0}>Off</option>
+                {[3, 4, 5, 6, 7, 8, 9].map(n => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
           </div>
