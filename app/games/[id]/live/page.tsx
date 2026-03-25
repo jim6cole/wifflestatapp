@@ -9,12 +9,12 @@ export default function LiveScorer() {
   const [game, setGame] = useState<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // --- NEW TRACKING FOR SUBS & STATS ---
+  // --- TRACKING FOR SUBS & STATS ---
   const [batterIndices, setBatterIndices] = useState({ away: 0, home: 0 }); 
   const [baseRunnerPitchers, setBaseRunnerPitchers] = useState<(number | null)[]>([null, null, null]);
   const [showSubModal, setShowSubModal] = useState<'pitcher' | 'batter' | null>(null);
   const [availableSubs, setAvailableSubs] = useState<any[]>([]);
-  const [retiredPitchers, setRetiredPitchers] = useState<number[]>([]); // <-- TRACK BURNED PITCHERS
+  const [retiredPitchers, setRetiredPitchers] = useState<number[]>([]); 
 
   // --- CORE GAME STATE ---
   const [isTopInning, setIsTopInning] = useState(true); 
@@ -126,17 +126,16 @@ export default function LiveScorer() {
       const sideKey = isTopInning ? 'currentHomePitcherId' : 'currentAwayPitcherId';
       const teamId = isTopInning ? game.homeTeamId : game.awayTeamId;
 
-      const existingInLineup = game.lineups.find((l: any) => l.playerId === newPlayer.id && l.teamId === teamId);
       const oldPitcherInLineup = game.lineups.find((l: any) => l.playerId === activePitcherId && l.teamId === teamId);
 
       let newLineups = [...game.lineups];
+      const existingInLineup = game.lineups.find((l: any) => l.playerId === newPlayer.id && l.teamId === teamId);
       if (!existingInLineup && oldPitcherInLineup) {
         newLineups = game.lineups.map((l: any) => 
           l.id === oldPitcherInLineup.id ? { ...l, playerId: newPlayer.id, player: newPlayer } : l
         );
       }
 
-      // ENFORCER: Burn the old pitcher if re-entry is disabled
       if (!game.season?.allowPitcherReentry && activePitcherId) {
         setRetiredPitchers(prev => [...prev, activePitcherId]);
       }
@@ -178,7 +177,6 @@ export default function LiveScorer() {
     if (type === 'pitcher') {
       setAvailableSubs(teamRoster.filter((p: any) => {
         if (p.id === activePitcherId) return false;
-        // Filter out burned pitchers if the rule is active
         if (!game.season?.allowPitcherReentry && retiredPitchers.includes(p.id)) return false;
         return true;
       }));
@@ -199,7 +197,17 @@ export default function LiveScorer() {
     if (!game) return;
     const rules = game.season;
     const targetInnings = rules?.inningsPerGame || 5;
+    const mercyLimit = rules?.mercyRule || 0;
 
+    // --- MERCY RULE CHECK (End of Full Inning) ---
+    const scoreDiff = Math.abs(homeScore - awayScore);
+    if (mercyLimit > 0 && scoreDiff >= mercyLimit) {
+        setGameOverMessage(`MERCY RULE! ${homeScore > awayScore ? 'Home' : 'Away'} Team wins by ${scoreDiff}.`);
+        setShowEndGameModal(true);
+        return;
+    }
+
+    // --- STANDARD END GAME LOGIC ---
     if (isTopInning && inning >= targetInnings && homeScore > awayScore) {
         setGameOverMessage("GAME OVER! Home Team Wins!");
         setShowEndGameModal(true);
@@ -238,7 +246,7 @@ export default function LiveScorer() {
     if (!isTopInning) setInning(prev => prev + 1);
   }, [game, isTopInning, inning, baseRunners, baseRunnerPitchers, outs, balls, strikes, batterIndices, homeScore, awayScore]);
 
-  // --- 4. RECORD PLAY WITH INHERITANCE & SLOTS ---
+  // --- 4. RECORD PLAY WITH MERCY & SITUATION LOGIC ---
   const recordPlay = useCallback((result: string, newBases: (any|null)[], runs: number, extraOuts: number = 0) => {
     clearRedo();
     if (!game) return;
@@ -249,7 +257,7 @@ export default function LiveScorer() {
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
     const batter = lineup[activeBatterIdx]?.player;
 
-    // --- ERA TRACKING ENGINE ---
+    // --- ERA TRACKING ---
     let scoringPitcherIds: number[] = [];
     if (runs > 0) {
       if (baseRunnerPitchers[2] && !newBases[2]) scoringPitcherIds.push(baseRunnerPitchers[2]!);
@@ -260,7 +268,7 @@ export default function LiveScorer() {
       }
     }
 
-    // --- OWNER MIGRATION ENGINE ---
+    // --- OWNER MIGRATION ---
     const nextRunnerPitchers: (number | null)[] = [null, null, null];
     newBases.forEach((player, baseIdx) => {
        if (!player) return;
@@ -272,10 +280,12 @@ export default function LiveScorer() {
        }
     });
 
-    fetch(`/api/games/${id}/at-bat`, {
+    // --- DB SYNC ---
+    fetch(`/api/at-bats`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        gameId: id,
         batterId: batter?.id,
         pitcherId: activePitcherId,
         slot: activeBatterIdx + 1,
@@ -284,7 +294,9 @@ export default function LiveScorer() {
         runsScored: runs,
         outs: extraOuts,
         inning: inning,
-        isTopInning: isTopInning
+        isTopInning: isTopInning,
+        runnersOn: baseRunners.filter(b => b !== null).length,
+        outsAtStart: outs
       })
     })
     .then(async (res) => {
@@ -294,7 +306,13 @@ export default function LiveScorer() {
       }
     });
 
-    if (isTopInning) setAwayScore(s => s + runs); else setHomeScore(s => s + runs);
+    // Calculate New Scores for logic checks
+    const newAwayScore = isTopInning ? awayScore + runs : awayScore;
+    const newHomeScore = !isTopInning ? homeScore + runs : homeScore;
+    const currentDiff = Math.abs(newAwayScore - newHomeScore);
+    const mercyRule = game.season?.mercyRule || 0;
+
+    if (isTopInning) setAwayScore(newAwayScore); else setHomeScore(newHomeScore);
 
     setPlayLog(prev => [{
       type: 'play', batter: batter?.name || 'Unknown', batterId: batter?.id, result, runs,
@@ -304,7 +322,16 @@ export default function LiveScorer() {
       prevBatterIndices: { ...batterIndices }
     }, ...prev]);
 
-    if (!isTopInning && inning >= (game.season?.inningsPerGame || 5) && (homeScore + (isTopInning ? 0 : runs)) > awayScore) {
+    // --- MERCY RULE TRIGGER (Bottom Inning / Home Walk-off) ---
+    if (!isTopInning && mercyRule > 0 && currentDiff >= mercyRule) {
+        setBaseRunners(newBases);
+        setGameOverMessage(`MERCY RULE! Home Team wins by ${currentDiff}.`);
+        setShowEndGameModal(true);
+        return;
+    }
+
+    // --- STANDARD WALK-OFF CHECK ---
+    if (!isTopInning && inning >= (game.season?.inningsPerGame || 5) && newHomeScore > newAwayScore) {
        setBaseRunners(newBases);
        setGameOverMessage("WALK-OFF WIN!");
        setShowEndGameModal(true);
@@ -785,9 +812,9 @@ export default function LiveScorer() {
              <div className="mb-4">
                 <label className="text-[10px] font-black uppercase text-pink-300 tracking-widest block mb-2">Error Committed By</label>
                 <select 
-                   value={hitErrorData.fielderId}
-                   onChange={(e) => setHitErrorData({...hitErrorData, fielderId: e.target.value})}
-                   className="w-full bg-[#001d3d] border border-pink-500/50 p-3 text-white font-bold uppercase outline-none focus:border-pink-500"
+                    value={hitErrorData.fielderId}
+                    onChange={(e) => setHitErrorData({...hitErrorData, fielderId: e.target.value})}
+                    className="w-full bg-[#001d3d] border border-pink-500/50 p-3 text-white font-bold uppercase outline-none focus:border-pink-500"
                 >
                    <option value="">-- Select Fielder --</option>
                    {fieldingLineup.map((l: any) => (
@@ -884,8 +911,8 @@ export default function LiveScorer() {
       {/* 8. SCOREBUG */}
       <div className="bg-[#002D62] overflow-hidden rounded shadow-2xl mb-8 border border-white/20 select-none">
         <div className="bg-[#c1121f] text-white px-3 py-1 flex justify-between items-center font-black uppercase tracking-widest text-[9px]">
-           <span>{game.season?.name}</span>
-           <span>{game.season?.inningsPerGame} INN | {game.season?.balls || 4}B {game.season?.strikes || 3}S {game.season?.outs || 3}O {game.season?.mercyRule > 0 ? `| ${game.season.mercyRule} Run Mercy` : ''}</span>
+            <span>{game.season?.name}</span>
+            <span>{game.season?.inningsPerGame} INN | {game.season?.balls || 4}B {game.season?.strikes || 3}S {game.season?.outs || 3}O {game.season?.mercyRule > 0 ? `| ${game.season.mercyRule} Run Mercy` : ''}</span>
         </div>
         <div className="flex">
             <div className="grid grid-cols-[1fr_auto] border-r border-white/20 bg-white text-black min-w-[210px]">

@@ -11,8 +11,7 @@ export async function GET(
     const { id } = await params;
     const playerId = parseInt(id);
 
-    // 1. Fetch the Core Player Data
-    // FIX: We fetch the 'team' through the 'lineups' relation, not directly on the player.
+    // 1. Fetch Core Player Data
     const player = await prisma.player.findUnique({
       where: { id: playerId },
       include: {
@@ -24,7 +23,7 @@ export async function GET(
 
     if (!player) return NextResponse.json({ error: "Player not found" }, { status: 404 });
 
-    // 2. Fetch all At-Bats (Batting & Pitching)
+    // 2. Fetch all At-Bats (Batting & Pitching) including Season speed rules
     const atBats = await prisma.atBat.findMany({
       where: {
         OR: [ { batterId: playerId }, { pitcherId: playerId } ]
@@ -43,20 +42,23 @@ export async function GET(
     const careerPitching = { outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, faced: 0 };
     const yearlySplits: Record<string, any> = {};
     
-    // Extract a unique list of teams the player has played for
     const teams = new Set(player.lineups.map(l => l.team.name));
 
     // 4. Process Every Pitch / Swing
     atBats.forEach(ab => {
       const year = ab.game.scheduledAt.getFullYear().toString();
       const leagueName = ab.game.season.league.name;
-      const isFast = ab.game.season.isSpeedRestricted ? "Medium" : "Fast";
-      const splitKey = `${year}-${leagueName}-${isFast}`; // e.g., "2026-Adirondack-Fast"
+      
+      // NEW: Generate descriptive speed string based on season rules
+      const isRestricted = ab.game.season.isSpeedRestricted;
+      const speedLimit = ab.game.season.speedLimit;
+      const speedStr = isRestricted ? `Medium Pitch (${speedLimit} MPH)` : 'Fast Pitch';
+      
+      const splitKey = `${year}-${leagueName}-${speedStr}`; 
 
-      // Initialize the split row if it doesn't exist
       if (!yearlySplits[splitKey]) {
         yearlySplits[splitKey] = {
-          year, leagueName, style: isFast,
+          year, leagueName, style: speedStr, // Uses the descriptive string
           batting: { ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0, k: 0, tb: 0 },
           pitching: { outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, faced: 0 }
         };
@@ -68,7 +70,6 @@ export async function GET(
       const isOut = ['K', 'STRIKEOUT', 'FLY_OUT', 'GROUND_OUT', 'OUT', 'DP'].some(o => res.includes(o));
       const isWalk = res.includes('WALK') || res.includes('BB') || res.includes('HBP');
 
-      // --- BATTING ENGINE ---
       if (ab.batterId === playerId) {
         let bases = 0;
         if (isHit) {
@@ -87,13 +88,10 @@ export async function GET(
         if (isWalk) { careerBatting.bb++; split.batting.bb++; }
         if (res.includes('K')) { careerBatting.k++; split.batting.k++; }
         const playRbi = ab.rbi > 0 ? ab.rbi : ab.runsScored;
-careerBatting.rbi += playRbi; split.batting.rbi += playRbi;
+        careerBatting.rbi += playRbi; split.batting.rbi += playRbi;
       }
 
-      // --- PITCHING ENGINE (WITH INHERITED RUNS LOGIC) ---
       if (ab.pitcherId === playerId || (ab.runAttribution && ab.runAttribution.includes(playerId.toString()))) {
-        
-        // If they were the actual pitcher on the mound
         if (ab.pitcherId === playerId) {
           careerPitching.faced++; split.pitching.faced++;
           careerPitching.outs += ab.outs; split.pitching.outs += ab.outs;
@@ -103,7 +101,6 @@ careerBatting.rbi += playRbi; split.batting.rbi += playRbi;
           if (res.includes('HR') || res.includes('4B')) { careerPitching.hr++; split.pitching.hr++; }
         }
 
-        // Run Attribution Logic (Earned Runs)
         if (ab.runsScored > 0) {
           if (ab.runAttribution) {
             const chargedIds = ab.runAttribution.split(',').map(id => parseInt(id.trim()));
@@ -113,7 +110,6 @@ careerBatting.rbi += playRbi; split.batting.rbi += playRbi;
               careerPitching.er += runsChargedToMe; split.pitching.er += runsChargedToMe;
             }
           } else if (ab.pitcherId === playerId) {
-            // Fallback if no string exists
             careerPitching.r += ab.runsScored; split.pitching.r += ab.runsScored;
             careerPitching.er += ab.runsScored; split.pitching.er += ab.runsScored;
           }
@@ -121,34 +117,29 @@ careerBatting.rbi += playRbi; split.batting.rbi += playRbi;
       }
     });
 
-    // 5. Calculate Rates (AVG, OPS, ERA, WHIP)
     const calcRates = (b: any, p: any) => {
       const avg = b.ab > 0 ? (b.h / b.ab).toFixed(3).replace(/^0/, '') : '.000';
       const obp = (b.ab + b.bb) > 0 ? ((b.h + b.bb) / (b.ab + b.bb)) : 0;
       const slg = b.ab > 0 ? (b.tb / b.ab) : 0;
       const ops = (b.ab + b.bb) === 0 ? '.000' : (obp + slg).toFixed(3).replace(/^0/, '');
-      
       const ipRaw = p.outs / 3;
       const ip = `${Math.floor(p.outs / 3)}.${p.outs % 3}`;
       const era = ipRaw > 0 ? ((p.er * 4) / ipRaw).toFixed(2) : '0.00';
       const whip = ipRaw > 0 ? ((p.h + p.bb) / ipRaw).toFixed(2) : '0.00';
-
       return { avg, ops, ip, era, whip };
     };
 
     const careerRates = calcRates(careerBatting, careerPitching);
-    
     const formattedSplits = Object.values(yearlySplits).map((split: any) => ({
       ...split,
       rates: calcRates(split.batting, split.pitching)
-    })).sort((a, b) => parseInt(b.year) - parseInt(a.year)); // Sort newest first
+    })).sort((a, b) => parseInt(b.year) - parseInt(a.year));
 
     return NextResponse.json({
       player: { id: player.id, name: player.name, teams: Array.from(teams) },
       career: { batting: careerBatting, pitching: careerPitching, rates: careerRates },
       splits: formattedSplits
     });
-
   } catch (error) {
     console.error("Player Card API Error:", error);
     return NextResponse.json({ error: "Failed to load player stats" }, { status: 500 });

@@ -9,7 +9,6 @@ export default function SeasonStatsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // We'll use your existing global stats logic but pass the seasonId as a filter
     fetch(`/api/public/stats/global?seasonId=${seasonId}`)
       .then(res => res.json())
       .then(data => {
@@ -28,7 +27,7 @@ export default function SeasonStatsPage() {
             <Link href={`/leagues/${leagueId}/stats`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors">
               ← Back to Archives
             </Link>
-            <h1 className="text-6xl font-black italic uppercase tracking-tighter mt-2">{stats.seasonName || "Season Stats"}</h1>
+            <h1 className="text-6xl font-black italic uppercase tracking-tighter mt-2">{stats?.seasonName || "Season Stats"}</h1>
           </div>
         </header>
 
@@ -44,13 +43,14 @@ export default function SeasonStatsPage() {
                      <th className="pb-4 text-center">AVG</th>
                      <th className="pb-4 text-center">HR</th>
                      <th className="pb-4 text-center">RBI</th>
-                     <th className="pb-4 text-center">OPS</th>
+                     <th className="pb-4 text-center text-[#ffd60a]">OPS</th>
                    </tr>
                  </thead>
                  <tbody className="divide-y divide-white/5">
-                   {stats.batting?.slice(0, 15).map((p: any) => (
-                     <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                       <td className="py-4 font-black italic uppercase">{p.name}</td>
+                   {/* FIXED: Changed stats.batting to stats.batters */}
+                   {stats?.batters?.slice(0, 15).map((p: any) => (
+                     <tr key={p.id} className="hover:bg-white/5 transition-colors group">
+                       <td className="py-4 font-black italic uppercase text-lg group-hover:text-[#ffd60a]">{p.name}</td>
                        <td className="py-4 text-center font-mono">{p.avg}</td>
                        <td className="py-4 text-center font-black text-red-500">{p.hr}</td>
                        <td className="py-4 text-center font-bold">{p.rbi}</td>
@@ -71,17 +71,16 @@ export default function SeasonStatsPage() {
                    <tr>
                      <th className="pb-4">Player</th>
                      <th className="pb-4 text-center">ERA</th>
-                     <th className="pb-4 text-center">W-L</th>
                      <th className="pb-4 text-center">K</th>
                      <th className="pb-4 text-center">WHIP</th>
                    </tr>
                  </thead>
                  <tbody className="divide-y divide-white/5">
-                   {stats.pitching?.slice(0, 15).map((p: any) => (
-                     <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                       <td className="py-4 font-black italic uppercase">{p.name}</td>
+                   {/* FIXED: Changed stats.pitching to stats.pitchers */}
+                   {stats?.pitchers?.slice(0, 15).map((p: any) => (
+                     <tr key={p.id} className="hover:bg-white/5 transition-colors group">
+                       <td className="py-4 font-black italic uppercase text-lg group-hover:text-[#669bbc]">{p.name}</td>
                        <td className="py-4 text-center font-black text-[#669bbc]">{p.era}</td>
-                       <td className="py-4 text-center font-mono">{p.w}-{p.l}</td>
                        <td className="py-4 text-center font-bold">{p.k}</td>
                        <td className="py-4 text-center font-mono">{p.whip}</td>
                      </tr>

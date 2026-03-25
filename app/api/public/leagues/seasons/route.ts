@@ -1,14 +1,19 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ leagueId: string }> }
-) {
+// Note: No { params } here because the folder path is static!
+export async function GET(request: NextRequest) {
   try {
-    const { leagueId } = await params;
+    // We get the ID from the URL: /api/public/leagues/seasons?leagueId=X
+    const { searchParams } = new URL(request.url);
+    const leagueId = searchParams.get('leagueId');
+
+    if (!leagueId) {
+      return NextResponse.json({ error: "Missing leagueId query parameter" }, { status: 400 });
+    }
+
     const lId = parseInt(leagueId);
 
     if (isNaN(lId)) {

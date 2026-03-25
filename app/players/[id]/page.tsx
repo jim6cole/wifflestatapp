@@ -181,8 +181,10 @@ export default function PlayerCard() {
                     <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
                       <td className="px-4 py-3 font-bold text-white">{split.year}</td>
                       <td className="px-4 py-3 text-slate-300 font-medium">{split.leagueName}</td>
+                      
+                      {/* STYLE CELL WITH MPH LIMIT */}
                       <td className="px-4 py-3">
-                        <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-sm ${split.style === 'Fast' ? 'bg-[#c1121f]/20 text-[#c1121f]' : 'bg-blue-500/20 text-blue-400'}`}>
+                        <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-sm whitespace-nowrap ${split.style.includes('Fast') ? 'bg-[#c1121f]/20 text-[#c1121f]' : 'bg-blue-500/20 text-blue-400'}`}>
                           {split.style}
                         </span>
                       </td>
