@@ -85,7 +85,7 @@ export default function Sidebar() {
           </div>
 
           <button 
-            onClick={() => signOut({ callbackUrl: '/admin/login' })}
+            onClick={() => signOut({ callbackUrl: '/' })}
             className="mt-auto bg-[#c1121f] border-4 border-[#001d3d] p-4 text-[12px] text-white font-black italic uppercase tracking-widest hover:bg-[#001d3d] hover:text-[#ffd60a] transition-all shadow-[6px_6px_0px_#ffd60a] active:translate-y-1 active:shadow-none"
           >
             System Logout

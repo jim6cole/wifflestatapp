@@ -3,10 +3,9 @@ import prisma from '@/lib/prisma';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ seasonId: string }> } // Singular to match your folder
+  { params }: { params: Promise<{ seasonId: string }> }
 ) {
   try {
-    // 1. Await the params (Required in Next.js 15)
     const { seasonId } = await params;
     const sId = parseInt(seasonId);
 
@@ -14,12 +13,16 @@ export async function GET(
       return NextResponse.json({ error: "Invalid Season ID" }, { status: 400 });
     }
 
-    // 2. Fetch games for the singular seasonId
     const games = await prisma.game.findMany({
       where: { seasonId: sId },
       include: {
         homeTeam: { select: { name: true } },
-        awayTeam: { select: { name: true } }
+        awayTeam: { select: { name: true } },
+        // Grabs the single most recent play to power the Live Scorebug
+        atBats: {
+          orderBy: { id: 'desc' },
+          take: 1,
+        }
       },
       orderBy: { scheduledAt: 'asc' }
     });

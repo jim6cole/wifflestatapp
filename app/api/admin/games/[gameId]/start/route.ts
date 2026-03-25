@@ -15,14 +15,14 @@ export async function POST(
       // 1. Clear existing lineups
       await tx.lineupEntry.deleteMany({ where: { gameId: gId } });
 
-      // 2. Prepare Home Team Entries (Now capturing the Position)
+      // 2. Prepare Home Team Entries
       const homeEntries = homeLineup.map((p: any, idx: number) => ({
         gameId: gId,
         playerId: parseInt(p.id),
         teamId: parseInt(p.teamId), 
         battingOrder: idx + 1,
         isPitcher: Boolean(p.isPitcher),
-        position: p.position || (p.isPitcher ? 'Pitcher' : 'Fielder') // <-- ADDED THIS
+        position: p.position || (p.isPitcher ? 'Pitcher' : 'Fielder')
       }));
 
       // 3. Prepare Away Team Entries
@@ -32,7 +32,7 @@ export async function POST(
         teamId: parseInt(p.teamId),
         battingOrder: idx + 1,
         isPitcher: Boolean(p.isPitcher),
-        position: p.position || (p.isPitcher ? 'Pitcher' : 'Fielder') // <-- ADDED THIS
+        position: p.position || (p.isPitcher ? 'Pitcher' : 'Fielder')
       }));
 
       await tx.lineupEntry.createMany({
@@ -42,11 +42,11 @@ export async function POST(
       const homePitcher = homeLineup.find((p: any) => p.isPitcher);
       const awayPitcher = awayLineup.find((p: any) => p.isPitcher);
 
-      // 4. Update Game status and starters
+      // 4. Update Game status to exactly match what the frontend expects
       return await tx.game.update({
         where: { id: gId },
         data: {
-          status: "LIVE",
+          status: "IN_PROGRESS", // <-- CHANGED FROM "LIVE"
           currentHomePitcherId: homePitcher ? parseInt(homePitcher.id) : null,
           currentAwayPitcherId: awayPitcher ? parseInt(awayPitcher.id) : null,
         }

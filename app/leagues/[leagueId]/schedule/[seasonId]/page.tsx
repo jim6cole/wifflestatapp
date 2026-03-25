@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect, use } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
 export default function SeasonSchedulePage({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
@@ -12,103 +11,181 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
     fetch(`/api/public/seasons/${seasonId}/games`)
       .then(res => res.json())
       .then(data => {
-        setGames(Array.isArray(data) ? data : []);
+        const gameList = Array.isArray(data) ? data : (data.games || []);
+        
+        // SMART SORT: Forces any IN_PROGRESS games to the absolute top of the list
+        const sortedGames = [...gameList].sort((a, b) => {
+          if (a.status === 'IN_PROGRESS' && b.status !== 'IN_PROGRESS') return -1;
+          if (b.status === 'IN_PROGRESS' && a.status !== 'IN_PROGRESS') return 1;
+          return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+        });
+        
+        setGames(sortedGames);
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, [seasonId]);
 
   if (loading) return (
-    <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black italic text-white text-5xl animate-pulse uppercase">
+    <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black italic text-[#fdf0d5] text-3xl md:text-5xl animate-pulse uppercase border-[12px] md:border-[16px] border-[#c1121f]">
       Syncing Gameday...
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-8 md:p-16 border-[16px] border-[#001d3d]">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-6 md:p-12 border-[12px] md:border-[16px] border-[#c1121f]">
+      <div className="max-w-[1600px] mx-auto">
         
         {/* HEADER SECTION */}
-        <header className="mb-12 border-b-8 border-[#c1121f] pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+        <header className="mb-10 border-b-8 border-[#ffd60a] pb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
-            <Link href={`/leagues/${leagueId}/schedule`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors mb-4 block">
+            <Link href={`/leagues/${leagueId}/schedule`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors mb-4 block">
               ← All Schedules
             </Link>
-            <h1 className="text-7xl md:text-8xl font-black italic uppercase tracking-tighter text-[#001d3d] drop-shadow-[6px_6px_0px_#ffd60a]">
-              Tournament <span className="text-[#c1121f]">Board</span>
+            <h1 className="text-5xl md:text-7xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] leading-none">
+              Tournament <span className="text-[#ffd60a]">Board</span>
             </h1>
+            <p className="text-[#ffd60a] font-black uppercase text-[10px] tracking-[0.4em] mt-3 italic">Live Gameday Schedule</p>
           </div>
-          <div className="bg-[#001d3d] text-white px-8 py-4 font-black italic uppercase tracking-widest text-xl shadow-[8px_8px_0px_#c1121f]">
-            Season ID: {seasonId}
+          <div className="bg-[#c1121f] text-white px-6 py-3 border-4 border-[#001d3d] font-black italic uppercase tracking-widest text-lg shadow-[6px_6px_0px_#000] shrink-0">
+            Season: {seasonId}
           </div>
         </header>
 
-        {/* SCHEDULE LIST */}
-        <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {games.length === 0 ? (
-            <div className="p-20 border-4 border-dashed border-[#001d3d]/10 text-center">
-              <p className="text-slate-400 font-black uppercase italic text-2xl">No Matchups Posted Yet.</p>
+            <div className="col-span-full p-12 border-4 border-dashed border-white/20 text-center bg-black/30 shadow-[8px_8px_0px_#000]">
+              <p className="text-white/50 font-black uppercase italic text-xl tracking-widest">No Matchups Posted Yet.</p>
             </div>
           ) : (
-            games.map((game) => (
-              <div key={game.id} className="group bg-white border-4 border-[#001d3d] p-8 shadow-[12px_12px_0px_#001d3d] hover:shadow-[12px_12px_0px_#ffd60a] transition-all flex flex-col md:flex-row justify-between items-center gap-8">
-                
-                {/* TIME & FIELD INFO */}
-                <div className="w-full md:w-1/4 flex flex-col items-start">
-                  <span className="text-3xl font-black italic uppercase text-[#001d3d]">
-                    {new Date(game.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  </span>
-                  <div className="flex gap-2 mt-2">
-                    <span className="bg-[#669bbc] text-white px-3 py-1 text-[10px] font-black uppercase tracking-widest">
-                      Field {game.fieldNumber || '1'}
+            games.map((game) => {
+              
+              // ==========================================
+              // THE LIVE SCOREBUG CARD
+              // ==========================================
+              if (game.status === 'IN_PROGRESS') {
+                // Parse the latest state from the API
+                const latestAtBat = game.atBats?.[0];
+                const inning = latestAtBat?.inning || 1;
+                const isTop = latestAtBat ? latestAtBat.isTopInning : true;
+                const outs = latestAtBat?.outs || 0;
+                const runnersOn = latestAtBat?.runnersOn || 0;
+
+                return (
+                  <div key={game.id} className="col-span-full border-4 border-[#22c55e] bg-[#001d3d] shadow-[8px_8px_0px_#22c55e] mb-4 overflow-hidden relative group">
+                    <div className="absolute top-0 right-0 bg-[#22c55e] text-[#001d3d] px-4 py-1 font-black italic uppercase tracking-[0.3em] text-[10px] animate-pulse z-10 border-b-4 border-l-4 border-[#001d3d]">
+                      Live Action
+                    </div>
+                    
+                    <div className="flex flex-col xl:flex-row">
+                      {/* TV Broadcast Style Score Lines */}
+                      <div className="flex-1 flex flex-col justify-center bg-[#000]">
+                        <div className="flex justify-between items-center border-b-4 border-[#001d3d] px-6 md:px-12 py-6">
+                          <span className="text-4xl md:text-6xl font-black italic uppercase text-white truncate pr-4">{game.awayTeam?.name}</span>
+                          <span className="text-5xl md:text-7xl font-black text-[#ffd60a] leading-none">{game.awayScore}</span>
+                        </div>
+                        <div className="flex justify-between items-center px-6 md:px-12 py-6 bg-white/5">
+                          <span className="text-4xl md:text-6xl font-black italic uppercase text-white truncate pr-4">{game.homeTeam?.name}</span>
+                          <span className="text-5xl md:text-7xl font-black text-[#ffd60a] leading-none">{game.homeScore}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Live Data Bug (Inning, Outs, Bases) */}
+                      <div className="xl:w-96 bg-[#001d3d] border-t-4 xl:border-t-0 xl:border-l-4 border-[#22c55e] p-6 flex flex-row xl:flex-col justify-between items-center xl:items-start gap-6">
+                        
+                        <div className="flex gap-8 md:gap-12 xl:gap-6 justify-center w-full">
+                          {/* Inning Indicator */}
+                          <div className="text-center xl:text-left">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] block mb-2">Inning</span>
+                            <span className="text-4xl md:text-5xl font-black italic text-white leading-none">
+                              {isTop ? '▲' : '▼'} {inning}
+                            </span>
+                          </div>
+
+                          {/* Outs Indicator */}
+                          <div className="text-center xl:text-left">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] block mb-2">Outs</span>
+                            <div className="flex gap-2 h-[40px] md:h-[48px] items-center">
+                              <div className={`w-6 h-6 rounded-full border-4 border-white transition-colors ${outs > 0 ? 'bg-[#c1121f] border-[#c1121f]' : 'bg-transparent'}`}></div>
+                              <div className={`w-6 h-6 rounded-full border-4 border-white transition-colors ${outs > 1 ? 'bg-[#c1121f] border-[#c1121f]' : 'bg-transparent'}`}></div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bases Indicator (Using simple numbers since we don't map exact bases) */}
+                        <div className="w-full text-center xl:text-left pt-4 xl:border-t-4 border-[#001d3d]/50 hidden md:block">
+                           <span className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] block mb-2">Runners On</span>
+                           <span className="text-3xl font-black italic text-white">{runnersOn > 0 ? runnersOn : 'EMPTY'}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <Link href={`/games/${game.id}/feed`} className="...">
+  Open Live Feed →
+</Link>
+                  </div>
+                );
+              }
+
+              // ==========================================
+              // THE STANDARD GAME CARD (Upcoming/Completed)
+              // ==========================================
+              return (
+                <div 
+                  key={game.id} 
+                  className="group bg-white border-4 border-[#001d3d] shadow-[6px_6px_0px_#000] hover:shadow-[8px_8px_0px_#ffd60a] hover:-translate-y-1 transition-all flex flex-col h-full"
+                >
+                  {/* ... Existing standard card code ... */}
+                  <div className="bg-[#001d3d] text-white p-2 md:p-3 flex justify-between items-center border-b-4 border-[#c1121f]">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#ffd60a]">
+                      {new Date(game.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                     </span>
-                    {game.isPlayoff && (
-                      <span className="bg-[#c1121f] text-white px-3 py-1 text-[10px] font-black uppercase tracking-widest">
-                        Elimination
-                      </span>
+                    <div className="flex gap-2 items-center">
+                      {game.isPlayoff && (
+                        <span className="text-[8px] font-black uppercase text-[#c1121f] tracking-widest bg-white px-1">Elim</span>
+                      )}
+                      <span className="text-[9px] font-black uppercase tracking-widest text-[#669bbc]">Field {game.fieldNumber || '1'}</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#fdf0d5] p-4 md:p-6 flex items-center justify-between gap-3 flex-1">
+                    <div className="text-center flex-1 min-w-0">
+                      <h2 className="text-base md:text-lg font-black italic uppercase break-words leading-tight mb-1 text-[#001d3d]">
+                        {game.awayTeam?.name || 'TBD'}
+                      </h2>
+                      <p className="text-[8px] md:text-[9px] font-bold text-[#669bbc] uppercase tracking-[0.2em]">Away</p>
+                    </div>
+                    <div className="text-sm md:text-base font-black italic text-[#c1121f] shrink-0">@</div>
+                    <div className="text-center flex-1 min-w-0">
+                      <h2 className="text-base md:text-lg font-black italic uppercase break-words leading-tight mb-1 text-[#001d3d]">
+                        {game.homeTeam?.name || 'TBD'}
+                      </h2>
+                      <p className="text-[8px] md:text-[9px] font-bold text-[#c1121f] uppercase tracking-[0.2em]">Home</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-4 text-center border-t-4 border-[#001d3d] mt-auto">
+                    {game.status === 'COMPLETED' ? (
+                      <div className="flex items-center justify-center gap-3">
+                        <span className="text-3xl font-black italic text-[#001d3d] tracking-tighter leading-none">
+                          {game.awayScore} - {game.homeScore}
+                        </span>
+                        <span className="text-[9px] font-black uppercase text-[#c1121f] tracking-widest bg-[#fdf0d5] px-2 py-1 border-2 border-[#c1121f]">Final</span>
+                      </div>
+                    ) : (
+                      <div className="px-4 py-2 border-2 font-black italic uppercase text-[10px] tracking-[0.2em] inline-block bg-slate-100 text-[#001d3d] border-[#001d3d]">
+                        Upcoming
+                      </div>
                     )}
                   </div>
                 </div>
-
-                {/* MATCHUP INFO */}
-                <div className="flex-1 flex items-center justify-center gap-6 md:gap-12 w-full">
-                  <div className="text-center flex-1">
-                    <h2 className="text-2xl md:text-4xl font-black italic uppercase truncate">{game.awayTeam.name}</h2>
-                    <p className="text-[10px] font-bold text-[#669bbc] uppercase tracking-widest">Visitors</p>
-                  </div>
-                  
-                  <div className="text-4xl md:text-6xl font-black italic text-[#c1121f]">@</div>
-
-                  <div className="text-center flex-1">
-                    <h2 className="text-2xl md:text-4xl font-black italic uppercase truncate">{game.homeTeam.name}</h2>
-                    <p className="text-[10px] font-bold text-[#669bbc] uppercase tracking-widest">Home</p>
-                  </div>
-                </div>
-
-                {/* SCORE OR STATUS */}
-                <div className="w-full md:w-1/4 text-center md:text-right">
-                  {game.status === 'COMPLETED' ? (
-                    <div className="flex items-center justify-center md:justify-end gap-4">
-                      <div className="bg-[#001d3d] text-white px-6 py-4 border-2 border-[#001d3d]">
-                        <span className="text-3xl font-black italic">{game.awayScore} - {game.homeScore}</span>
-                      </div>
-                      <span className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest rotate-90 origin-center whitespace-nowrap">Final</span>
-                    </div>
-                  ) : (
-                    <div className={`px-6 py-3 border-4 font-black italic uppercase tracking-widest inline-block ${game.status === 'IN_PROGRESS' ? 'bg-[#22c55e] text-white border-[#001d3d] animate-pulse' : 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d]'}`}>
-                      {game.status === 'IN_PROGRESS' ? 'Live Now' : 'Upcoming'}
-                    </div>
-                  )}
-                </div>
-
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
-        {/* FOOTER */}
-        <footer className="mt-16 text-center border-t-4 border-[#001d3d]/5 pt-8">
-          <p className="text-[9px] font-black uppercase text-[#669bbc] tracking-[0.4em] opacity-50">
+        <footer className="mt-16 text-center border-t-4 border-[#ffd60a]/20 pt-8">
+          <p className="text-[9px] font-black uppercase text-[#669bbc] tracking-[0.4em]">
             Powered by WIFF+ // Gameday Information Center
           </p>
         </footer>
