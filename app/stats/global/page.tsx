@@ -29,8 +29,12 @@ export default function GlobalLeaderboard() {
   const getSortedData = () => {
     const data = viewMode === 'batters' ? [...stats.batters] : [...stats.pitchers];
     return data.sort((a, b) => {
-      if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
+      // Since avg, ops, era, whip are now strings, we need to convert them back to numbers just for sorting
+      const valA = isNaN(parseFloat(a[sortConfig.key])) ? a[sortConfig.key] : parseFloat(a[sortConfig.key]);
+      const valB = isNaN(parseFloat(b[sortConfig.key])) ? b[sortConfig.key] : parseFloat(b[sortConfig.key]);
+
+      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
   };
@@ -53,9 +57,9 @@ export default function GlobalLeaderboard() {
           `"${p.name}"`, 
           `"${p.leagueDisplay}"`, 
           p.ab, p.h, p.d, p.t, p.hr, p.bb, p.rbi,
-          p.avg.toFixed(3).replace(/^0/, ''), 
-          p.obp.toFixed(3).replace(/^0/, ''), 
-          p.ops.toFixed(3).replace(/^0/, '')
+          p.avg, 
+          p.obp, 
+          p.ops
         ];
         csvContent += row.join(",") + "\n";
       });
@@ -68,8 +72,8 @@ export default function GlobalLeaderboard() {
           `"${p.name}"`, 
           `"${p.leagueDisplay}"`, 
           p.ip, p.k, p.h, p.bb, p.hr, p.r,
-          p.whip.toFixed(2), 
-          p.era.toFixed(2)
+          p.whip, 
+          p.era
         ];
         csvContent += row.join(",") + "\n";
       });
@@ -189,8 +193,8 @@ export default function GlobalLeaderboard() {
                         <td className="p-6 font-bold text-green-600">{p.bb}</td>
                         <td className="p-6 font-bold text-[#c1121f]">{p.hr}</td>
                         <td className="p-6 font-bold">{p.r}</td>
-                        <td className="p-6 font-black text-xl">{p.whip.toFixed(2)}</td>
-                        <td className="p-6 font-black text-[#c1121f] text-4xl group-hover:scale-110 transition-transform">{p.era.toFixed(2)}</td>
+                        <td className="p-6 font-black text-xl">{p.whip}</td>
+                        <td className="p-6 font-black text-[#c1121f] text-4xl group-hover:scale-110 transition-transform">{p.era}</td>
                       </>
                     ) : (
                       <>
@@ -201,9 +205,9 @@ export default function GlobalLeaderboard() {
                         <td className="p-6 font-black text-[#c1121f]">{p.hr}</td>
                         <td className="p-6 font-bold text-green-600">{p.bb}</td>
                         <td className="p-6 font-bold">{p.rbi}</td>
-                        <td className="p-6 font-black text-xl">{p.avg.toFixed(3).replace(/^0/, '')}</td>
-                        <td className="p-6 font-black text-xl">{p.obp.toFixed(3).replace(/^0/, '')}</td>
-                        <td className="p-6 font-black text-[#c1121f] text-4xl group-hover:scale-110 transition-transform">{p.ops.toFixed(3).replace(/^0/, '')}</td>
+                        <td className="p-6 font-black text-xl">{p.avg}</td>
+                        <td className="p-6 font-black text-xl">{p.obp}</td>
+                        <td className="p-6 font-black text-[#c1121f] text-4xl group-hover:scale-110 transition-transform">{p.ops}</td>
                       </>
                     )}
                   </tr>
@@ -217,14 +221,14 @@ export default function GlobalLeaderboard() {
   );
 }
 
-function SortHeader({ label, k, cur, req, highlight = false, red = false }: any) {
+function SortHeader({ label, k, cur, req }: any) {
   const isActive = cur.key === k;
   return (
     <th 
       onClick={() => req(k)} 
       className={`p-4 font-black italic uppercase cursor-pointer transition-colors border-r border-[#fdf0d5]/10 hover:bg-[#ffd60a] hover:text-[#001d3d] ${
-        isActive ? 'bg-[#ffd60a] text-[#001d3d]' : ''
-      } ${highlight ? 'text-[#ffd60a]' : ''} ${red && !isActive ? 'text-[#c1121f]' : ''}`}
+        isActive ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-white'
+      }`}
     >
       <div className="flex items-center justify-center gap-1">
         {label}

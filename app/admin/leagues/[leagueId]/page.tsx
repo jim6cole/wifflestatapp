@@ -133,6 +133,13 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
                 href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/schedule/new` : '#'}
                 disabled={!latestActiveSeason}
               />
+              {/* --- NEW TOURNAMENT GENERATOR BUTTON --- */}
+              <HubButton 
+                title="Auto-Scheduler" 
+                subtitle="Round Robin Event Generator" 
+                href={`/admin/leagues/${leagueId}/events/generator`}
+                highlight
+              />
               <HubButton 
                 title="Live Action" 
                 subtitle="Scorekeeper Terminal" 

@@ -56,7 +56,7 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
 
   return (
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-8 md:p-16 border-[12px] border-[#c1121f]">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-[1400px] mx-auto">
         
         <header className="mb-16 border-b-4 border-[#669bbc] pb-8 relative">
           <Link href={`/admin/leagues/${leagueId}`} className="text-[10px] font-black uppercase text-[#ffd60a] tracking-widest hover:text-white transition-colors mb-4 block">
@@ -80,18 +80,28 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+        {/* CHANGED TO lg:grid-cols-5 TO FIT THE NEW GENERATOR CARD */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           
           <SeasonActionCard title="League Leaders" desc="Stats & Standings." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/stats`} highlight icon="★" />
           
           <SeasonActionCard title="Team Builder" desc="Manage rosters & trades." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/teams`} icon="⚒" disabled={isCompleted} />
           
-          {/* Can schedule games in UPCOMING or ACTIVE, but not COMPLETED */}
+          {/* MANUAL SCHEDULE CARD */}
           <SeasonActionCard 
             title="Matchups" 
-            desc={isCompleted ? "Season closed." : "Generate the schedule."} 
+            desc={isCompleted ? "Season closed." : "Schedule single game."} 
             href={isCompleted ? "#" : `/admin/leagues/${leagueId}/seasons/${seasonId}/schedule/new`} 
             icon="📅"
+            disabled={isCompleted}
+          />
+
+          {/* NEW AUTO-GENERATOR CARD */}
+          <SeasonActionCard 
+            title="Auto-Gen" 
+            desc={isCompleted ? "Season closed." : "Round-Robin Creator."} 
+            href={isCompleted ? "#" : `/admin/leagues/${leagueId}/events/generator?seasonId=${seasonId}`} 
+            icon="⚙️"
             disabled={isCompleted}
           />
 
@@ -106,7 +116,7 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
 
           {/* GAME HISTORY: Only for Commissioners */}
           {isCommish && (
-            <div className="lg:col-span-4 mt-4">
+            <div className="lg:col-span-5 mt-4">
               <SeasonActionCard 
                 title="The Archives (Box Scores)" 
                 desc="Review and edit completed matchups." 
@@ -119,7 +129,7 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
 
           {/* SYSTEM CONTROL CARD (Level 2 & 3 Only) */}
           {isCommish && (
-            <div className="lg:col-span-4 bg-black/30 border-4 border-[#c1121f] p-8 shadow-[8px_8px_0px_#c1121f] flex flex-col xl:flex-row xl:items-center justify-between gap-6 mt-8">
+            <div className="lg:col-span-5 bg-black/30 border-4 border-[#c1121f] p-8 shadow-[8px_8px_0px_#c1121f] flex flex-col xl:flex-row xl:items-center justify-between gap-6 mt-8">
               <div>
                 <h3 className="text-3xl font-black uppercase italic text-white mb-1 leading-tight">Coach's Controls</h3>
                 <p className="text-[10px] font-bold uppercase text-[#ffd60a] tracking-widest">Season Lifecycle Management</p>

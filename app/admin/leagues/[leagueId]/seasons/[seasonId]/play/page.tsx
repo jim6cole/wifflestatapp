@@ -2,95 +2,149 @@
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 
-export default function GameDayLobby({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
+export default function PlayBallDashboard({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
   const { leagueId, seasonId } = use(params);
   const [games, setGames] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchGames() {
-      try {
-        // We can reuse the same endpoint the Schedule Maker uses!
-        const res = await fetch(`/api/admin/seasons/${seasonId}/games`);
-        if (res.ok) {
-          const data = await res.json();
-          // Filter out completed games so we only see what's playable
-          setGames(data.filter((g: any) => g.status !== 'COMPLETED'));
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
+    // Fetch all games for this specific season
+    fetch(`/api/games?seasonId=${seasonId}`)
+      .then(res => res.json())
+      .then(data => {
+        // Sort by field number to keep the iPad screens organized
+        const sortedGames = (Array.isArray(data) ? data : []).sort((a, b) => (a.fieldNumber || 0) - (b.fieldNumber || 0));
+        setGames(sortedGames);
         setLoading(false);
-      }
-    }
-    fetchGames();
+      })
+      .catch(err => {
+        console.error("Failed to fetch games:", err);
+        setLoading(false);
+      });
   }, [seasonId]);
 
-  if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black uppercase text-white animate-pulse italic text-2xl">Accessing Playbook...</div>;
+  if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black text-white animate-pulse italic text-4xl uppercase">Loading Gameday Board...</div>;
+
+  // Separate games by status
+  const activeGames = games.filter(g => g.status === 'IN_PROGRESS');
+  const upcomingGames = games.filter(g => g.status === 'UPCOMING');
+  const completedGames = games.filter(g => g.status === 'COMPLETED');
 
   return (
-    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-8 md:p-16 border-[12px] border-[#c1121f]">
-      <div className="max-w-5xl mx-auto">
-        <header className="mb-12 border-b-4 border-[#669bbc] pb-6">
-          <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors mb-4 block">
-            ← Back to Terminal
-          </Link>
-          <h1 className="text-6xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f]">
-            Game Day
-          </h1>
-          <p className="text-[#669bbc] font-bold uppercase text-xs tracking-[0.4em] mt-2">Active & Upcoming Matchups</p>
+    <div className="min-h-screen bg-[#001d3d] text-white p-8 md:p-12 border-[16px] border-[#c1121f]">
+      <div className="max-w-7xl mx-auto">
+        
+        <header className="mb-12 border-b-4 border-[#22c55e] pb-6 flex justify-between items-end">
+          <div>
+            <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#ffd60a] transition-colors mb-4 block">
+              ← Back to Dugout
+            </Link>
+            <h1 className="text-6xl md:text-8xl font-black italic uppercase tracking-tighter drop-shadow-[4px_4px_0px_#22c55e]">
+              Play Ball
+            </h1>
+            <p className="text-[#669bbc] font-bold uppercase text-xs tracking-[0.4em] mt-2">Live Scorekeeper Terminal</p>
+          </div>
+          <div className="hidden md:block bg-[#22c55e] text-[#001d3d] px-6 py-3 font-black italic uppercase text-xl shadow-[6px_6px_0px_#ffffff]">
+            Gameday Active
+          </div>
         </header>
 
-        {games.length === 0 ? (
-          <div className="bg-[#003566] border-2 border-dashed border-[#669bbc] p-20 text-center opacity-50">
-            <p className="text-2xl font-black uppercase italic">No Upcoming Games</p>
-            <p className="text-sm font-bold mt-2">Schedule a game in the terminal first.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {games.map((game) => {
-              const inProgress = game.status === 'IN_PROGRESS' || game.status === 'LIVE' || game.liveState;
-              const d = new Date(game.scheduledAt);
-              
-              return (
-                <div key={game.id} className={`bg-[#003566] border-2 ${inProgress ? 'border-green-500' : 'border-[#669bbc]'} p-6 flex flex-col md:flex-row justify-between items-center group hover:border-[#fdf0d5] transition-all relative overflow-hidden shadow-xl`}>
-                  
-                  {inProgress && (
-                    <div className="absolute top-0 left-0 bg-green-600 text-white text-[8px] font-black uppercase tracking-widest px-3 py-1">
-                      Live
-                    </div>
-                  )}
+        {/* --- LIVE ACTION (IN PROGRESS) --- */}
+        <section className="mb-16">
+          <h2 className="text-3xl font-black italic uppercase text-[#22c55e] mb-6 border-b-2 border-white/10 pb-2">Live Action</h2>
+          {activeGames.length === 0 ? (
+             <p className="text-slate-500 font-bold italic">No games currently in progress.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {activeGames.map(game => (
+                <GameCard key={game.id} game={game} leagueId={leagueId} />
+              ))}
+            </div>
+          )}
+        </section>
 
-                  <div className="mt-2 md:mt-0">
-                    <p className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest mb-1">
-                      {d.toLocaleDateString()} @ {d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                    </p>
-                    <h2 className="text-3xl font-black italic uppercase text-white">
-                      {game.awayTeam?.name} <span className="text-[#669bbc] not-italic text-sm mx-2">VS</span> {game.homeTeam?.name}
-                    </h2>
+        {/* --- ON DECK (UPCOMING) --- */}
+        <section className="mb-16">
+          <h2 className="text-3xl font-black italic uppercase text-[#ffd60a] mb-6 border-b-2 border-white/10 pb-2">On Deck (Pending Lineups)</h2>
+          {upcomingGames.length === 0 ? (
+             <p className="text-slate-500 font-bold italic">No upcoming games scheduled.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {upcomingGames.map(game => (
+                <GameCard key={game.id} game={game} leagueId={leagueId} isUpcoming />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* --- IN THE BOOKS (COMPLETED) --- */}
+        {completedGames.length > 0 && (
+          <section className="opacity-75">
+            <h2 className="text-2xl font-black italic uppercase text-slate-400 mb-6 border-b-2 border-white/10 pb-2">In The Books</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {completedGames.map(game => (
+                <div key={game.id} className="bg-white/5 border-2 border-slate-700 p-4 flex justify-between items-center">
+                  <div className="font-bold uppercase text-sm text-slate-300">
+                    {game.awayTeam?.name} <span className="text-[#669bbc] mx-1">@</span> {game.homeTeam?.name}
                   </div>
-                  
-                  {inProgress ? (
-                    <Link 
-                      href={`/games/${game.id}/live`}
-                      className="mt-6 md:mt-0 bg-green-600 text-white px-8 py-4 font-black italic uppercase tracking-widest border-2 border-green-300 hover:bg-white hover:text-green-600 transition-all shadow-[4px_4px_0px_#001d3d]"
-                    >
-                      Resume Game 
-                    </Link>
-                  ) : (
-                    <Link 
-                      href={`/admin/games/${game.id}/lineups`}
-                      className="mt-6 md:mt-0 bg-[#c1121f] text-white px-8 py-4 font-black italic uppercase tracking-widest border-2 border-[#fdf0d5] hover:bg-white hover:text-[#c1121f] transition-all shadow-[4px_4px_0px_#001d3d]"
-                    >
-                      Set Lineups 
-                    </Link>
-                  )}
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 bg-black/50 px-2 py-1">Final</span>
                 </div>
-              )
-            })}
-          </div>
+              ))}
+            </div>
+          </section>
         )}
+
       </div>
     </div>
+  );
+}
+
+// Reusable Game Card Component
+function GameCard({ game, leagueId, isUpcoming = false }: { game: any, leagueId: string, isUpcoming?: boolean }) {
+  // If upcoming, they need to set lineups first. If live, they go straight to the scorekeeper.
+  const targetUrl = isUpcoming 
+    ? `/admin/games/${game.id}/lineups` 
+    : `/games/${game.id}/live`; // Adjust this route if your live scorekeeper is located elsewhere!
+
+  return (
+    <Link href={targetUrl} className="group block">
+      <div className={`bg-black/40 border-4 transition-all duration-300 relative h-full flex flex-col ${
+        isUpcoming 
+          ? 'border-[#ffd60a] hover:bg-[#ffd60a] hover:text-[#001d3d] shadow-[8px_8px_0px_#ffd60a]' 
+          : 'border-[#22c55e] hover:bg-[#22c55e] hover:text-[#001d3d] shadow-[8px_8px_0px_#22c55e]'
+      }`}>
+        
+        {/* Field Number Badge */}
+        <div className={`absolute -top-4 -right-4 border-4 font-black italic uppercase px-4 py-2 text-xl shadow-lg transition-colors ${
+          isUpcoming ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d] group-hover:bg-white' : 'bg-[#22c55e] text-[#001d3d] border-[#001d3d] group-hover:bg-white'
+        }`}>
+          Field {game.fieldNumber || '?'}
+        </div>
+
+        <div className="p-6 flex-1">
+          <div className="text-[10px] font-black uppercase tracking-widest mb-4 opacity-70">
+            {isUpcoming ? 'Awaiting Lineups' : 'Live Scoring'}
+          </div>
+          
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-between items-center">
+              <span className="text-2xl font-black italic uppercase truncate pr-4">{game.awayTeam?.name || 'Away Team'}</span>
+              {!isUpcoming && <span className="text-xl font-bold">{game.awayScore || 0}</span>}
+            </div>
+            <div className="w-full h-[2px] bg-current opacity-20 my-1"></div>
+            <div className="flex justify-between items-center">
+              <span className="text-2xl font-black italic uppercase truncate pr-4">{game.homeTeam?.name || 'Home Team'}</span>
+              {!isUpcoming && <span className="text-xl font-bold">{game.homeScore || 0}</span>}
+            </div>
+          </div>
+        </div>
+
+        <div className={`p-4 text-center font-black italic uppercase tracking-widest transition-colors ${
+          isUpcoming ? 'bg-[#ffd60a]/10 group-hover:bg-transparent' : 'bg-[#22c55e]/10 group-hover:bg-transparent'
+        }`}>
+          {isUpcoming ? 'Set Lineups →' : 'Enter Scorebook →'}
+        </div>
+      </div>
+    </Link>
   );
 }
