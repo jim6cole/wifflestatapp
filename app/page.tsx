@@ -11,7 +11,7 @@ export default function WiffPlusLauncher() {
       {/* TOP NAV */}
       <div className="absolute top-8 right-8 z-20">
         <Link 
-          href="/admin/login" 
+          href="/login" 
           className="text-[10px] font-black uppercase tracking-[0.3em] border-2 border-[#ffd60a] px-8 py-3 rounded-full text-[#ffd60a] hover:bg-[#ffd60a] hover:text-[#001d3d] transition-all shadow-[4px_4px_0px_#c1121f]"
         >
           Staff Portal

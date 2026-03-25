@@ -16,10 +16,7 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
         const seasonsRes = await fetch(`/api/admin/leagues/${leagueId}/seasons`, { cache: 'no-store' });
         
         if (leagueRes.ok) setLeague(await leagueRes.json());
-        if (seasonsRes.ok) {
-          const data = await seasonsRes.json();
-          setSeasons(data); 
-        }
+        if (seasonsRes.ok) setSeasons(await seasonsRes.json());
       } catch (error) {
         console.error("Error loading hub data:", error);
       } finally {
@@ -29,125 +26,118 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
     fetchData();
   }, [leagueId]);
 
-  if (loading) return <div className="min-h-screen bg-[#fdf0d5] flex items-center justify-center font-black uppercase text-[#001d3d] animate-pulse italic text-2xl">Accessing League Mainframe...</div>;
+  if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black uppercase text-white animate-pulse italic text-2xl tracking-tighter">Accessing League Mainframe...</div>;
 
   const activeSeasons = seasons.filter(s => s.status === 'ACTIVE');
   const latestActiveSeason = activeSeasons.length > 0 ? activeSeasons[0] : null;
 
   return (
-    <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] font-sans p-8 md:p-16 border-[16px] border-[#001d3d]">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-[#001d3d] text-white font-sans p-4 sm:p-6 md:p-12 lg:p-16 border-[8px] md:border-[16px] border-[#c1121f] selection:bg-[#ffd60a] selection:text-[#001d3d]">
+      <div className="max-w-[1600px] mx-auto">
         
-        {/* HEADER SECTION */}
-        <header className="mb-12 border-b-8 border-[#c1121f] pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-          <div>
-            {/* FIXED BACK BUTTON */}
-            <Link href="/admin/dashboard" className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors block mb-4">
-              ← Back to Dashboard
+        {/* --- HEADER SECTION --- */}
+        <header className="mb-8 md:mb-16 border-b-8 border-[#669bbc]/30 pb-8 flex flex-col xl:flex-row justify-between items-start xl:items-end gap-8">
+          <div className="w-full xl:w-2/3">
+            <Link href="/admin/dashboard" className="text-[10px] font-black uppercase text-[#ffd60a] tracking-[0.3em] hover:text-white transition-colors block mb-6">
+              ← System Dashboard
             </Link>
-            <div className="flex items-center gap-4 mt-4">
-              <h1 className="text-7xl md:text-8xl font-black italic uppercase tracking-tighter text-[#001d3d] drop-shadow-[6px_6px_0px_#ffd60a]">
-                {league?.name} <span className="text-[#c1121f] not-italic text-4xl ml-2">HUB</span>
-              </h1>
-            </div>
-            <p className="text-[#c1121f] font-bold uppercase text-sm tracking-[0.4em] mt-2 italic">{league?.description || 'League Operations'}</p>
+            <h1 className="text-[clamp(2.5rem,7vw,8rem)] font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] leading-[0.9] break-words">
+              {league?.name} <span className="text-[#c1121f] not-italic text-[0.4em] inline-block ml-2 align-middle border-l-8 border-[#c1121f] pl-4 md:pl-6 bg-white px-2 shadow-[4px_4px_0px_#ffd60a]">HUB</span>
+            </h1>
+            <p className="text-[#669bbc] font-bold uppercase text-[clamp(0.75rem,1.2vw,0.9rem)] tracking-[0.35em] mt-8 italic max-w-2xl leading-relaxed">
+              {league?.description || 'League Operations & Franchise Management'}
+            </p>
           </div>
-          <div className="bg-[#001d3d] text-white italic font-black px-8 py-4 shadow-[8px_8px_0px_#c1121f] border-4 border-[#001d3d] text-xl">
-            AFFILIATE ID: {leagueId}
+          
+          <div className="bg-[#c1121f] text-white italic font-black px-6 py-3 md:px-8 md:py-4 shadow-[6px_6px_0px_#ffd60a] border-4 border-white text-sm md:text-xl shrink-0">
+            AFFILIATE // {leagueId}
           </div>
         </header>
 
-        {/* COMMAND GRID */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+        {/* --- COMMAND GRID --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
           
-          {/* COLUMN 1: PERSONNEL MANAGEMENT */}
-          <div className="bg-white border-4 border-[#001d3d] p-8 relative shadow-[12px_12px_0px_#ffd60a]">
-            <h2 className="text-3xl font-black italic uppercase text-[#001d3d] mb-2 border-b-4 border-[#c1121f] pb-2">Personnel</h2>
-            <div className="space-y-4 mt-8">
-              <HubButton 
-                title="Edit Teams" 
-                subtitle="Master Franchise Depot" 
-                href={`/admin/leagues/${leagueId}/teams`} 
-              />
-              <HubButton 
-                title="Edit Rosters" 
-                subtitle="Player Assignments" 
-                href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/players` : '#'}
-                disabled={!latestActiveSeason}
-              />
-              <HubButton 
-                title="User Access" 
-                subtitle="Staff Approvals" 
-                href={`/admin/leagues/${leagueId}/staff`} 
-              />
-            </div>
-          </div>
+          {/* COLUMN 1: PERSONNEL */}
+          <HubColumn title="Personnel" icon="👥">
+            <HubButton 
+              title="Edit Teams" 
+              subtitle="Franchise Management" 
+              href={`/admin/leagues/${leagueId}/teams`} 
+            />
+            <HubButton 
+              title="Edit Rosters" 
+              subtitle="Active Player Pool" 
+              href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/players` : '#'}
+              disabled={!latestActiveSeason}
+            />
+            <HubButton 
+              title="User Access" 
+              subtitle="Permissions Hub" 
+              href={`/admin/leagues/${leagueId}/staff`} 
+            />
+          </HubColumn>
 
-          {/* COLUMN 2: OPERATIONAL CAMPAIGNS */}
-          <div className="bg-white border-4 border-[#001d3d] p-8 relative shadow-[12px_12px_0px_#ffd60a] flex flex-col">
-            <h2 className="text-3xl font-black italic uppercase text-[#001d3d] mb-2 border-b-4 border-[#c1121f] pb-2">Campaigns</h2>
-            
-            {/* Scrollable list of only ACTIVE seasons */}
-            <div className="space-y-4 mt-8 flex-1 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar">
+          {/* COLUMN 2: CAMPAIGNS */}
+          <HubColumn title="Campaigns" icon="🏆">
+            <div className="space-y-4 mb-4">
               {activeSeasons.map((s) => (
                 <HubButton 
                   key={s.id}
                   title={s.name} 
-                  subtitle="Open Terminal" 
+                  subtitle="Open Operation Terminal" 
                   href={`/admin/leagues/${leagueId}/seasons/${s.id}`} 
                   highlight 
                 />
               ))}
-              {activeSeasons.length === 0 && (
-                <p className="text-[#669bbc] font-black italic uppercase text-center py-10 opacity-50">No Active Seasons</p>
-              )}
             </div>
 
-            <div className="pt-6 mt-4 border-t-4 border-[#001d3d]/10 space-y-4">
+            <div className="space-y-4 border-t-8 border-[#001d3d]/5 pt-6">
               <HubButton 
                 title="+ Season Wizard" 
                 subtitle="Standard League Play" 
                 href={`/admin/leagues/${leagueId}/seasons/new`} 
               />
               <HubButton 
-                title="+ Tournament Circuit" 
+                title="+ Tournament Circuit Wizard" 
                 subtitle="Multi-Event Summer Tour" 
                 href={`/admin/leagues/${leagueId}/circuits/new`} 
                 highlight
               />
               <HubButton 
-                title="+ Standalone Event" 
+                title="+ Standalone Tournament Wizard" 
                 subtitle="One-Off Tournament" 
                 href={`/admin/leagues/${leagueId}/tournaments/new`} 
               />
             </div>
-          </div>
+          </HubColumn>
 
-          {/* COLUMN 3: GAME COMMAND */}
-          <div className="bg-white border-4 border-[#001d3d] p-8 relative shadow-[12px_12px_0px_#ffd60a]">
-            <h2 className="text-3xl font-black italic uppercase text-[#001d3d] mb-2 border-b-4 border-[#c1121f] pb-2">Game Command</h2>
-            <div className="space-y-4 mt-8">
-              <HubButton 
-                title="Schedule Game" 
-                subtitle="Deploy Matchup" 
-                href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/schedule/new` : '#'}
-                disabled={!latestActiveSeason}
-              />
-              {/* --- NEW TOURNAMENT GENERATOR BUTTON --- */}
-              <HubButton 
-                title="Auto-Scheduler" 
-                subtitle="Round Robin Event Generator" 
-                href={`/admin/leagues/${leagueId}/events/generator`}
-                highlight
-              />
-              <HubButton 
-                title="Live Action" 
-                subtitle="Scorekeeper Terminal" 
-                href="/admin/games/active"
-              />
-              <HubButton title="Archive" subtitle="View All Histories" href={`/admin/leagues/${leagueId}/seasons`} />
-            </div>
-          </div>
+          {/* COLUMN 3: GAME DAY */}
+          <HubColumn title="Game Day" icon="⚾" highlight>
+            <HubButton 
+              title="Live Action" 
+              subtitle="Active Scoreboard" 
+              href={`/admin/games/active?leagueId=${leagueId}`}
+              highlight
+            />
+            <HubButton 
+              title="Auto-Gen" 
+              subtitle="Matchup Engine" 
+              href={latestActiveSeason 
+                ? `/admin/leagues/${leagueId}/events/generator?seasonId=${latestActiveSeason.id}` 
+                : `/admin/leagues/${leagueId}/events/generator`}
+            />
+             <HubButton 
+              title="Schedule" 
+              subtitle="Manual Entry" 
+              href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/schedule/new` : '#'}
+              disabled={!latestActiveSeason}
+            />
+            <HubButton 
+              title="Season Archives" 
+              subtitle="Historical Stats" 
+              href={`/admin/leagues/${leagueId}/seasons`} 
+            />
+          </HubColumn>
 
         </div>
       </div>
@@ -155,12 +145,28 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
   );
 }
 
-function HubButton({ title, subtitle, href, highlight = false, disabled = false }: { title: string, subtitle: string, href: string, highlight?: boolean, disabled?: boolean }) {
+// Column Container Fix for Navy Background
+function HubColumn({ title, icon, children, highlight = false }: any) {
+  return (
+    <div className={`flex flex-col bg-white border-4 border-[#c1121f] p-6 md:p-8 relative shadow-[12px_12px_0px_#000] ${highlight ? 'ring-8 ring-[#ffd60a]/20' : ''}`}>
+      <div className="flex justify-between items-center mb-8 border-b-4 border-[#001d3d] pb-4">
+        <h2 className="text-2xl md:text-3xl font-black italic uppercase text-[#001d3d] tracking-tighter">{title}</h2>
+        <span className="text-3xl">{icon}</span>
+      </div>
+      <div className="flex flex-col gap-4 flex-1">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Button Styling Fix for White Cards on Navy
+function HubButton({ title, subtitle, href, highlight = false, disabled = false }: any) {
   if (disabled) {
     return (
-      <div className="block bg-slate-100 border-4 border-slate-200 p-6 opacity-50 cursor-not-allowed">
-        <h3 className="text-2xl font-black italic uppercase text-slate-400 leading-tight">{title}</h3>
-        <p className="text-[9px] font-bold uppercase text-slate-400 tracking-widest mt-1 italic">Locked (No Active Season)</p>
+      <div className="block bg-slate-50 border-4 border-slate-200 p-6 opacity-40 cursor-not-allowed">
+        <h3 className="text-lg font-black italic uppercase text-slate-400 leading-tight">{title}</h3>
+        <p className="text-[9px] font-bold uppercase text-slate-400 tracking-widest mt-1">LOCKED</p>
       </div>
     );
   }
@@ -168,12 +174,20 @@ function HubButton({ title, subtitle, href, highlight = false, disabled = false 
   return (
     <Link 
       href={href} 
-      className={`block p-6 transition-all group border-4 ${highlight ? 'bg-[#c1121f] border-[#001d3d] hover:bg-white hover:border-[#c1121f]' : 'bg-white border-slate-200 hover:border-[#001d3d] hover:bg-[#001d3d]'}`}
+      className={`block p-6 transition-all group border-4 active:translate-y-1 active:shadow-none shadow-[4px_4px_0px_#001d3d] ${
+        highlight 
+          ? 'bg-[#c1121f] border-[#001d3d] hover:bg-[#ffd60a] hover:border-[#001d3d]' 
+          : 'bg-white border-[#001d3d] hover:bg-[#ffd60a]'
+      }`}
     >
-      <h3 className={`text-2xl font-black italic uppercase leading-tight transition-colors ${highlight ? 'text-white group-hover:text-[#c1121f]' : 'text-[#001d3d] group-hover:text-white'}`}>
+      <h3 className={`font-black italic uppercase leading-none transition-colors text-[clamp(1rem,2vw,1.75rem)] tracking-tight ${
+        highlight ? 'text-white group-hover:text-[#001d3d]' : 'text-[#001d3d]'
+      }`}>
         {title}
       </h3>
-      <p className={`text-[9px] font-bold uppercase tracking-widest mt-1 transition-colors ${highlight ? 'text-[#fdf0d5] group-hover:text-[#001d3d]' : 'text-[#669bbc] group-hover:text-[#ffd60a]'}`}>
+      <p className={`text-[clamp(0.5rem,1vw,0.7rem)] font-bold uppercase tracking-[0.2em] mt-3 transition-colors ${
+        highlight ? 'text-red-100 group-hover:text-[#001d3d]' : 'text-[#669bbc] group-hover:text-[#001d3d]'
+      }`}>
         {subtitle}
       </p>
     </Link>

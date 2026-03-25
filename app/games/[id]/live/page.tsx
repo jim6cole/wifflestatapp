@@ -1,13 +1,29 @@
 'use client';
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, useRef, use } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LiveScorer() {
   const { id } = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  
+  // Detect where the user came from (admin board vs public live page)
+  const source = searchParams.get('source');
 
   const [game, setGame] = useState<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  // --- NAVIGATION LOGIC ---
+  // Default path: The Season's "Play Ball" dashboard
+  let backUrl = `/admin/leagues/${game?.season?.leagueId}/seasons/${game?.seasonId}/play`;
+  let backLabel = "Back to Gameday Board";
+
+  // If source is public, redirect to the league's live overview instead
+  if (source === 'public') {
+    backUrl = `/leagues/${game?.season?.leagueId}/live`;
+    backLabel = "Back to Live Action";
+  }
 
   // --- TRACKING FOR SUBS & STATS ---
   const [batterIndices, setBatterIndices] = useState({ away: 0, home: 0 }); 
@@ -199,10 +215,10 @@ export default function LiveScorer() {
     const targetInnings = rules?.inningsPerGame || 5;
     const mercyLimit = rules?.mercyRule || 0;
 
-    // --- MERCY RULE CHECK (End of Full Inning) ---
+    // --- MERCY RULE CHECK ---
     const scoreDiff = Math.abs(homeScore - awayScore);
     if (mercyLimit > 0 && scoreDiff >= mercyLimit) {
-        setGameOverMessage(`MERCY RULE! ${homeScore > awayScore ? 'Home' : 'Away'} Team wins by ${scoreDiff}.`);
+        setGameOverMessage(`MERCY RULE! ${homeScore > awayScore ? 'Home' : 'Away'} Team wins.`);
         setShowEndGameModal(true);
         return;
     }
@@ -257,7 +273,7 @@ export default function LiveScorer() {
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
     const batter = lineup[activeBatterIdx]?.player;
 
-    // --- ERA TRACKING ---
+    // --- ERA TRACKING ENGINE ---
     let scoringPitcherIds: number[] = [];
     if (runs > 0) {
       if (baseRunnerPitchers[2] && !newBases[2]) scoringPitcherIds.push(baseRunnerPitchers[2]!);
@@ -268,7 +284,7 @@ export default function LiveScorer() {
       }
     }
 
-    // --- OWNER MIGRATION ---
+    // --- OWNER MIGRATION ENGINE ---
     const nextRunnerPitchers: (number | null)[] = [null, null, null];
     newBases.forEach((player, baseIdx) => {
        if (!player) return;
@@ -306,7 +322,7 @@ export default function LiveScorer() {
       }
     });
 
-    // Calculate New Scores for logic checks
+    // Calculate scores for logic checks
     const newAwayScore = isTopInning ? awayScore + runs : awayScore;
     const newHomeScore = !isTopInning ? homeScore + runs : homeScore;
     const currentDiff = Math.abs(newAwayScore - newHomeScore);
@@ -616,10 +632,10 @@ export default function LiveScorer() {
       await fetch(`/api/admin/games/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ homeTeamId: game.homeTeamId, awayTeamId: game.awayTeamId, scheduledAt: game.scheduledAt, status: 'COMPLETED', homeScore, awayScore })
+        body: JSON.stringify({ status: 'COMPLETED', homeScore, awayScore })
       });
       localStorage.removeItem(`game-sync-${id}`); 
-      router.push(`/admin/leagues/${game.season.leagueId}`);
+      router.push(backUrl);
     } catch (error) {
       alert("Failed to mark game as completed.");
     }
@@ -649,14 +665,16 @@ export default function LiveScorer() {
   };
 
   const currentStats = currentBatter ? getBatterStats(currentBatter.id) : { avg: '.000', gameH: 0, gameAb: 0 };
-  const targetBalls = game.season?.balls || 4;
-  const targetStrikes = game.season?.strikes || 3;
-  const targetOuts = game.season?.outs || 3;
   const fieldingLineup = game.lineups.filter((l: any) => l.teamId === (isTopInning ? game.homeTeamId : game.awayTeamId));
 
   return (
     <div className="p-4 max-w-2xl mx-auto bg-slate-950 min-h-screen text-white font-sans relative pb-24">
       
+      {/* 0. DYNAMIC BACK BUTTON */}
+      <Link href={backUrl} className="text-[10px] font-black uppercase text-slate-500 hover:text-white transition-all mb-4 block tracking-[0.3em]">
+        ← {backLabel}
+      </Link>
+
       {/* 1. END GAME CONFIRMATION MODAL */}
       {showEndGameModal && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/95 backdrop-blur-md p-6 text-center">
