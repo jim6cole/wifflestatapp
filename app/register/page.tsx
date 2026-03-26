@@ -31,7 +31,8 @@ export default function RegisterUser() {
       });
 
       if (res.ok) {
-        router.push('/admin/login?registered=true');
+        // FIXED: Redirects to the main /login page instead of /admin/login
+        router.push('/login?registered=true');
       } else {
         const data = await res.json();
         setError(data.error || "Registration failed.");
@@ -93,7 +94,8 @@ export default function RegisterUser() {
           </form>
 
           <div className="mt-8 border-t border-white/10 pt-6 text-center">
-            <Link href="/admin/login" className="text-[10px] font-black uppercase text-slate-500 tracking-widest hover:text-white transition-colors">
+            {/* FIXED: Links back to the main /login page instead of /admin/login */}
+            <Link href="/login" className="text-[10px] font-black uppercase text-slate-500 tracking-widest hover:text-white transition-colors">
               ← Cancel & Return to Login
             </Link>
           </div>

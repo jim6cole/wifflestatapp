@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import prisma from "@/lib/prisma";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -21,10 +21,21 @@ export const authOptions: NextAuthOptions = {
           include: { memberships: true }
         });
 
-        if (!user) return null;
+        if (!user) {
+          throw new Error("Invalid Clearance Credentials.");
+        }
+
+        // ===================================================
+        // NEW: BLOCK UNVERIFIED ACCOUNTS
+        // ===================================================
+        if (!user.emailVerified) {
+          throw new Error("Clearance Pending. Please verify your email address.");
+        }
 
         const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
-        if (!isPasswordValid) return null;
+        if (!isPasswordValid) {
+          throw new Error("Invalid Clearance Credentials.");
+        }
 
         return { 
           id: user.id.toString(), 

@@ -119,6 +119,7 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
               href={`/admin/games/active?leagueId=${leagueId}`}
               highlight
             />
+           
             <HubButton 
               title="Auto-Gen" 
               subtitle="Matchup Engine" 
@@ -128,8 +129,8 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
             />
              <HubButton 
               title="Schedule" 
-              subtitle="Manual Entry" 
-              href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/schedule/new` : '#'}
+              subtitle="League Calendar" 
+              href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/schedule` : '#'}
               disabled={!latestActiveSeason}
             />
             <HubButton 

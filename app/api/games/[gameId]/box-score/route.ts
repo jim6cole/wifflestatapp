@@ -9,6 +9,73 @@ export async function GET(
   const gId = parseInt(gameId);
 
   try {
+    // 1. Check for manual stats first
+    const manualStats = await prisma.manualStatLine.findMany({
+      where: { gameId: gId },
+      include: { player: true }
+    });
+
+    // --- BRANCH A: MANUAL STATS FOUND (ADVANCED MAPPING) ---
+    if (manualStats.length > 0) {
+      const batters = manualStats.map(s => {
+        // Calculate Total Bases for Slugging
+        // 1B = H - 2B - 3B - HR
+        const singles = s.h - s.d2b - s.d3b - s.hr;
+        const tb = (singles * 1) + (s.d2b * 2) + (s.d3b * 3) + (s.hr * 4);
+        
+        const obp = (s.ab + s.bb) > 0 ? (s.h + s.bb) / (s.ab + s.bb) : 0;
+        const slg = s.ab > 0 ? tb / s.ab : 0;
+        
+        return {
+          id: s.playerId,
+          name: s.player.name,
+          teamId: s.teamId,
+          slot: 0,
+          ab: s.ab, 
+          r: s.r, 
+          h: s.h, 
+          hr: s.hr, 
+          rbi: s.rbi, 
+          bb: s.bb, 
+          k: s.k,
+          d: s.d2b, // Mapped for frontend 'd'
+          t: s.d3b, // Mapped for frontend 't'
+          avg: s.ab > 0 ? (s.h / s.ab).toFixed(3).replace(/^0/, '') : '.000',
+          ops: (obp + slg).toFixed(3).replace(/^0/, '')
+        };
+      });
+
+      const pitchers = manualStats.filter(s => s.ip > 0 || s.pk > 0).map(s => {
+        // Convert Wiffleball IP (e.g., 3.1) to mathematical decimal (3.33) for averages
+        const wholeInnings = Math.floor(s.ip);
+        const fraction = s.ip % 1;
+        const mathIP = wholeInnings + (fraction >= 0.2 ? 0.666 : fraction >= 0.1 ? 0.333 : 0);
+
+        return {
+          id: s.playerId,
+          name: s.player.name,
+          teamId: s.teamId,
+          ip: s.ip.toFixed(1),
+          h: s.ph,   // Mapped to frontend 'h'
+          r: s.pr,   // Mapped to frontend 'r'
+          er: s.per, // Mapped to frontend 'er'
+          bb: s.pbb, // Mapped to frontend 'bb'
+          k: s.pk,   // Mapped to frontend 'k'
+          hr: 0,     // Placeholder if not in manual schema
+          whip: mathIP > 0 ? ((s.ph + s.pbb) / mathIP).toFixed(2) : '0.00',
+          era: mathIP > 0 ? ((s.per * 6) / mathIP).toFixed(2) : '0.00' // 6-Inning ERA
+        };
+      });
+
+      return NextResponse.json({ 
+        batters, 
+        pitchers, 
+        hrEvents: [], 
+        isManual: true 
+      });
+    }
+
+    // --- BRANCH B: LIVE SCORING LOGIC (ORIGINAL FALLBACK) ---
     const currentGame = await prisma.game.findUnique({
       where: { id: gId },
       select: { seasonId: true, scheduledAt: true, homeTeamId: true, awayTeamId: true }
@@ -70,14 +137,12 @@ export async function GET(
             inning: ab.inning,
             teamId: batterTeamId,
             seasonTotal: seasonHRTracker[ab.batterId],
-            // Casting to 'any' stops the red squiggles and lets the code run
             runnersOn: (ab as any).runnersOn || 0,
             outs: (ab as any).outsAtStart || 0
           });
         }
       }
 
-      // --- STAT AGGREGATION ---
       const isHit = ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
       const isOut = ['K', 'STRIKEOUT', 'FLY_OUT', 'GROUND_OUT', 'OUT', 'DP', 'TAG UP', 'SAC FLY'].some(o => res.includes(o));
       const isWalk = res.includes('WALK') || res.includes('BB') || res.includes('HBP');
@@ -122,7 +187,6 @@ export async function GET(
         }
       }
       
-      // Earned Runs logic
       if (ab.runAttribution) {
         ab.runAttribution.split(',').forEach(pid => {
           const rp = pitcherStats[parseInt(pid)];
@@ -151,10 +215,11 @@ export async function GET(
         era: (p.season_outs > 0 ? (p.season_er * 4) / (p.season_outs / 3) : 0).toFixed(2),
         whip: (p.season_outs > 0 ? (p.season_h + p.season_bb) / (p.season_outs / 3) : 0).toFixed(2)
       })),
-      hrEvents
+      hrEvents,
+      isManual: false
     });
   } catch (error: any) {
-    console.error("API CRASHED:", error.message);
+    console.error("API ERROR:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

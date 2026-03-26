@@ -3,127 +3,148 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-export default function RegisterLeaguePro() {
+export default function NewLeaguePage() {
   const router = useRouter();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
   const [formData, setFormData] = useState({
-    name: '',
-    fullName: '',
+    shortName: '', 
+    name: '',      
     location: '',
-    description: '',
+    region: '',    
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
+    setError('');
+    
+    if (!formData.shortName || !formData.name || !formData.location || !formData.region) {
+      setError("Roster incomplete! All fields are required to take the field.");
+      return;
+    }
+
+    setLoading(true);
 
     try {
-      const response = await fetch('/api/admin/leagues', {
+      const res = await fetch('/api/admin/leagues', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
 
-      if (response.ok) {
+      if (res.ok) {
         router.push('/admin/dashboard');
+        router.refresh();
       } else {
-        alert("Authorization Failed: Could not initialize league.");
+        const data = await res.json();
+        setError(data.error || "The Umpire called it: Registration failed.");
       }
-    } catch (error) {
-      console.error("Registry Error:", error);
+    } catch (err) {
+      setError("Connection error. The Clubhouse uplink is down.");
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] font-sans p-8 md:p-16 border-[12px] border-[#c1121f]">
-      <div className="max-w-3xl mx-auto">
+    <div className="min-h-screen bg-[#001d3d] p-8 md:p-20">
+      <div className="max-w-2xl mx-auto">
         
-        {/* TOP NAVIGATION */}
-        <Link href="/admin/dashboard" className="inline-block mb-8 px-4 py-2 border border-[#669bbc] text-[10px] font-black uppercase tracking-widest hover:bg-[#c1121f] hover:text-white transition-all">
-          ← Return to Dashboard
-        </Link>
-
-        <header className="mb-12 border-b-4 border-[#669bbc] pb-6">
-          <h1 className="text-7xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f]">
-            League Registry
+        {/* Header Section */}
+        <div className="mb-12 border-b-8 border-[#ffd60a] pb-6">
+          <Link href="/admin/dashboard" className="text-[#669bbc] font-black uppercase text-[10px] tracking-widest hover:text-white transition-colors">
+            ← Back to Dugout
+          </Link>
+          <h1 className="text-6xl font-black italic uppercase text-white tracking-tighter mt-4 leading-none">
+            Create League
           </h1>
-          <p className="text-[#669bbc] font-bold uppercase text-xs tracking-[0.4em] mt-2">
-            Establishment of New Affiliate Identity
+          <p className="text-[#fdf0d5] font-bold uppercase text-xs tracking-[0.3em] mt-2 italic">
+            Wiff+ // New Organization
           </p>
-        </header>
+        </div>
 
-        <form onSubmit={handleSubmit} className="bg-[#003566] border-2 border-[#669bbc] p-10 shadow-2xl relative overflow-hidden">
-          {/* DECORATIVE STAR */}
-          <div className="absolute top-[-20px] right-[-20px] text-white opacity-10 text-9xl font-black italic select-none">★</div>
+        {/* The Form Card */}
+        <div className="bg-white border-8 border-[#001d3d] p-8 md:p-12 shadow-[16px_16px_0px_#c1121f]">
+          <form onSubmit={handleSubmit} className="space-y-8">
+            
+            {error && (
+              <div className="bg-[#c1121f] text-white p-4 font-black uppercase text-xs tracking-widest text-center border-4 border-[#001d3d]">
+                {error}
+              </div>
+            )}
 
-          <div className="space-y-8 relative z-10">
-            {/* LEAGUE NAME / SLUG */}
-            <div>
-              <label className="block text-[10px] font-black uppercase text-[#669bbc] mb-2 tracking-[0.2em]">
-                League Short Name (The Slug)
-              </label>
+            {/* Row 1: Short Name */}
+            <div className="flex flex-col">
+              <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic">Acronym / Short Name *</label>
               <input 
-                required
+                type="text" 
                 placeholder="AWAA"
-                className="w-full bg-[#001d3d] border-2 border-[#fdf0d5] p-5 text-4xl font-black italic uppercase text-white outline-none focus:border-[#c1121f] transition-all placeholder:opacity-20"
-                onChange={(e) => setFormData({...formData, name: e.target.value.toUpperCase()})}
-              />
-              <p className="text-[9px] font-bold text-[#669bbc] mt-2 uppercase">Recommended: 3-5 Characters for scoreboards</p>
-            </div>
-
-            {/* FULL ORG NAME */}
-            <div>
-              <label className="block text-[10px] font-black uppercase text-[#669bbc] mb-2 tracking-[0.2em]">
-                Full Organization Title
-              </label>
-              <input 
                 required
-                placeholder="Adirondack Wiffleball Association"
-                className="w-full bg-[#001d3d] border-2 border-[#fdf0d5] p-4 text-xl font-bold text-white outline-none focus:border-[#c1121f] transition-all placeholder:opacity-20"
-                onChange={(e) => setFormData({...formData, fullName: e.target.value})}
+                maxLength={10}
+                className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-5 text-[#001d3d] font-black outline-none focus:border-[#c1121f] transition-colors uppercase placeholder:opacity-30"
+                onChange={(e) => setFormData({...formData, shortName: e.target.value})}
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-white/10">
-              <div>
-                <label className="block text-[10px] font-black uppercase text-[#669bbc] mb-2 tracking-[0.2em]">
-                  Primary Location
-                </label>
-                <input 
-                  placeholder="New York, NY"
-                  className="w-full bg-[#001d3d] border border-white/20 p-4 font-bold text-white outline-none focus:border-[#c1121f]"
-                  onChange={(e) => setFormData({...formData, location: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase text-[#669bbc] mb-2 tracking-[0.2em]">
-                  Region/Description
-                </label>
-                <input 
-                  placeholder="Adirondack Mountains"
-                  className="w-full bg-[#001d3d] border border-white/20 p-4 font-bold text-white outline-none focus:border-[#c1121f]"
-                  onChange={(e) => setFormData({...formData, description: e.target.value})}
-                />
+            {/* Row 2: Full Name */}
+            <div className="flex flex-col">
+              <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic">Full League Name *</label>
+              <input 
+                type="text" 
+                placeholder="American Wiffleball Association of America"
+                required
+                className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-5 text-[#001d3d] font-black outline-none focus:border-[#c1121f] transition-colors placeholder:opacity-30"
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+              />
+            </div>
+
+            {/* Row 3: Location */}
+            <div className="flex flex-col">
+              <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic">Location *</label>
+              <input 
+                type="text" 
+                placeholder="e.g. Queensbury, NY"
+                required
+                className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-5 text-[#001d3d] font-black outline-none focus:border-[#c1121f] transition-colors placeholder:opacity-30"
+                onChange={(e) => setFormData({...formData, location: e.target.value})}
+              />
+            </div>
+
+            {/* Row 4: Region */}
+            <div className="flex flex-col">
+              <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic">Region *</label>
+              <div className="relative">
+                <select 
+                  required
+                  className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-5 text-[#001d3d] font-black outline-none focus:border-[#c1121f] transition-colors appearance-none cursor-pointer"
+                  onChange={(e) => setFormData({...formData, region: e.target.value})}
+                  value={formData.region}
+                >
+                  <option value="" disabled>Select Region...</option>
+                  <option value="East">East</option>
+                  <option value="Midwest">Midwest</option>
+                  <option value="South">South</option>
+                  <option value="West">West</option>
+                  <option value="International">International</option>
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-5 text-[#001d3d]">
+                  <span className="text-xl">▼</span>
+                </div>
               </div>
             </div>
 
+            {/* Submit Button */}
             <button 
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full bg-[#c1121f] border-2 border-[#fdf0d5] py-6 text-2xl font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-xl disabled:opacity-50"
+              type="submit" 
+              disabled={loading}
+              className="w-full bg-[#c1121f] py-6 text-white font-black uppercase italic tracking-[0.2em] text-2xl border-4 border-[#001d3d] hover:bg-[#ffd60a] hover:text-[#001d3d] transition-colors shadow-[8px_8px_0px_#000] disabled:opacity-50 mt-4"
             >
-              {isSubmitting ? 'INITIALIZING...' : 'Establish League Identity ★'}
+              {loading ? 'Submitting Lineup...' : 'Create League'}
             </button>
-          </div>
-        </form>
+          </form>
+        </div>
 
-        <footer className="mt-12 text-center">
-          <p className="text-[10px] font-bold text-[#669bbc] uppercase tracking-[0.3em]">
-            wRC // Official Sanctioning Terminal
-          </p>
-        </footer>
       </div>
     </div>
   );

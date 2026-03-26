@@ -14,8 +14,13 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
   const [homeTeamId, setHomeTeamId] = useState('');
   const [awayTeamId, setAwayTeamId] = useState('');
   const [gameDate, setGameDate] = useState('');
-  const [gameTime, setGameTime] = useState('');
+  // UPDATED: Defaulting to 9:00 AM (09:00 in 24h format)
+  const [gameTime, setGameTime] = useState('09:00'); 
+  const [fieldNumber, setFieldNumber] = useState('1'); 
   const [isPlayoff, setIsPlayoff] = useState(false);
+
+  // Generate 15 fields
+  const availableFields = Array.from({ length: 15 }, (_, i) => (i + 1).toString());
 
   const generateTimeSlots = () => {
     const slots = [];
@@ -40,10 +45,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
         if (seasonRes.ok) setSeason(await seasonRes.json());
 
         const teamsRes = await fetch(`/api/admin/seasons/${seasonId}/teams`);
-        if (teamsRes.ok) {
-          // FIX: Since the API now returns exactly the active teams, we just set them directly
-          setActiveTeams(await teamsRes.json());
-        }
+        if (teamsRes.ok) setActiveTeams(await teamsRes.json());
 
         const gamesRes = await fetch(`/api/admin/seasons/${seasonId}/games`);
         if (gamesRes.ok) setGames(await gamesRes.json());
@@ -58,7 +60,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
 
   const handleScheduleGame = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!homeTeamId || !awayTeamId || !gameDate || !gameTime) return;
+    if (!homeTeamId || !awayTeamId || !gameDate || !gameTime || !fieldNumber) return;
     if (homeTeamId === awayTeamId) return alert("A team cannot play itself!");
 
     const scheduledAt = new Date(`${gameDate}T${gameTime}`).toISOString();
@@ -67,7 +69,13 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
       const res = await fetch(`/api/admin/seasons/${seasonId}/games`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ homeTeamId, awayTeamId, scheduledAt, isPlayoff }),
+        body: JSON.stringify({ 
+          homeTeamId, 
+          awayTeamId, 
+          scheduledAt, 
+          isPlayoff, 
+          fieldNumber: parseInt(fieldNumber) 
+        }),
       });
 
       if (res.ok) {
@@ -75,8 +83,8 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
         setGames([...games, newGame].sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()));
         setHomeTeamId('');
         setAwayTeamId('');
-        setGameTime(''); 
-        // We leave Date and isPlayoff alone so you can rapidly schedule the rest of a tournament stage!
+        // We reset to 9:00 AM default for the next entry
+        setGameTime('09:00'); 
       } else {
         const err = await res.json();
         alert(`Error: ${err.error}`);
@@ -101,180 +109,117 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* LEFT COLUMN: SCHEDULER FORM */}
           <div className="lg:col-span-1 h-fit bg-white border-4 border-[#001d3d] p-6 shadow-[8px_8px_0px_#ffd60a]">
             <h2 className="text-2xl font-black italic uppercase mb-6 text-[#001d3d] border-b-4 border-[#c1121f] pb-2">Schedule Game</h2>
             
             {activeTeams.length < 2 ? (
               <div className="bg-[#c1121f]/10 border-2 border-[#c1121f] p-4 text-center">
                 <p className="font-bold text-[#c1121f] uppercase text-xs">Not enough active teams!</p>
-                <p className="text-[10px] text-slate-500 mt-1">Activate at least two franchises in the Season Architect first.</p>
               </div>
             ) : (
               <form onSubmit={handleScheduleGame} className="space-y-6">
                 
-                {/* MATCHUP ROW */}
                 <div className="space-y-4 bg-[#fdf0d5] border-2 border-[#001d3d] p-4 shadow-inner">
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Away Team</label>
-                    <select 
-                      value={awayTeamId} 
-                      onChange={(e) => setAwayTeamId(e.target.value)}
-                      className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer"
-                      required
-                    >
+                    <select value={awayTeamId} onChange={(e) => setAwayTeamId(e.target.value)} className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer" required>
                       <option value="">Select Away...</option>
                       {activeTeams.map(t => <option key={`away-${t.id}`} value={t.id}>{t.name}</option>)}
                     </select>
                   </div>
-
                   <div className="text-center font-black italic text-[#c1121f] text-2xl">@</div>
-
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Home Team</label>
-                    <select 
-                      value={homeTeamId} 
-                      onChange={(e) => setHomeTeamId(e.target.value)}
-                      className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer"
-                      required
-                    >
+                    <select value={homeTeamId} onChange={(e) => setHomeTeamId(e.target.value)} className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer" required>
                       <option value="">Select Home...</option>
                       {activeTeams.map(t => <option key={`home-${t.id}`} value={t.id}>{t.name}</option>)}
                     </select>
                   </div>
                 </div>
 
-                {/* GAME STAGE TOGGLE (POOL vs BRACKET) */}
-                {season && (
-                  <div className="bg-white border-2 border-[#001d3d] p-4">
-                    <label className="block text-[10px] font-bold uppercase text-[#c1121f] tracking-widest mb-2 text-center">
-                      {season.isTournament ? "Tournament Stage" : "Season Stage"}
-                    </label>
-                    <div className="flex gap-2">
-                      <button 
-                        type="button"
-                        onClick={() => setIsPlayoff(false)} 
-                        className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest border-2 transition-all ${!isPlayoff ? 'bg-[#001d3d] text-white border-[#001d3d]' : 'bg-slate-100 text-slate-400 border-slate-300 hover:border-[#001d3d]'}`}
-                      >
-                        {season.isTournament ? "Pool Play" : "Regular Season"}
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setIsPlayoff(true)} 
-                        className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest border-2 transition-all ${isPlayoff ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d]' : 'bg-slate-100 text-slate-400 border-slate-300 hover:border-[#ffd60a]'}`}
-                      >
-                        {season.isTournament ? "Bracket Play" : "Playoffs"}
-                      </button>
-                    </div>
+                <div className="bg-white border-2 border-[#001d3d] p-4">
+                  <label className="block text-[10px] font-bold uppercase text-[#c1121f] tracking-widest mb-2 text-center">{season?.isTournament ? "Tournament Stage" : "Season Stage"}</label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setIsPlayoff(false)} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest border-2 transition-all ${!isPlayoff ? 'bg-[#001d3d] text-white border-[#001d3d]' : 'bg-slate-100 text-slate-400 border-slate-300'}`}>{season?.isTournament ? "Pool Play" : "Regular"}</button>
+                    <button type="button" onClick={() => setIsPlayoff(true)} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest border-2 transition-all ${isPlayoff ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d]' : 'bg-slate-100 text-slate-400 border-slate-300'}`}>{season?.isTournament ? "Bracket" : "Playoffs"}</button>
                   </div>
-                )}
+                </div>
 
-                {/* DATE & TIME ROW */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-4">
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Date</label>
-                    <input 
-                      type="date" 
-                      value={gameDate}
-                      onChange={(e) => setGameDate(e.target.value)}
-                      className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f]"
-                      required
-                    />
+                    <input type="date" value={gameDate} onChange={(e) => setGameDate(e.target.value)} className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f]" required />
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Time</label>
-                    <select 
-                      value={gameTime}
-                      onChange={(e) => setGameTime(e.target.value)}
-                      className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer"
-                      required
-                    >
-                      <option value="">Select...</option>
-                      {timeSlots.map((slot) => (
-                        <option key={slot.value} value={slot.value}>{slot.label}</option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Time</label>
+                      <select value={gameTime} onChange={(e) => setGameTime(e.target.value)} className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer" required>
+                        <option value="">Select...</option>
+                        {timeSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Field #</label>
+                      <select 
+                        value={fieldNumber} 
+                        onChange={(e) => setFieldNumber(e.target.value)} 
+                        className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer"
+                        required
+                      >
+                        {availableFields.map(num => <option key={num} value={num}>Field {num}</option>)}
+                      </select>
+                    </div>
                   </div>
                 </div>
                 
-                <button 
-                  type="submit"
-                  className="w-full bg-[#c1121f] border-4 border-[#001d3d] px-4 py-4 font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-[6px_6px_0px_#001d3d] active:translate-y-1 active:shadow-none"
-                >
+                <button type="submit" className="w-full bg-[#c1121f] border-4 border-[#001d3d] px-4 py-4 font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-[6px_6px_0px_#001d3d] active:translate-y-1 active:shadow-none">
                   + Add to Calendar
                 </button>
               </form>
             )}
           </div>
 
-          {/* RIGHT COLUMN: SEASON SCHEDULE */}
           <div className="lg:col-span-2 space-y-4">
             <h2 className="text-3xl font-black italic uppercase text-[#001d3d] border-b-4 border-[#ffd60a] pb-2 inline-block mb-6">Upcoming Matches</h2>
             
             {loading ? (
-              <div className="bg-white border-4 border-[#001d3d] p-12 text-center shadow-[8px_8px_0px_#ffd60a]">
-                <p className="text-2xl font-black italic uppercase text-[#001d3d] animate-pulse">Scanning Calendar...</p>
-              </div>
+              <div className="py-20 text-center text-[#001d3d] animate-pulse italic font-black">SCANNING...</div>
             ) : games.length === 0 ? (
               <div className="bg-white border-4 border-[#001d3d] p-12 text-center shadow-[8px_8px_0px_#ffd60a]">
-                <p className="text-2xl font-black italic uppercase opacity-30 text-[#001d3d]">Schedule is Empty</p>
-                <p className="text-[10px] font-bold uppercase text-[#c1121f] mt-2">Generate your first matchup using the console.</p>
+                <p className="text-2xl font-black italic uppercase opacity-30">Schedule is Empty</p>
               </div>
             ) : (
               <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
                 {games.map((game) => {
                   const gameDateObj = new Date(game.scheduledAt);
                   const isLive = game.status === 'LIVE'; 
-                  
                   return (
                     <div key={game.id} className={`bg-white border-4 ${isLive ? 'border-[#ffd60a] shadow-[6px_6px_0px_#ffd60a]' : 'border-[#001d3d] shadow-[4px_4px_0px_#001d3d]'} p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center hover:bg-[#fdf0d5] transition-colors gap-4`}>
-                      
                       <div className="flex-1">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-wrap">
                           <span className="text-xl font-black italic uppercase text-[#001d3d]">{game.awayTeam?.name}</span>
                           <span className="text-[10px] font-black text-[#c1121f]">@</span>
                           <span className="text-xl font-black italic uppercase text-[#001d3d]">{game.homeTeam?.name}</span>
-                          
-                          {/* STAGE BADGE */}
-                          {game.isPlayoff && (
-                            <span className="ml-2 bg-[#ffd60a] text-[#001d3d] px-2 py-0.5 text-[10px] font-black uppercase tracking-widest border-2 border-[#001d3d] shadow-sm">
-                              {season?.isTournament ? 'Bracket' : 'Playoffs'}
-                            </span>
-                          )}
+                          <span className="bg-[#001d3d] text-[#ffd60a] px-2 py-0.5 text-[10px] font-black uppercase border-2 border-[#ffd60a]">
+                             F{game.fieldNumber || '1'}
+                          </span>
                         </div>
-                        <p className="text-[10px] font-bold uppercase text-slate-500 tracking-widest mt-1">
-                          Game ID: {game.id} | Status: <span className={isLive ? "text-green-500" : ""}>{game.status}</span>
-                        </p>
+                        <p className="text-[10px] font-bold uppercase text-slate-500 tracking-widest mt-1">ID: {game.id} | Status: <span className={isLive ? "text-green-500" : ""}>{game.status}</span></p>
                       </div>
-
                       <div className="flex items-center gap-4">
-                          {isLive && (
-  <Link 
-    href={`/games/${game.id}/live`} // FIX: Removed /admin prefix
-    className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border-2 border-[#001d3d] hover:bg-white hover:text-[#c1121f] transition-all"
-  >
-    Enter Game →
-  </Link>
-)}
-                        
-                        
+                        {isLive && <Link href={`/games/${game.id}/live`} className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border-2 border-[#001d3d] hover:bg-white hover:text-[#c1121f]">Enter Game →</Link>}
                         <div className="bg-[#fdf0d5] border-2 border-[#001d3d] px-4 py-2 text-right min-w-[140px] shadow-inner">
-                          <p className="font-black text-sm text-[#001d3d]">
-                            {gameDateObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-                          </p>
-                          <p className="text-[10px] font-black text-[#c1121f] tracking-widest uppercase mt-0.5">
-                            {gameDateObj.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                          </p>
+                          <p className="font-black text-sm text-[#001d3d]">{gameDateObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+                          <p className="text-[10px] font-black text-[#c1121f] uppercase mt-0.5">{gameDateObj.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</p>
                         </div>
                       </div>
-
                     </div>
                   );
                 })}
               </div>
             )}
           </div>
-
         </div>
       </div>
     </div>

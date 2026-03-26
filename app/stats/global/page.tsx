@@ -2,318 +2,285 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-export default function GlobalLeaderboard() {
-  const currentYearInt = new Date().getFullYear();
-  
-  const [stats, setStats] = useState<{batters: any[], pitchers: any[], year: number | null}>({ batters: [], pitchers: [], year: null });
-  const [leagues, setLeagues] = useState<any[]>([]);
+export default function GlobalStatsPage() {
+  const [activeTab, setActiveTab] = useState<'hitting' | 'pitching'>('hitting');
+  const [pitchers, setPitchers] = useState<any[]>([]);
+  const [batters, setBatters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Filter State
+  const [leagueFilter, setLeagueFilter] = useState('all');
+  const [yearFilter, setYearFilter] = useState(new Date().getFullYear().toString());
+  const [speedFilter, setSpeedFilter] = useState('all');
   
-  const [viewMode, setViewMode] = useState<'batters' | 'pitchers'>('batters');
-  const [sortConfig, setSortConfig] = useState({ key: 'ops', direction: 'desc' });
-  
-  // Filters
-  const [pitchStyle, setPitchStyle] = useState('all');
-  const [selectedLeague, setSelectedLeague] = useState('all');
-  const [selectedYear, setSelectedYear] = useState(currentYearInt.toString());
+  const leagues = [
+    { id: '2', name: 'Mid Atlantic Wiffle' }
+  ];
 
-  // Generate an array of years from 2024 up to the current year
-  const availableYears = Array.from({ length: currentYearInt - 2024 + 1 }, (_, i) => (2024 + i).toString()).reverse();
-
-  // Fetch Available Leagues on mount
-  useEffect(() => {
-    fetch('/api/public/leagues')
-      .then(res => res.json())
-      .then(data => setLeagues(data))
-      .catch(() => console.error("Failed to load leagues"));
-  }, []);
-
-  // Fetch Stats when filters change
   useEffect(() => {
     setLoading(true);
     
-    // Build query parameters dynamically
     const params = new URLSearchParams();
-    if (pitchStyle !== 'all') params.append('style', pitchStyle);
-    if (selectedLeague !== 'all') params.append('leagueId', selectedLeague);
-    if (selectedYear) params.append('year', selectedYear);
+    if (leagueFilter !== 'all') params.append('leagueId', leagueFilter);
+    if (yearFilter !== 'all') params.append('year', yearFilter);
+    if (speedFilter !== 'all') params.append('style', speedFilter);
 
-    fetch(`/api/public/stats/global?${params.toString()}`, { cache: 'no-store' })
+    fetch(`/api/public/stats/global?${params.toString()}`)
       .then(res => res.json())
-      .then(data => { 
-        setStats(data); 
-        setLoading(false); 
+      .then(data => {
+        setPitchers(data.pitchers || []);
+        setBatters(data.batters || []);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Failed to load global stats", err);
+        setLoading(false);
       });
-  }, [pitchStyle, selectedLeague, selectedYear]);
-
-  // Enforce rule: "Selecting a specific league forces current year"
-  const handleLeagueChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newLeague = e.target.value;
-    setSelectedLeague(newLeague);
-    if (newLeague !== 'all') {
-      setSelectedYear(currentYearInt.toString());
-    }
-  };
-
-  const requestSort = (key: string) => {
-    let direction = 'desc';
-    if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
-    setSortConfig({ key, direction });
-  };
-
-  const getSortedData = () => {
-    const data = viewMode === 'batters' ? [...stats.batters] : [...stats.pitchers];
-    return data.sort((a, b) => {
-      const valA = isNaN(parseFloat(a[sortConfig.key])) ? a[sortConfig.key] : parseFloat(a[sortConfig.key]);
-      const valB = isNaN(parseFloat(b[sortConfig.key])) ? b[sortConfig.key] : parseFloat(b[sortConfig.key]);
-
-      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-  };
-
-  const displayData = getSortedData();
-
-  // --- CSV EXPORT LOGIC ---
-  const exportToCSV = () => {
-    if (!displayData || displayData.length === 0) return;
-
-    let csvContent = "";
-    let headers = [];
-
-    if (viewMode === 'batters') {
-      headers = ["Rank", "Player", "League", "Speed", "AB", "H", "2B", "3B", "HR", "BB", "RBI", "AVG", "OBP", "OPS"];
-      csvContent += headers.join(",") + "\n";
-      displayData.forEach((p, index) => {
-        const row = [
-          index + 1,
-          `"${p.name}"`, 
-          `"${p.leagueDisplay}"`, 
-          `"${p.speedDisplay}"`, 
-          p.ab, p.h, p.d, p.t, p.hr, p.bb, p.rbi,
-          p.avg, p.obp, p.ops
-        ];
-        csvContent += row.join(",") + "\n";
-      });
-    } else {
-      headers = ["Rank", "Player", "League", "Speed", "IP", "K", "H", "BB", "HR", "R", "WHIP", "ERA"];
-      csvContent += headers.join(",") + "\n";
-      displayData.forEach((p, index) => {
-        const row = [
-          index + 1,
-          `"${p.name}"`, 
-          `"${p.leagueDisplay}"`,
-          `"${p.speedDisplay}"`,  
-          p.ip, p.k, p.h, p.bb, p.hr, p.r,
-          p.whip, p.era
-        ];
-        csvContent += row.join(",") + "\n";
-      });
-    }
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    const filterDesc = selectedLeague === 'all' ? 'GLOBAL' : `LEAGUE_${selectedLeague}`;
-    link.setAttribute("download", `AWAA_${stats.year || 'Career'}_${filterDesc}_${viewMode.toUpperCase()}_${pitchStyle.toUpperCase()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  }, [leagueFilter, yearFilter, speedFilter]);
 
   return (
-    <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-16 border-[16px] border-[#001d3d] selection:bg-[#ffd60a]">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-12 border-[16px] border-[#001d3d]">
+      <div className="max-w-[1400px] mx-auto">
         
-        <header className="mb-12 flex flex-col xl:flex-row xl:items-end justify-between border-b-8 border-[#c1121f] pb-8 gap-6">
-          <div>
-            <Link href="/stats/select" className="text-xs font-black uppercase text-[#669bbc] hover:text-[#c1121f] mb-4 block tracking-widest">← STAT HUB</Link>
-            <h1 className="text-7xl md:text-9xl font-black italic uppercase tracking-tighter text-[#001d3d] drop-shadow-[6px_6px_0px_#ffd60a]">
-              {stats.year} {selectedLeague === 'all' ? 'GLOBAL' : 'LEAGUE'}
-            </h1>
-          </div>
-
-          <div className="flex flex-col xl:items-end gap-4 w-full xl:w-auto">
-            
-            {/* TOP ROW: Dropdown Filters */}
-            <div className="flex flex-col sm:flex-row gap-2 w-full">
-              
-              <div className="bg-[#001d3d] p-1 border-4 border-[#001d3d] shadow-[4px_4px_0px_#c1121f] flex-1">
-                <select 
-                  value={selectedLeague} 
-                  onChange={handleLeagueChange}
-                  className="w-full bg-white text-[#001d3d] px-4 py-3 font-black italic uppercase text-sm outline-none cursor-pointer hover:bg-[#ffd60a] transition-all"
-                >
-                  <option value="all">ALL LEAGUES</option>
-                  {leagues.map(l => (
-                    <option key={l.id} value={l.id}>{l.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="bg-[#001d3d] p-1 border-4 border-[#001d3d] shadow-[4px_4px_0px_#c1121f]">
-                <select 
-                  value={selectedYear} 
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                  disabled={selectedLeague !== 'all'}
-                  className="w-full bg-white text-[#001d3d] px-4 py-3 font-black italic uppercase text-sm outline-none cursor-pointer hover:bg-[#ffd60a] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {availableYears.map(y => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="bg-[#001d3d] p-1 border-4 border-[#001d3d] shadow-[4px_4px_0px_#c1121f] flex-1">
-                <select 
-                  value={pitchStyle} 
-                  onChange={(e) => setPitchStyle(e.target.value)}
-                  className="w-full bg-white text-[#001d3d] px-4 py-3 font-black italic uppercase text-sm outline-none cursor-pointer hover:bg-[#ffd60a] transition-all"
-                >
-                  <option value="all">ALL SPEEDS</option>
-                  <option value="fast">FAST PITCH</option>
-                  <option value="medium">MEDIUM PITCH</option>
-                </select>
-              </div>
-            </div>
-
-            {/* BOTTOM ROW: Controls */}
-            <div className="flex flex-col sm:flex-row gap-4 w-full justify-between xl:justify-end mt-2">
-              <button 
-                onClick={exportToCSV} 
-                className="bg-[#2b9348] text-white px-6 py-3 font-black italic uppercase text-sm border-4 border-[#001d3d] shadow-[8px_8px_0px_#c1121f] hover:bg-white hover:text-[#2b9348] transition-all flex items-center justify-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                EXPORT CSV
-              </button>
-
-              <div className="flex bg-[#001d3d] border-4 border-[#001d3d] shadow-[8px_8px_0px_#c1121f]">
-                <button onClick={() => { setViewMode('batters'); setSortConfig({key: 'ops', direction: 'desc'}); }} 
-                  className={`px-8 py-4 font-black italic uppercase text-sm transition-all w-1/2 sm:w-auto ${viewMode === 'batters' ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-white hover:text-[#ffd60a]'}`}>HITTING</button>
-                <button onClick={() => { setViewMode('pitchers'); setSortConfig({key: 'era', direction: 'asc'}); }} 
-                  className={`px-8 py-4 font-black italic uppercase text-sm transition-all w-1/2 sm:w-auto ${viewMode === 'pitchers' ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-white hover:text-[#ffd60a]'}`}>PITCHING</button>
-              </div>
-            </div>
-
-          </div>
+        {/* --- HEADER --- */}
+        <header className="mb-8 border-b-8 border-[#c1121f] pb-6">
+          <Link href="/" className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] mb-4 block transition-colors">← STAT HUB</Link>
+          <h1 className="text-7xl md:text-9xl font-black italic uppercase tracking-tighter drop-shadow-[6px_6px_0px_#ffd60a]">
+            {yearFilter === 'all' ? 'All-Time' : yearFilter} Global
+          </h1>
         </header>
 
-        {loading ? (
-          <div className="py-20 text-center font-black uppercase text-[#001d3d] animate-pulse italic text-4xl">LOADING STATS...</div>
-        ) : (
-          <div className="bg-white border-4 border-[#001d3d] overflow-x-auto shadow-[12px_12px_0px_#ffd60a]">
-            <table className="w-full text-center border-collapse min-w-[1200px]">
-              <thead>
-                <tr className="bg-[#001d3d] text-[#fdf0d5]">
-                  <th className="p-6 text-left font-black italic uppercase border-r border-[#fdf0d5]/10">Player</th>
-                  <th className="p-6 font-black italic uppercase border-r border-[#fdf0d5]/10">League</th>
-                  {/* NEW SPEED COLUMN HEADER */}
-                  <th className="p-6 font-black italic uppercase border-r border-[#fdf0d5]/10">Speed</th>
-                  
-                  {viewMode === 'batters' ? (
-                    <>
-                      <SortHeader label="AB" k="ab" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="H" k="h" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="2B" k="d" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="3B" k="t" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="HR" k="hr" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="BB" k="bb" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="RBI" k="rbi" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="AVG" k="avg" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="OBP" k="obp" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="OPS" k="ops" cur={sortConfig} req={requestSort} />
-                    </>
-                  ) : (
-                    <>
-                      <SortHeader label="IP" k="ipRaw" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="K" k="k" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="H" k="h" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="BB" k="bb" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="HR" k="hr" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="R" k="r" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="WHIP" k="whip" cur={sortConfig} req={requestSort} />
-                      <SortHeader label="ERA" k="era" cur={sortConfig} req={requestSort} />
-                    </>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y-4 divide-[#fdf0d5]">
-                {displayData.map((p, i) => (
-                  <tr key={i} className="hover:bg-[#ffd60a]/10 transition-colors group">
-                    <td className="p-6 text-left font-black italic uppercase text-2xl border-r-4 border-[#fdf0d5]">
-                      <span className="text-[#c1121f] text-xs mr-4 not-italic font-bold">{i + 1}</span> 
-                      <Link href={`/players/${p.id}`} className="hover:text-[#c1121f] hover:underline transition-all">
-                        {p.name}
-                      </Link>
-                    </td>
-                    <td className="p-6 border-r-4 border-[#fdf0d5]">
-                      <span className="bg-[#669bbc] text-white px-4 py-1 font-black text-xs uppercase italic rounded-sm shadow-md">
-                        {p.leagueDisplay}
-                      </span>
-                    </td>
-                    {/* NEW SPEED DATA CELL */}
-                    <td className="p-6 border-r-4 border-[#fdf0d5]">
-                      <span className="bg-slate-600 text-white px-3 py-1 font-black text-[10px] uppercase italic rounded-sm shadow-md whitespace-nowrap">
-                        {p.speedDisplay}
-                      </span>
-                    </td>
+        {/* --- FILTER BAR --- */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <select 
+            value={leagueFilter} 
+            onChange={(e) => setLeagueFilter(e.target.value)}
+            className="w-full bg-white border-4 border-[#001d3d] p-4 font-black italic uppercase text-sm outline-none focus:border-[#c1121f] cursor-pointer shadow-[6px_6px_0px_#001d3d]"
+          >
+            <option value="all">ALL LEAGUES</option>
+            {leagues.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
 
-                    {viewMode === 'pitchers' ? (
-                      <>
-                        <td className="p-6 font-bold">{p.ip}</td>
-                        <td className="p-6 font-bold text-[#669bbc]">{p.k}</td>
-                        <td className="p-6 font-bold">{p.h}</td>
-                        <td className="p-6 font-bold text-green-600">{p.bb}</td>
-                        <td className="p-6 font-bold text-[#c1121f]">{p.hr}</td>
-                        <td className="p-6 font-bold">{p.r}</td>
-                        <td className="p-6 font-black text-xl">{p.whip}</td>
-                        <td className="p-6 font-black text-[#c1121f] text-4xl group-hover:scale-110 transition-transform">{p.era}</td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="p-6 font-bold text-[#669bbc]">{p.ab}</td>
-                        <td className="p-6 font-bold">{p.h}</td>
-                        <td className="p-6 font-bold text-slate-400">{p.d}</td>
-                        <td className="p-6 font-bold text-slate-400">{p.t}</td>
-                        <td className="p-6 font-black text-[#c1121f]">{p.hr}</td>
-                        <td className="p-6 font-bold text-green-600">{p.bb}</td>
-                        <td className="p-6 font-bold">{p.rbi}</td>
-                        <td className="p-6 font-black text-xl">{p.avg}</td>
-                        <td className="p-6 font-black text-xl">{p.obp}</td>
-                        <td className="p-6 font-black text-[#c1121f] text-4xl group-hover:scale-110 transition-transform">{p.ops}</td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-                {displayData.length === 0 && (
-                  <tr>
-                    <td colSpan={11} className="p-12 text-center text-xl font-bold text-slate-400 italic">No stats found for this filter combination.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+          <select 
+            value={yearFilter} 
+            onChange={(e) => setYearFilter(e.target.value)}
+            className="w-full bg-white border-4 border-[#001d3d] p-4 font-black italic uppercase text-sm outline-none focus:border-[#c1121f] cursor-pointer shadow-[6px_6px_0px_#001d3d]"
+          >
+            <option value="all">ALL YEARS</option>
+            <option value="2026">2026</option>
+            <option value="2025">2025</option>
+            <option value="2024">2024</option>
+          </select>
+
+          <select 
+            value={speedFilter} 
+            onChange={(e) => setSpeedFilter(e.target.value)}
+            className="w-full bg-white border-4 border-[#001d3d] p-4 font-black italic uppercase text-sm outline-none focus:border-[#c1121f] cursor-pointer shadow-[6px_6px_0px_#001d3d]"
+          >
+            <option value="all">ALL SPEEDS</option>
+            <option value="fast">FAST (Unrestricted)</option>
+            <option value="medium">MEDIUM (Restricted)</option>
+          </select>
+        </div>
+
+        {/* --- TAB TOGGLES --- */}
+        <div className="flex gap-2 mb-8">
+          <button 
+            onClick={() => setActiveTab('hitting')}
+            className={`flex-1 py-4 font-black italic uppercase text-xl border-4 transition-all ${activeTab === 'hitting' ? 'bg-[#001d3d] text-white border-[#001d3d] shadow-[8px_8px_0px_#c1121f]' : 'bg-white border-[#001d3d] hover:bg-[#ffd60a]'}`}
+          >
+            Hitting
+          </button>
+          <button 
+            onClick={() => setActiveTab('pitching')}
+            className={`flex-1 py-4 font-black italic uppercase text-xl border-4 transition-all ${activeTab === 'pitching' ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d] shadow-[8px_8px_0px_#c1121f]' : 'bg-white border-[#001d3d] hover:bg-[#001d3d] hover:text-white'}`}
+          >
+            Pitching
+          </button>
+        </div>
+
+        {/* --- STATS TABLE --- */}
+        <div className="bg-white border-4 border-[#001d3d] shadow-[12px_12px_0px_#000] overflow-hidden min-h-[400px]">
+          {loading ? (
+             <div className="flex items-center justify-center h-full py-20 font-black italic text-4xl text-[#001d3d] animate-pulse uppercase tracking-tighter">
+               Pulling Files...
+             </div>
+          ) : (
+            <div className="overflow-x-auto">
+              {activeTab === 'hitting' ? (
+                <HittingTable data={batters} />
+              ) : (
+                <PitchingTable data={pitchers} />
+              )}
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );
 }
 
-function SortHeader({ label, k, cur, req }: any) {
-  const isActive = cur.key === k;
+// --- UTILITY SORT FUNCTION ---
+const sortArray = (data: any[], sortConfig: { key: string, direction: 'asc' | 'desc' }) => {
+  return [...data].sort((a, b) => {
+    let aVal = a[sortConfig.key];
+    let bVal = b[sortConfig.key];
+
+    if (typeof aVal === 'string' && !isNaN(parseFloat(aVal))) aVal = parseFloat(aVal);
+    if (typeof bVal === 'string' && !isNaN(parseFloat(bVal))) bVal = parseFloat(bVal);
+
+    if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+};
+
+function PitchingTable({ data }: { data: any[] }) {
+  // Removes "ghost" pitchers with pure 0 stat lines
+  const activePitchers = data.filter(p => 
+    parseFloat(p.ip) > 0 || parseInt(p.k) > 0 || parseInt(p.h) > 0 || parseInt(p.bb) > 0 || parseInt(p.hr) > 0
+  );
+
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'era', direction: 'asc' });
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'desc'; 
+    if (key === 'era' || key === 'whip' || key === 'hr') direction = 'asc'; 
+    
+    if (sortConfig.key === key) {
+      direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedData = sortArray(activePitchers, sortConfig);
+
+  const SortIndicator = ({ columnKey }: { columnKey: string }) => {
+    if (sortConfig.key !== columnKey) return null;
+    return <span className="ml-1 text-[#c1121f]">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>;
+  };
+
   return (
-    <th 
-      onClick={() => req(k)} 
-      className={`p-4 font-black italic uppercase cursor-pointer transition-colors border-r border-[#fdf0d5]/10 hover:bg-[#ffd60a] hover:text-[#001d3d] ${
-        isActive ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-white'
-      }`}
-    >
-      <div className="flex items-center justify-center gap-1">
-        {label}
-        {isActive && <span>{cur.direction === 'desc' ? '▼' : '▲'}</span>}
-      </div>
-    </th>
+    <table className="w-full text-left border-collapse whitespace-nowrap">
+      <thead className="bg-[#001d3d] text-[#ffd60a] text-[10px] font-black uppercase italic tracking-widest select-none">
+        <tr>
+          <th className="p-4 border-r border-white/10 cursor-pointer hover:bg-white/10 transition-colors" onClick={() => handleSort('name')}>Player <SortIndicator columnKey="name" /></th>
+          <th className="p-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('leagueDisplay')}>LGE <SortIndicator columnKey="leagueDisplay" /></th>
+          <th className="p-4 text-center opacity-30 cursor-pointer hover:bg-white/10" onClick={() => handleSort('speedDisplay')}>SP <SortIndicator columnKey="speedDisplay" /></th>
+          <th className="p-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('ip')}>IP <SortIndicator columnKey="ip" /></th>
+          <th className="p-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('k')}>K <SortIndicator columnKey="k" /></th>
+          <th className="p-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('h')}>H <SortIndicator columnKey="h" /></th>
+          <th className="p-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('bb')}>BB <SortIndicator columnKey="bb" /></th>
+          <th className="p-4 text-center text-[#c1121f] bg-black/10 cursor-pointer hover:bg-black/20" onClick={() => handleSort('hr')}>HR <SortIndicator columnKey="hr" /></th>
+          <th className="p-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('whip')}>WHIP <SortIndicator columnKey="whip" /></th>
+          <th className="p-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('era')}>ERA <SortIndicator columnKey="era" /></th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {sortedData.map((p, idx) => (
+          <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
+            <td className="p-4 font-black italic uppercase text-lg border-r border-slate-100">
+              <span className="text-slate-300 mr-2 tabular-nums">{idx + 1}</span>
+              <Link href={`/players/${p.id}`} className="hover:text-[#c1121f] transition-colors">
+                {p.name}
+              </Link>
+            </td>
+            <td className="p-4 text-center font-black text-[#669bbc] text-xs uppercase">{p.leagueDisplay}</td>
+            <td className="p-4 text-center font-black text-slate-200 text-[10px] uppercase">{p.speedDisplay}</td>
+            <td className="p-4 text-center font-black text-xl tabular-nums">{p.ip}</td>
+            <td className="p-4 text-center font-black text-[#003566] text-xl tabular-nums">{p.k}</td>
+            <td className="p-4 text-center font-bold tabular-nums">{p.h}</td>
+            <td className="p-4 text-center font-bold tabular-nums opacity-40">{p.bb}</td>
+            <td className="p-4 text-center font-black text-[#c1121f] text-xl tabular-nums bg-red-50/30">{p.hr || 0}</td>
+            <td className="p-4 text-center font-mono text-slate-400 tabular-nums">{p.whip}</td>
+            <td className="p-4 text-center font-black text-[#c1121f] text-2xl italic tracking-tighter tabular-nums">{p.era}</td>
+          </tr>
+        ))}
+        {sortedData.length === 0 && (
+          <tr><td colSpan={10} className="p-8 text-center text-slate-400 font-bold italic uppercase">No active pitchers found for these filters.</td></tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+function HittingTable({ data }: { data: any[] }) {
+  // Remove players who haven't registered an at-bat or walk
+  const activeBatters = data.filter(b => b.pa > 0);
+
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'ops', direction: 'desc' });
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'desc'; 
+    if (sortConfig.key === key) {
+      direction = sortConfig.direction === 'desc' ? 'asc' : 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedData = sortArray(activeBatters, sortConfig);
+
+  const SortIndicator = ({ columnKey }: { columnKey: string }) => {
+    if (sortConfig.key !== columnKey) return null;
+    return <span className="ml-1 text-[#c1121f]">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>;
+  };
+
+  return (
+    <table className="w-full text-left border-collapse whitespace-nowrap">
+      <thead className="bg-[#001d3d] text-[#ffd60a] text-[10px] font-black uppercase italic tracking-widest select-none">
+        <tr>
+          <th className="px-4 py-4 border-r border-white/10 cursor-pointer hover:bg-white/10" onClick={() => handleSort('name')}>Player <SortIndicator columnKey="name" /></th>
+          
+          {/* ADDED LEAGUE & SPEED FOR HITTERS */}
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('leagueDisplay')}>LGE <SortIndicator columnKey="leagueDisplay" /></th>
+          <th className="px-3 py-4 text-center opacity-30 cursor-pointer hover:bg-white/10" onClick={() => handleSort('speedDisplay')}>SP <SortIndicator columnKey="speedDisplay" /></th>
+          
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10 opacity-60" onClick={() => handleSort('gp')}>GP <SortIndicator columnKey="gp" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10 opacity-60" onClick={() => handleSort('pa')}>PA <SortIndicator columnKey="pa" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('ab')}>AB <SortIndicator columnKey="ab" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('h')}>H <SortIndicator columnKey="h" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10 opacity-60" onClick={() => handleSort('d')}>2B <SortIndicator columnKey="d" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10 opacity-60" onClick={() => handleSort('t')}>3B <SortIndicator columnKey="t" /></th>
+          <th className="px-3 py-4 text-center text-[#c1121f] cursor-pointer hover:bg-white/10" onClick={() => handleSort('hr')}>HR <SortIndicator columnKey="hr" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('rbi')}>RBI <SortIndicator columnKey="rbi" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10 opacity-60" onClick={() => handleSort('bb')}>BB <SortIndicator columnKey="bb" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10 opacity-60" onClick={() => handleSort('k')}>K <SortIndicator columnKey="k" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('avg')}>AVG <SortIndicator columnKey="avg" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer hover:bg-white/10 opacity-60" onClick={() => handleSort('obp')}>OBP <SortIndicator columnKey="obp" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer hover:bg-white/10" onClick={() => handleSort('ops')}>OPS <SortIndicator columnKey="ops" /></th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {sortedData.map((b, idx) => (
+          <tr key={b.id} className="hover:bg-slate-50 transition-colors">
+            <td className="px-4 py-3 font-black italic uppercase text-lg border-r border-slate-100">
+              <span className="text-slate-300 mr-2 tabular-nums">{idx + 1}</span>
+              <Link href={`/players/${b.id}`} className="hover:text-[#c1121f] transition-colors">
+                {b.name}
+              </Link>
+            </td>
+            <td className="px-3 py-3 text-center font-black text-[#669bbc] text-xs uppercase">{b.leagueDisplay}</td>
+            <td className="px-3 py-3 text-center font-black text-slate-200 text-[10px] uppercase">{b.speedDisplay}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.gp}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.pa}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums">{b.ab}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums">{b.h}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.d}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.t}</td>
+            <td className="px-3 py-3 text-center font-black text-[#c1121f] text-xl tabular-nums">{b.hr}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums">{b.rbi}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.bb}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.k}</td>
+            <td className="px-3 py-3 text-center font-black text-[#003566] text-xl font-mono tabular-nums">{b.avg}</td>
+            <td className="px-3 py-3 text-center font-black text-[#669bbc] font-mono tabular-nums opacity-80">{b.obp}</td>
+            <td className="px-4 py-3 text-center font-black text-[#c1121f] text-2xl italic font-mono tabular-nums bg-red-50/30">{b.ops}</td>
+          </tr>
+        ))}
+        {sortedData.length === 0 && (
+          <tr><td colSpan={16} className="p-8 text-center text-slate-400 font-bold italic uppercase">No hitting stats found for these filters.</td></tr>
+        )}
+      </tbody>
+    </table>
   );
 }

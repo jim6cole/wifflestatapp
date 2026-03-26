@@ -3,8 +3,20 @@ import { useState, useEffect, Suspense, use } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 
+// THE UMPIRE'S LOGIC: Keeps names professional
+const formatName = (name: string) => {
+  if (!name) return "";
+  return name
+    .toLowerCase()
+    .trim()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
 function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: string }) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const defaultTeamId = searchParams?.get('teamId');
 
   const [leaguePlayers, setLeaguePlayers] = useState<any[]>([]);
@@ -70,7 +82,8 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
     if (!newPlayerName.trim()) return;
     setIsSearching(true);
     
-    const nameParts = newPlayerName.trim().split(' ');
+    const cleanedName = formatName(newPlayerName);
+    const nameParts = cleanedName.split(' ');
     const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
 
     try {
@@ -81,10 +94,10 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
         setPotentialMatches(matches);
         setShowDuplicateModal(true);
       } else {
-        executeCreatePlayer(newPlayerName);
+        executeCreatePlayer(cleanedName);
       }
     } catch (error) {
-      executeCreatePlayer(newPlayerName);
+      executeCreatePlayer(cleanedName);
     } finally {
       setIsSearching(false);
     }
@@ -96,7 +109,7 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
       const res = await fetch(`/api/admin/players`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: nameToCreate, leagueId }), // Anchors to league!
+        body: JSON.stringify({ name: nameToCreate, leagueId }),
       });
 
       if (res.ok) {
@@ -125,7 +138,6 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
     }
   };
 
-  // --- TARGETED SERVER-SIDE GLOBAL SEARCH ---
   const handleGlobalSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!globalSearchTerm.trim()) return;
@@ -208,7 +220,7 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
   const displayedPlayers = activeTeamFilter === 'all' ? leaguePlayers : leaguePlayers.filter(p => p.teamId === parseInt(activeTeamFilter));
   const unassignedPlayers = leaguePlayers.filter(p => !p.teamId);
 
-  if (loading) return <div className="text-center font-black italic uppercase animate-pulse text-2xl text-white mt-20">Loading Roster...</div>;
+  if (loading) return <div className="text-center font-black italic uppercase animate-pulse text-2xl text-white mt-20">Checking the Roster...</div>;
 
   return (
     <>
@@ -217,7 +229,7 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-[#001d3d] border-4 border-[#669bbc] p-8 max-w-lg w-full shadow-2xl flex flex-col max-h-[80vh]">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-black italic uppercase text-white tracking-wide drop-shadow-[2px_2px_0px_#669bbc]">Global Database</h2>
+                <h2 className="text-2xl font-black italic uppercase text-white tracking-wide drop-shadow-[2px_2px_0px_#669bbc]">Global Player Pool</h2>
                 <button onClick={() => setShowGlobalModal(false)} className="text-[#669bbc] hover:text-white font-black text-xl">X</button>
             </div>
             
@@ -235,21 +247,21 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
                 disabled={isFetchingGlobal || !globalSearchTerm.trim()} 
                 className="bg-[#669bbc] text-[#001d3d] px-4 font-black uppercase tracking-widest hover:bg-white transition-colors disabled:opacity-50"
               >
-                Search
+                Scout
               </button>
             </form>
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-2">
               {isFetchingGlobal ? (
-                  <p className="text-center font-black italic text-[#669bbc] animate-pulse py-4">Scanning Mainframe...</p>
+                  <p className="text-center font-black italic text-[#669bbc] animate-pulse py-4">Checking Scouting Reports...</p>
               ) : globalPlayers.length === 0 && globalSearchTerm !== '' ? (
                   <p className="text-center text-sm font-bold text-[#669bbc] uppercase mt-4">No matching players found.</p>
               ) : (
                   globalPlayers.map((p: any) => (
                     <div key={p.id} className="bg-[#003566] border border-[#669bbc]/50 p-3 flex justify-between items-center group">
                       <div>
-                          <span className="font-bold text-white block">{p.name}</span>
-                          <span className="text-[9px] uppercase text-[#669bbc] tracking-widest">Global ID: {p.id}</span>
+                          <span className="font-bold text-white block">{formatName(p.name)}</span>
+                          <span className="text-[9px] uppercase text-[#669bbc] tracking-widest">Wiff+ ID: {p.id}</span>
                       </div>
                       <button 
                         onClick={() => {
@@ -259,7 +271,7 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
                         }}
                         className="text-[9px] font-black uppercase tracking-widest bg-[#669bbc] text-[#001d3d] px-3 py-2 hover:bg-white transition-colors"
                       >
-                        {activeTeamFilter === 'all' ? 'Pull to Free Agency' : 'Sign Player'}
+                        {activeTeamFilter === 'all' ? 'Draft to Free Agency' : 'Sign Player'}
                       </button>
                     </div>
                   ))
@@ -273,12 +285,12 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
       {showDuplicateModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-[#001d3d] border-4 border-[#c1121f] p-8 max-w-lg w-full shadow-2xl">
-            <h2 className="text-3xl font-black italic uppercase text-white tracking-wide mb-2 text-center drop-shadow-[2px_2px_0px_#c1121f]">Wait! Match Found</h2>
-            <p className="text-xs font-bold uppercase text-[#669bbc] text-center tracking-widest mb-6">Database shows players with a similar last name.</p>
+            <h2 className="text-3xl font-black italic uppercase text-white tracking-wide mb-2 text-center drop-shadow-[2px_2px_0px_#c1121f]">Hold On! Match Found</h2>
+            <p className="text-xs font-bold uppercase text-[#669bbc] text-center tracking-widest mb-6">Similar names found in the clubhouse.</p>
             <div className="space-y-3 mb-6 max-h-60 overflow-y-auto pr-2">
               {potentialMatches.map(match => (
                 <div key={match.id} className="bg-[#003566] border-2 border-[#669bbc] p-4 flex justify-between items-center">
-                  <span className="font-bold text-lg text-white">{match.name}</span>
+                  <span className="font-bold text-lg text-white">{formatName(match.name)}</span>
                   <button 
                     onClick={() => executeImportPlayer(match)}
                     className="text-[10px] font-black uppercase tracking-widest bg-[#c1121f] text-white px-4 py-2 hover:bg-white hover:text-[#c1121f] transition-colors"
@@ -353,7 +365,7 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
                       className="bg-[#001d3d] border border-[#669bbc]/50 p-4 flex justify-between items-center group hover:border-[#fdf0d5] transition-colors cursor-grab active:cursor-grabbing"
                     >
                       <div>
-                        <h3 className="font-bold text-lg text-white group-hover:text-[#ffd60a] transition-colors">{player.name}</h3>
+                        <h3 className="font-bold text-lg text-white group-hover:text-[#ffd60a] transition-colors">{formatName(player.name)}</h3>
                         <p className="text-[10px] uppercase text-[#669bbc] tracking-widest mt-1">
                           {playerTeam ? playerTeam.name : 'Unassigned'}
                         </p>
@@ -408,7 +420,7 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
                     onDragStart={(e) => handleDragStart(e, p.id)}
                     className="flex justify-between items-center bg-[#001d3d] p-3 border border-[#669bbc]/30 text-sm group hover:border-[#ffd60a] cursor-grab active:cursor-grabbing"
                   >
-                    <span className="text-white font-semibold group-hover:text-[#ffd60a]">{p.name}</span>
+                    <span className="text-white font-semibold group-hover:text-[#ffd60a]">{formatName(p.name)}</span>
                     {activeTeamFilter !== 'all' && (
                       <button 
                         onClick={() => handleAssignToTeam(p.id, activeTeamFilter)}
@@ -426,19 +438,19 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
               onClick={openGlobalLookup}
               className="w-full mt-6 bg-transparent border-2 border-dashed border-[#669bbc] text-[#669bbc] px-4 py-3 font-black uppercase text-[10px] tracking-widest hover:text-white hover:border-white transition-all"
             >
-              Global Player Lookup
+              Global Player Pool Search
             </button>
           </div>
 
           <div className="bg-[#c1121f] border-2 border-[#fdf0d5] p-6 shadow-xl relative overflow-hidden">
-            {isSearching && <div className="absolute inset-0 bg-[#c1121f]/80 backdrop-blur flex items-center justify-center font-black italic uppercase text-white z-10 animate-pulse">Scanning DB...</div>}
+            {isSearching && <div className="absolute inset-0 bg-[#c1121f]/80 backdrop-blur flex items-center justify-center font-black italic uppercase text-white z-10 animate-pulse">Checking Lineups...</div>}
             <h2 className="text-xl font-black italic uppercase mb-4 text-white">Scout New Player</h2>
             <form onSubmit={handleInitiateCreatePlayer} className="space-y-4 relative z-0">
               <input
                 type="text"
                 value={newPlayerName}
                 onChange={(e) => setNewPlayerName(e.target.value)}
-                placeholder="Player Name"
+                placeholder="Full Name"
                 className="w-full bg-[#001d3d] border-2 border-transparent p-3 text-white placeholder:text-white/50 font-bold uppercase outline-none focus:border-white transition-colors"
                 required
               />
@@ -446,7 +458,7 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
                 type="submit"
                 className="w-full bg-transparent border-2 border-white px-4 py-3 font-black uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all"
               >
-                Draft to League
+                Create Player
               </button>
             </form>
           </div>
@@ -460,20 +472,24 @@ function RosterManager({ leagueId, seasonId }: { leagueId: string, seasonId: str
 
 export default function PlayerManagerPage({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
   const { leagueId, seasonId } = use(params);
+  const router = useRouter();
 
   return (
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] font-sans p-8 md:p-16 border-[12px] border-[#c1121f]">
       <div className="max-w-7xl mx-auto">
         <div className="mb-12 border-b-4 border-[#669bbc] pb-6">
-          <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}/teams`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors block mb-4">
-            ← Back to Season Teams
-          </Link>
-          <h1 className="text-6xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] mt-2">
+          <button 
+            onClick={() => router.back()}
+            className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors block mb-4 flex items-center gap-2"
+          >
+            ← Back to Previous Page
+          </button>
+          <h1 className="text-6xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] mt-2 leading-none">
             Roster Control
           </h1>
         </div>
 
-        <Suspense fallback={<div className="text-white animate-pulse font-black italic uppercase">Initializing Roster Protocol...</div>}>
+        <Suspense fallback={<div className="text-white animate-pulse font-black italic uppercase">Warming up the Bullpen...</div>}>
           <RosterManager leagueId={leagueId} seasonId={seasonId} />
         </Suspense>
       </div>

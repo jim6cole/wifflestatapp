@@ -80,43 +80,50 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
           </div>
         </header>
 
-        {/* CHANGED TO lg:grid-cols-5 TO FIT THE NEW GENERATOR CARD */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        {/* Action Grid - 3 rows or 6 columns for balance */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
           
-          <SeasonActionCard title="League Leaders" desc="Stats & Standings." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/stats`} highlight icon="★" />
+          <SeasonActionCard title="Leaders" desc="Stats & Standings." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/stats`} highlight icon="★" />
           
-          <SeasonActionCard title="Team Builder" desc="Manage rosters & trades." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/teams`} icon="⚒" disabled={isCompleted} />
+          <SeasonActionCard title="Rosters" desc="Teams & trades." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/teams`} icon="⚒" disabled={isCompleted} />
           
-          {/* MANUAL SCHEDULE CARD */}
           <SeasonActionCard 
             title="Matchups" 
-            desc={isCompleted ? "Season closed." : "Schedule single game."} 
+            desc={isCompleted ? "Season closed." : "Single game."} 
             href={isCompleted ? "#" : `/admin/leagues/${leagueId}/seasons/${seasonId}/schedule/new`} 
             icon="📅"
             disabled={isCompleted}
           />
 
-          {/* NEW AUTO-GENERATOR CARD */}
           <SeasonActionCard 
             title="Auto-Gen" 
-            desc={isCompleted ? "Season closed." : "Round-Robin Creator."} 
+            desc={isCompleted ? "Season closed." : "Round-Robin."} 
             href={isCompleted ? "#" : `/admin/leagues/${leagueId}/events/generator?seasonId=${seasonId}`} 
             icon="⚙️"
             disabled={isCompleted}
           />
 
-          {/* GAME DAY: Only available when ACTIVE */}
+          {/* MANUAL ENTRY CARD */}
+          <SeasonActionCard 
+            title="Scorecard" 
+            desc={!isActive ? "Requires Active." : "Manual box scores."} 
+            href={!isActive ? "#" : `/admin/leagues/${leagueId}/seasons/${seasonId}/manual-scores`} 
+            icon="📝"
+            disabled={!isActive}
+          />
+
           <SeasonActionCard 
             title="Play Ball!" 
-            desc={!isActive ? "Requires Active Status." : "Score live games."} 
+            desc={!isActive ? "Requires Active." : "Score live games."} 
             href={!isActive ? "#" : `/admin/leagues/${leagueId}/seasons/${seasonId}/play`} 
             icon="⚾"
+            highlight
             disabled={!isActive}
           />
 
           {/* GAME HISTORY: Only for Commissioners */}
           {isCommish && (
-            <div className="lg:col-span-5 mt-4">
+            <div className="xl:col-span-6 mt-4">
               <SeasonActionCard 
                 title="The Archives (Box Scores)" 
                 desc="Review and edit completed matchups." 
@@ -127,9 +134,9 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
             </div>
           )}
 
-          {/* SYSTEM CONTROL CARD (Level 2 & 3 Only) */}
+          {/* SYSTEM CONTROL CARD */}
           {isCommish && (
-            <div className="lg:col-span-5 bg-black/30 border-4 border-[#c1121f] p-8 shadow-[8px_8px_0px_#c1121f] flex flex-col xl:flex-row xl:items-center justify-between gap-6 mt-8">
+            <div className="xl:col-span-6 bg-black/30 border-4 border-[#c1121f] p-8 shadow-[8px_8px_0px_#c1121f] flex flex-col xl:flex-row xl:items-center justify-between gap-6 mt-8">
               <div>
                 <h3 className="text-3xl font-black uppercase italic text-white mb-1 leading-tight">Coach's Controls</h3>
                 <p className="text-[10px] font-bold uppercase text-[#ffd60a] tracking-widest">Season Lifecycle Management</p>
@@ -170,25 +177,29 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
 
 function SeasonActionCard({ title, desc, href, icon, highlight = false, disabled = false }: any) {
   if (disabled) return (
-    <div className="bg-black/40 border-4 border-white/10 p-8 opacity-50 cursor-not-allowed">
+    <div className="bg-black/40 border-4 border-white/10 p-8 opacity-50 cursor-not-allowed h-full flex flex-col justify-between">
       <div className="flex justify-between mb-6">
         <span className="text-4xl grayscale">{icon}</span>
         <span className="text-[10px] font-black uppercase px-2 py-1 bg-black text-white/40 border border-white/10">Locked</span>
       </div>
-      <h3 className="text-2xl xl:text-3xl font-black italic uppercase text-white/50 mb-2 leading-tight">{title}</h3>
-      <p className="text-[10px] font-bold uppercase tracking-widest text-[#669bbc]/50">{desc}</p>
+      <div>
+        <h3 className="text-2xl font-black italic uppercase text-white/50 mb-1 leading-tight">{title}</h3>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-[#669bbc]/50">{desc}</p>
+      </div>
     </div>
   );
 
   return (
     <Link href={href} className="group">
-      <div className={`h-full p-8 border-4 transition-all duration-300 ${highlight ? 'bg-[#c1121f] border-white shadow-[8px_8px_0px_#ffd60a] group-hover:-translate-y-1' : 'bg-[#003566] border-[#669bbc] group-hover:border-[#ffd60a] shadow-[8px_8px_0px_#000] group-hover:-translate-y-1'}`}>
+      <div className={`h-full p-8 border-4 transition-all duration-300 flex flex-col justify-between ${highlight ? 'bg-[#c1121f] border-white shadow-[8px_8px_0px_#ffd60a] group-hover:-translate-y-1' : 'bg-[#003566] border-[#669bbc] group-hover:border-[#ffd60a] shadow-[8px_8px_0px_#000] group-hover:-translate-y-1'}`}>
         <div className="flex justify-between mb-6">
           <span className="text-4xl group-hover:scale-110 transition-transform">{icon}</span>
           <span className={`text-[10px] font-black uppercase px-2 py-1 border-2 ${highlight ? 'bg-white text-[#c1121f] border-white' : 'bg-[#ffd60a] text-[#001d3d] border-[#ffd60a]'}`}>Module</span>
         </div>
-        <h3 className={`text-2xl xl:text-3xl font-black italic uppercase mb-2 leading-tight transition-colors ${highlight ? 'text-white' : 'text-white group-hover:text-[#ffd60a]'}`}>{title}</h3>
-        <p className={`text-[10px] font-bold uppercase tracking-widest mt-2 ${highlight ? 'text-red-100' : 'text-[#669bbc] group-hover:text-white'}`}>{desc}</p>
+        <div>
+          <h3 className={`text-2xl font-black italic uppercase mb-1 leading-tight transition-colors ${highlight ? 'text-white' : 'text-white group-hover:text-[#ffd60a]'}`}>{title}</h3>
+          <p className={`text-[10px] font-bold uppercase tracking-widest ${highlight ? 'text-red-100' : 'text-[#669bbc] group-hover:text-white'}`}>{desc}</p>
+        </div>
       </div>
     </Link>
   );
