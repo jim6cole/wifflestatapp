@@ -19,6 +19,7 @@ export default function NewLeaguePage() {
     e.preventDefault();
     setError('');
     
+    // Validation check
     if (!formData.shortName || !formData.name || !formData.location || !formData.region) {
       setError("Roster incomplete! All fields are required to take the field.");
       return;
@@ -34,6 +35,7 @@ export default function NewLeaguePage() {
       });
 
       if (res.ok) {
+        // Refresh and head back to the dugout
         router.push('/admin/dashboard');
         router.refresh();
       } else {
@@ -51,7 +53,7 @@ export default function NewLeaguePage() {
     <div className="min-h-screen bg-[#001d3d] p-8 md:p-20">
       <div className="max-w-2xl mx-auto">
         
-        {/* Header Section */}
+        {/* --- HEADER --- */}
         <div className="mb-12 border-b-8 border-[#ffd60a] pb-6">
           <Link href="/admin/dashboard" className="text-[#669bbc] font-black uppercase text-[10px] tracking-widest hover:text-white transition-colors">
             ← Back to Dugout
@@ -64,7 +66,7 @@ export default function NewLeaguePage() {
           </p>
         </div>
 
-        {/* The Form Card */}
+        {/* --- FORM CARD --- */}
         <div className="bg-white border-8 border-[#001d3d] p-8 md:p-12 shadow-[16px_16px_0px_#c1121f]">
           <form onSubmit={handleSubmit} className="space-y-8">
             
@@ -74,44 +76,50 @@ export default function NewLeaguePage() {
               </div>
             )}
 
-            {/* Row 1: Short Name */}
+            {/* Short Name (Abbreviation) */}
             <div className="flex flex-col">
-              <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic">Acronym / Short Name *</label>
+              <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic text-[#c1121f]">
+                Short Name / Abbreviation *
+              </label>
               <input 
                 type="text" 
-                placeholder="AWAA"
+                placeholder="e.g. MAW"
                 required
-                maxLength={10}
+                maxLength={6}
+                value={formData.shortName}
                 className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-5 text-[#001d3d] font-black outline-none focus:border-[#c1121f] transition-colors uppercase placeholder:opacity-30"
                 onChange={(e) => setFormData({...formData, shortName: e.target.value})}
               />
+              <p className="text-[9px] font-bold text-slate-400 mt-2 uppercase">This will be used for stat tables and filters (Max 6 chars).</p>
             </div>
 
-            {/* Row 2: Full Name */}
+            {/* Full League Name */}
             <div className="flex flex-col">
               <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic">Full League Name *</label>
               <input 
                 type="text" 
-                placeholder="American Wiffleball Association of America"
+                placeholder="e.g. Mid Atlantic Wiffle"
                 required
+                value={formData.name}
                 className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-5 text-[#001d3d] font-black outline-none focus:border-[#c1121f] transition-colors placeholder:opacity-30"
                 onChange={(e) => setFormData({...formData, name: e.target.value})}
               />
             </div>
 
-            {/* Row 3: Location */}
+            {/* Location */}
             <div className="flex flex-col">
-              <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic">Location *</label>
+              <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic">Base Location *</label>
               <input 
                 type="text" 
                 placeholder="e.g. Queensbury, NY"
                 required
+                value={formData.location}
                 className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-5 text-[#001d3d] font-black outline-none focus:border-[#c1121f] transition-colors placeholder:opacity-30"
                 onChange={(e) => setFormData({...formData, location: e.target.value})}
               />
             </div>
 
-            {/* Row 4: Region */}
+            {/* Region Selection */}
             <div className="flex flex-col">
               <label className="text-[11px] font-black uppercase text-[#001d3d] tracking-widest mb-2 italic">Region *</label>
               <div className="relative">
@@ -140,7 +148,7 @@ export default function NewLeaguePage() {
               disabled={loading}
               className="w-full bg-[#c1121f] py-6 text-white font-black uppercase italic tracking-[0.2em] text-2xl border-4 border-[#001d3d] hover:bg-[#ffd60a] hover:text-[#001d3d] transition-colors shadow-[8px_8px_0px_#000] disabled:opacity-50 mt-4"
             >
-              {loading ? 'Submitting Lineup...' : 'Create League'}
+              {loading ? 'Registering Team...' : 'Finalize League'}
             </button>
           </form>
         </div>

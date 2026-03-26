@@ -25,6 +25,7 @@ model League {
   id            Int                @id @default(autoincrement())
   name          String
   fullName      String?
+  shortName     String?
   location      String?
   description   String?
   isActive      Boolean            @default(true)

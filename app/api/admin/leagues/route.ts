@@ -13,15 +13,16 @@ export async function POST(request: Request) {
     const dbUser = await prisma.user.findUnique({ where: { email: session.user.email } });
     if (!dbUser) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    const { name, fullName, location, description } = await request.json();
+    // 1. Pull the new fields (shortName and region) from the request
+    const { name, shortName, location, region } = await request.json();
 
-    // Create the League AND the Membership in one single transaction!
+    // 2. Create the League AND the Membership in one single transaction!
     const newLeague = await prisma.league.create({
       data: { 
-        name, 
-        fullName, 
-        location, 
-        description,
+        name,           // Full Name (e.g., Mid Atlantic Wiffle)
+        shortName,      // Abbreviation (e.g., MAW)
+        location,       // Base City/State
+        description: region, // Mapping "Region" to description for now
         memberships: {
           create: {
             userId: dbUser.id,
