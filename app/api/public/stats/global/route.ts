@@ -93,7 +93,7 @@ export async function GET(request: Request) {
           if (bases === 2) b.d++; else if (bases === 3) b.t++; else if (bases === 4) b.hr++;
         }
       }
-      b.rbi += (ab.rbi || 0);
+      b.rbi += (ab.rbi || ab.runsScored || 0);
       if (ab.scorerIds) {
         ab.scorerIds.split(',').forEach(sid => { if (batterMap[parseInt(sid)]) batterMap[parseInt(sid)].r++; });
       }

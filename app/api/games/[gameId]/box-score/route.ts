@@ -16,8 +16,7 @@ export async function GET(
 
     if (!game) return NextResponse.json({ error: "Game not found" }, { status: 404 });
     
-    // --- THE FIX: GRAB SEASON WIZARD DATA ---
-    // If eraStandard is the default (4) but you set inningsPerGame to 5, we use 5.
+    // 1. DYNAMIC ERA MULTIPLIER (Wizard Priority)
     let multiplier = game.season?.eraStandard || 4;
     if (multiplier === 4 && game.season?.inningsPerGame && game.season.inningsPerGame !== 4) {
       multiplier = game.season.inningsPerGame;
@@ -35,24 +34,20 @@ export async function GET(
       orderBy: { id: 'asc' }
     });
 
-    const seasonAtBats = await prisma.atBat.findMany({
-      where: { 
-        game: { 
-          seasonId: game.seasonId, 
-          scheduledAt: { lte: game.scheduledAt } 
-        } 
-      },
-      include: { batter: true, pitcher: true },
-      orderBy: { id: 'asc' }
-    });
-
-    const seasonGames = await prisma.game.findMany({
-      where: { 
-        seasonId: game.seasonId, 
-        status: 'COMPLETED',
-        scheduledAt: { lte: game.scheduledAt }
-      }
-    });
+    // 2. FETCH SEASON DATA (Live + Manual) for accurate Season ERA/AVG
+    const [seasonAtBats, seasonGames, seasonManualStats] = await Promise.all([
+      prisma.atBat.findMany({
+        where: { game: { seasonId: game.seasonId, scheduledAt: { lte: game.scheduledAt } } },
+        include: { batter: true, pitcher: true },
+        orderBy: { id: 'asc' }
+      }),
+      prisma.game.findMany({
+        where: { seasonId: game.seasonId, status: 'COMPLETED', scheduledAt: { lte: game.scheduledAt } }
+      }),
+      prisma.manualStatLine.findMany({
+        where: { game: { seasonId: game.seasonId, scheduledAt: { lte: game.scheduledAt } } }
+      })
+    ]);
 
     // --- INITIALIZE DATA STRUCTURES ---
     const maxInning = Math.max(game.season?.inningsPerGame || 5, ...gameAtBats.map(ab => ab.inning));
@@ -82,7 +77,26 @@ export async function GET(
       }
     });
 
-    // --- PITCHER DECISION TRACKER ---
+    // 3. ACCUMULATE SEASON MANUAL STATS (Prevents Season ERA errors)
+    seasonManualStats.forEach(ms => {
+      if (batters[ms.playerId]) {
+        batters[ms.playerId].season_ab += ms.ab;
+        batters[ms.playerId].season_h += ms.h;
+        batters[ms.playerId].season_bb += ms.bb;
+        batters[ms.playerId].season_tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
+      }
+      if (pitchers[ms.playerId]) {
+        const mOuts = (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
+        pitchers[ms.playerId].season_outs += mOuts;
+        pitchers[ms.playerId].season_h += ms.ph;
+        pitchers[ms.playerId].season_bb += ms.pbb;
+        pitchers[ms.playerId].season_er += ms.per;
+        if (ms.win) pitchers[ms.playerId].wins++;
+        if (ms.loss) pitchers[ms.playerId].losses++;
+      }
+    });
+
+    // --- PITCHER DECISION TRACKER (For Completed Games) ---
     seasonGames.forEach(sg => {
       const sgAbs = seasonAtBats.filter(ab => ab.gameId === sg.id);
       const sgHomeWon = sg.homeScore > sg.awayScore;
@@ -96,7 +110,6 @@ export async function GET(
            pSummary[ab.pitcherId] = { outs: 0, er: 0, teamId: pTeamId };
         }
         pSummary[ab.pitcherId].outs += ab.outs;
-        
         if (ab.runsScored > 0) {
           if (ab.runAttribution) {
             ab.runAttribution.split(',').forEach(id => {
@@ -121,7 +134,7 @@ export async function GET(
       }
     });
 
-    // --- MAIN STAT ACCUMULATION ---
+    // --- MAIN LIVE STAT ACCUMULATION ---
     seasonAtBats.forEach(ab => {
       const isCurrent = ab.gameId === gId;
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
@@ -164,13 +177,16 @@ export async function GET(
           b.season_h++; b.season_tb += bases;
           if (isCurrent) { b.h++; if (bases === 2) b.d++; if (bases === 3) b.t++; }
         }
+        
         if (isCurrent) {
           if (res.includes('K')) b.k++;
-          b.rbi += ab.rbi || 0;
-          if (ab.scorerIds) {
-            ab.scorerIds.split(',').forEach(sid => {
-              const sId = parseInt(sid.trim());
-              if (!isNaN(sId) && batters[sId]) batters[sId].r++;
+          // THE RBI FIX: Fallback to runsScored if rbi is null
+          b.rbi += (ab.rbi || ab.runsScored || 0);
+  
+  if (ab.scorerIds) {
+    ab.scorerIds.split(',').forEach(sid => {
+      const sId = parseInt(sid.trim());
+      if (!isNaN(sId) && batters[sId]) batters[sId].r++;
             });
           }
         }
@@ -191,7 +207,6 @@ export async function GET(
         }
       }
 
-      // EARNED RUN ACCUMULATION (Fixing double counting from previous version)
       if (ab.runsScored > 0) {
         if (ab.runAttribution) {
           ab.runAttribution.split(',').forEach(sid => {
@@ -220,7 +235,6 @@ export async function GET(
         ...p,
         ip: `${Math.floor(p.outs / 3)}.${p.outs % 3}`,
         whip: ipDec > 0 ? ((p.season_h + p.season_bb) / ipDec).toFixed(2) : '0.00',
-        // --- THE ERA FIX: Use the calculated multiplier ---
         era: ipDec > 0 ? ((p.season_er * multiplier) / ipDec).toFixed(2) : '0.00',
         record: `${p.wins}-${p.losses}`
       };

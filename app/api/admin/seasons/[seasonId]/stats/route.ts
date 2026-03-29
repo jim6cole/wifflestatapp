@@ -34,10 +34,13 @@ export async function GET(
     const pitcherMap: Record<number, any> = {};
 
     const initBatter = (id: number, name: string) => {
-      if (!batterMap[id]) {
-        batterMap[id] = { id, name, g: 0, gamesSet: new Set(), pa: 0, ab: 0, h: 0, double: 0, triple: 0, hr: 0, bb: 0, k: 0, tb: 0 };
-      }
+  if (!batterMap[id]) {
+    batterMap[id] = { 
+      id, name, g: 0, gamesSet: new Set(), pa: 0, ab: 0, h: 0, 
+      double: 0, triple: 0, hr: 0, rbi: 0, bb: 0, k: 0, tb: 0 
     };
+  }
+};
     const initPitcher = (id: number, name: string) => {
       if (!pitcherMap[id]) {
         pitcherMap[id] = { id, name, g: 0, gamesSet: new Set(), w: 0, l: 0, sho: 0, sv: 0, outs: 0, h: 0, r: 0, er: 0, hr: 0, bb: 0, k: 0 };
@@ -78,6 +81,7 @@ export async function GET(
           initBatter(ab.batterId, ab.batter?.name || "Unknown"); 
           const b = batterMap[ab.batterId];
           b.gamesSet.add(game.id);
+          b.rbi += (ab.rbi || ab.runsScored || 0);
           b.pa++;
           if (isH) { b.h++; b.ab++; }
           if (res?.includes('DOUBLE')) b.double++;
