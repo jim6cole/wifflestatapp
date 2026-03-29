@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'; // Added NextRequest
+import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
@@ -12,12 +12,20 @@ export async function GET(request: NextRequest) {
 
     const user = session.user as any;
     
-    // --- NEW: Parse leagueId from the URL ---
     const { searchParams } = new URL(request.url);
     const filterLeagueId = searchParams.get('leagueId');
+
+    // Create a 3-day rolling window: 48 hours ago to 48 hours from now
+    const now = new Date();
+    const twoDaysAgo = new Date(now.getTime() - (48 * 60 * 60 * 1000));
+    const twoDaysFromNow = new Date(now.getTime() + (48 * 60 * 60 * 1000));
     
     const whereClause: any = {
-      status: { in: ["UPCOMING", "SCHEDULED", "LIVE", "IN_PROGRESS"] }
+      status: { in: ["UPCOMING", "SCHEDULED", "LIVE", "IN_PROGRESS", "COMPLETED"] },
+      scheduledAt: {
+        gte: twoDaysAgo,
+        lte: twoDaysFromNow
+      }
     };
 
     // If a specific leagueId was passed, we target it

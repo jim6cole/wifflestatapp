@@ -12,19 +12,34 @@ export default function PublicLiveFeed() {
   const [stats, setStats] = useState<any>(null);
   const [liveState, setLiveState] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isFinalizing, setIsFinalizing] = useState(false);
 
   useEffect(() => {
     if (!id) return;
 
     const fetchData = async () => {
       try {
+        const t = new Date().getTime();
         const [gameRes, statsRes] = await Promise.all([
-          fetch(`/api/games/${id}/setup`),
-          fetch(`/api/games/${id}/box-score`)
+          fetch(`/api/games/${id}/setup?t=${t}`),
+          fetch(`/api/games/${id}/box-score?t=${t}`)
         ]);
 
         if (gameRes.ok && statsRes.ok) {
           const gameData = await gameRes.json();
+
+          // Trigger Overlay and Redirect if Game is Finished
+          if (gameData.status === 'COMPLETED') {
+            setGame(gameData);
+            setIsFinalizing(true);
+            
+            // Wait 5 seconds so they can see the final score banner, then redirect
+            setTimeout(() => {
+              window.location.replace(`/games/${id}`);
+            }, 5000);
+            return;
+          }
+
           setGame(gameData);
           setStats(await statsRes.json());
           if (gameData.liveState) setLiveState(JSON.parse(gameData.liveState));
@@ -52,8 +67,8 @@ export default function PublicLiveFeed() {
   const balls = liveState?.balls ?? 0;
   const strikes = liveState?.strikes ?? 0;
   const baseRunners = liveState?.baseRunners ?? [null, null, null];
-  const homeScore = liveState?.homeScore ?? 0;
-  const awayScore = liveState?.awayScore ?? 0;
+  const homeScore = game?.homeScore ?? liveState?.homeScore ?? 0;
+  const awayScore = game?.awayScore ?? liveState?.awayScore ?? 0;
   const playLog = liveState?.playLog ?? [];
   const batterIndices = liveState?.batterIndices ?? { away: 0, home: 0 };
   const homePitches = liveState?.homePitches ?? 0;
@@ -66,13 +81,39 @@ export default function PublicLiveFeed() {
   const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
   const currentBatter = game?.lineups?.filter((l: any) => l.teamId === battingTeamId)[currentBatterIdx]?.player;
 
-  const batterSeasonStats = stats?.batters?.find((b: any) => b.id === currentBatter?.id);
+  const currentBatterStatsArray = isTopInning ? stats?.away?.batters : stats?.home?.batters;
+  const batterSeasonStats = currentBatterStatsArray?.find((b: any) => b.id === currentBatter?.id);
   const currentAVG = batterSeasonStats?.avg || ".000";
 
   return (
-    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-4 md:p-8 border-[12px] md:border-[16px] border-[#c1121f]">
+    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-4 md:p-8 border-[12px] md:border-[16px] border-[#c1121f] relative">
+      
+      {/* FINAL SCORE OVERLAY */}
+      {isFinalizing && (
+        <div className="fixed inset-0 z-[5000] bg-black/95 flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500 backdrop-blur-md">
+          <div className="bg-[#c1121f] text-white px-12 py-4 skew-x-[-12deg] mb-8 shadow-[8px_8px_0px_#ffd60a]">
+            <h2 className="text-6xl md:text-9xl font-black italic uppercase tracking-tighter skew-x-[12deg]">FINAL</h2>
+          </div>
+          
+          <div className="flex flex-col md:flex-row items-center gap-8 md:gap-20 mb-12">
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-black text-[#669bbc] uppercase italic tracking-widest mb-2">{game.awayTeam.name}</span>
+              <span className="text-8xl md:text-[12rem] font-black text-white leading-none">{game.awayScore}</span>
+            </div>
+            <div className="text-4xl font-black text-white/20 italic uppercase pr-4">VS</div>
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-black text-[#669bbc] uppercase italic tracking-widest mb-2">{game.homeTeam.name}</span>
+              <span className="text-8xl md:text-[12rem] font-black text-white leading-none">{game.homeScore}</span>
+            </div>
+          </div>
+          
+          <div className="text-[#ffd60a] font-black italic uppercase tracking-[0.5em] text-sm animate-pulse">
+            Redirecting to Official Box Score...
+          </div>
+        </div>
+      )}
+
       <div className="max-w-[1600px] mx-auto">
-        
         <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b-8 border-[#ffd60a] pb-6">
           <div>
             <Link href={`/leagues/${game.season.leagueId}/schedule/${game.seasonId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors mb-2 block">
@@ -87,7 +128,7 @@ export default function PublicLiveFeed() {
           </div>
         </header>
 
-        {/* 1. BROADCAST SCOREBUG */}
+        {/* --- SCOREBUG --- */}
         <div className="bg-[#002D62] overflow-hidden shadow-[12px_12px_0px_#000] mb-10 border-4 border-[#001d3d] flex flex-col select-none max-w-5xl mx-auto">
           <div className="bg-[#c1121f] text-white px-4 py-2 flex justify-between items-center font-black uppercase tracking-widest text-[9px] border-b-4 border-[#001d3d]">
               <span>{game.season?.name} Broadcast</span>
@@ -131,9 +172,7 @@ export default function PublicLiveFeed() {
             </div>
           </div>
 
-          {/* DYNAMIC MATCHUP BAR (Pitcher & Batter) - FIX: Removed truncate to prevent name cropping */}
           <div className="bg-[#ffd60a] border-t-4 border-[#001d3d] flex divide-x-4 divide-[#001d3d]">
-            {/* Pitcher Info */}
             <div className="flex-1 px-6 py-3 flex justify-between items-center min-w-0">
               <div className="flex flex-col min-w-0 flex-1 pr-4">
                 <span className="text-[8px] font-black uppercase text-[#c1121f] tracking-widest leading-none mb-1">Current Pitcher</span>
@@ -144,7 +183,6 @@ export default function PublicLiveFeed() {
                 <span className="text-xl font-black text-[#001d3d] leading-none">{isTopInning ? homePitches : awayPitches}</span>
               </div>
             </div>
-            {/* Batter Info */}
             <div className="flex-1 px-6 py-3 flex justify-between items-center bg-white min-w-0">
               <div className="flex flex-col min-w-0 flex-1 pr-4">
                 <span className="text-[8px] font-black uppercase text-[#669bbc] tracking-widest leading-none mb-1">Currently At Plate</span>
@@ -158,23 +196,20 @@ export default function PublicLiveFeed() {
           </div>
         </div>
 
-        {/* 2. STATS & TICKER LAYOUT */}
+        {/* --- STAT TABLES & TICKER --- */}
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-12">
-          
           <div className="xl:col-span-3 space-y-8">
             <h2 className="text-3xl font-black italic uppercase text-white border-b-4 border-[#c1121f] pb-2 mb-8">
               Active <span className="text-[#ffd60a]">Matchup Stats</span>
             </h2>
-            
             <div className="space-y-12">
               <BoxScoreTable 
-                stats={(stats?.batters || []).filter((b: any) => b.teamId === (isTopInning ? game.awayTeamId : game.homeTeamId))} 
+                stats={isTopInning ? (stats?.away?.batters || []) : (stats?.home?.batters || [])} 
                 teamName={isTopInning ? game.awayTeam.name : game.homeTeam.name} 
                 hrDetails={(stats?.hrEvents || []).filter((hr: any) => hr.teamId === (isTopInning ? game.awayTeamId : game.homeTeamId))}
               />
-
               <PitchingBoxScoreTable 
-                stats={(stats?.pitchers || []).filter((p: any) => p.teamId === (isTopInning ? game.homeTeamId : game.awayTeamId))} 
+                stats={isTopInning ? (stats?.home?.pitchers || []) : (stats?.away?.pitchers || [])} 
                 teamName={isTopInning ? game.homeTeam.name : game.awayTeam.name} 
               />
             </div>
@@ -204,7 +239,6 @@ export default function PublicLiveFeed() {
                })}
              </div>
           </div>
-
         </div>
       </div>
     </div>

@@ -48,7 +48,6 @@ export async function GET(request: Request) {
       seasonIdFilter ? prisma.season.findUnique({ where: { id: parseInt(seasonIdFilter) } }) : null
     ]);
 
-    const eraStandard = seasonMeta?.eraStandard || 4;
     const batterMap: Record<number, any> = {};
     const pitcherMap: Record<number, any> = {};
     const gamesWithLiveAtBats = new Set(atBats.map(ab => ab.gameId));
@@ -63,6 +62,7 @@ export async function GET(request: Request) {
         map[id] = { 
           id, name, ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, r: 0, bb: 0, k: 0, tb: 0, 
           ipOuts: 0, ph: 0, pr: 0, per: 0, pbb: 0, pk: 0, phr: 0, w: 0, l: 0, sv: 0,
+          weighted_per: 0,
           gameIds: new Set<number>(),
           leagueDisplay: leagueLabel,
           speedDisplay: speedLabel,
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
       return map[id];
     };
 
-    // 1. Process Live Data (VOLUME STATS ONLY)
+    // 1. Process Live Data
     atBats.forEach(ab => {
       const b = addToMap(batterMap, ab.batterId, ab.batter.name, ab.game);
       b.gameIds.add(ab.gameId);
@@ -102,25 +102,39 @@ export async function GET(request: Request) {
       p.gameIds.add(ab.gameId);
       p.ipOuts += (ab.outs || 0);
       if (res.includes('K')) p.pk++;
-      if (isH) { 
-        p.ph++; 
-        if (res.includes('HR') || res.includes('4B')) p.phr++; 
-      }
+      if (isH) { p.ph++; if (res.includes('HR') || res.includes('4B')) p.phr++; }
       if (isWalk) p.pbb++;
-      p.pr += ab.runsScored;
-      p.per += ab.runsScored; 
+      
+      // THE FIX: Check inningsPerGame if eraStandard is the default 4
+      const standard = (ab.game?.season?.eraStandard === 4 && ab.game?.season?.inningsPerGame !== 4) 
+        ? ab.game?.season?.inningsPerGame 
+        : (ab.game?.season?.eraStandard || 4);
+
+      // ERA Math: Attribution Charging
+      if (ab.runsScored > 0) {
+        if (ab.runAttribution) {
+          ab.runAttribution.split(',').forEach(sid => {
+            const pId = parseInt(sid.trim());
+            const attributedP = pitcherMap[pId] || addToMap(pitcherMap, pId, "Unknown", ab.game);
+            attributedP.pr += 1;
+            attributedP.per += 1;
+            attributedP.weighted_per += (1 * standard);
+          });
+        } else {
+          p.pr += ab.runsScored;
+          p.per += ab.runsScored;
+          p.weighted_per += (ab.runsScored * standard);
+        }
+      }
     });
 
-    // 2. Process Manual Data (DECISIONS FOR ALL, VOLUME FOR NON-LIVE)
+    // 2. Process Manual Data
     manualLines.forEach((ms: any) => { 
       const p = addToMap(pitcherMap, ms.playerId, ms.player.name, ms.game);
-      
-      // DECISIONS: Pulled exclusively from manual lines to match scorecard exactly
       if (ms.win) p.w++;
       if (ms.loss) p.l++;
       if (ms.save) p.sv++;
 
-      // VOLUME: Skip if live data exists to prevent double counting
       if (!gamesWithLiveAtBats.has(ms.gameId)) {
         const b = addToMap(batterMap, ms.playerId, ms.player.name, ms.game);
         b.gameIds.add(ms.gameId);
@@ -131,6 +145,11 @@ export async function GET(request: Request) {
         p.gameIds.add(ms.gameId);
         p.ipOuts += (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
         p.pk += ms.pk; p.ph += ms.ph; p.pr += ms.pr; p.per += ms.per; p.pbb += ms.pbb; p.phr += (ms.phr || 0); 
+
+        const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) 
+          ? ms.game?.season?.inningsPerGame 
+          : (ms.game?.season?.eraStandard || 4);
+        p.weighted_per += (ms.per * standard);
       }
     });
 
@@ -152,7 +171,7 @@ export async function GET(request: Request) {
         id: p.id, name: p.name, w: p.w, l: p.l, sv: p.sv, gp: p.gameIds.size, speedDisplay, leagueDisplay: p.leagueDisplay,
         ip: `${Math.floor(p.ipOuts / 3)}.${p.ipOuts % 3}`, 
         h: p.ph, r: p.pr, er: p.per, bb: p.pbb, k: p.pk, hr: p.phr,
-        era: mathIP > 0 ? ((p.per * eraStandard) / mathIP).toFixed(2) : "0.00", 
+        era: mathIP > 0 ? (p.weighted_per / mathIP).toFixed(2) : "0.00", 
         whip: mathIP > 0 ? ((p.ph + p.pbb) / mathIP).toFixed(2) : "0.00" 
       };
     });

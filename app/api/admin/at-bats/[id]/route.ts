@@ -18,34 +18,30 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     if (!prisma) throw new Error("Database not connected.");
 
+    // Build dynamic update payload so we only overwrite what is passed from the UI
+    const dataToUpdate: any = {};
+    if (body.result !== undefined) dataToUpdate.result = body.result;
+    if (body.runsScored !== undefined) dataToUpdate.runsScored = parseInt(body.runsScored) || 0;
+    if (body.rbi !== undefined) dataToUpdate.rbi = parseInt(body.rbi) || 0;
+    if (body.outs !== undefined) dataToUpdate.outs = parseInt(body.outs) || 0;
+
     // 1. Update the individual play
     const updatedPlay = await prisma.atBat.update({
       where: { id: atBatId },
-      data: {
-        result: body.result,
-        runsScored: parseInt(body.runsScored) || 0,
-      },
+      data: dataToUpdate,
       include: { game: true }
     });
 
     const gameId = updatedPlay.gameId;
 
-    // 2. RE-CALCULATE SCORES USING isTopInning
-    // Home Team bats in the BOTTOM of the inning (isTopInning: false)
+    // 2. Recalculate the master scoreboard using the updated plays
     const homeRuns = await prisma.atBat.aggregate({
-      where: { 
-        gameId: gameId, 
-        isTopInning: false 
-      },
+      where: { gameId: gameId, isTopInning: false },
       _sum: { runsScored: true }
     });
 
-    // Away Team bats in the TOP of the inning (isTopInning: true)
     const awayRuns = await prisma.atBat.aggregate({
-      where: { 
-        gameId: gameId, 
-        isTopInning: true 
-      },
+      where: { gameId: gameId, isTopInning: true },
       _sum: { runsScored: true }
     });
 

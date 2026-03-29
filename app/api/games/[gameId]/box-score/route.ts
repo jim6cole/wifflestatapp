@@ -15,7 +15,13 @@ export async function GET(
     });
 
     if (!game) return NextResponse.json({ error: "Game not found" }, { status: 404 });
-    const eraStandard = game.season?.eraStandard || 4;
+    
+    // --- THE FIX: GRAB SEASON WIZARD DATA ---
+    // If eraStandard is the default (4) but you set inningsPerGame to 5, we use 5.
+    let multiplier = game.season?.eraStandard || 4;
+    if (multiplier === 4 && game.season?.inningsPerGame && game.season.inningsPerGame !== 4) {
+      multiplier = game.season.inningsPerGame;
+    }
 
     const lineups = await prisma.lineupEntry.findMany({
       where: { gameId: gId },
@@ -48,7 +54,7 @@ export async function GET(
       }
     });
 
-    // --- 1. LINE SCORE & TEAM TOTALS ---
+    // --- INITIALIZE DATA STRUCTURES ---
     const maxInning = Math.max(game.season?.inningsPerGame || 5, ...gameAtBats.map(ab => ab.inning));
     const lineScore: Record<number, { away: number, home: number }> = {};
     for (let i = 1; i <= maxInning; i++) { lineScore[i] = { away: 0, home: 0 }; }
@@ -76,21 +82,31 @@ export async function GET(
       }
     });
 
-    // --- 2. PITCHER DECISION TRACKER (SEASON HISTORY) ---
+    // --- PITCHER DECISION TRACKER ---
     seasonGames.forEach(sg => {
       const sgAbs = seasonAtBats.filter(ab => ab.gameId === sg.id);
       const sgHomeWon = sg.homeScore > sg.awayScore;
       const winTeamId = sgHomeWon ? sg.homeTeamId : sg.awayTeamId;
       const lossTeamId = sgHomeWon ? sg.awayTeamId : sg.homeTeamId;
-
       const pSummary: Record<number, { outs: number, er: number, teamId: number }> = {};
+      
       sgAbs.forEach(ab => {
         if (!pSummary[ab.pitcherId]) {
            const pTeamId = ab.isTopInning ? sg.homeTeamId : sg.awayTeamId;
            pSummary[ab.pitcherId] = { outs: 0, er: 0, teamId: pTeamId };
         }
         pSummary[ab.pitcherId].outs += ab.outs;
-        pSummary[ab.pitcherId].er += ab.runsScored;
+        
+        if (ab.runsScored > 0) {
+          if (ab.runAttribution) {
+            ab.runAttribution.split(',').forEach(id => {
+              const pId = parseInt(id.trim());
+              if (pSummary[pId]) pSummary[pId].er++;
+            });
+          } else {
+            pSummary[ab.pitcherId].er += ab.runsScored;
+          }
+        }
       });
 
       const pArray = Object.entries(pSummary).map(([id, s]) => ({ id: Number(id), ...s }));
@@ -99,29 +115,28 @@ export async function GET(
 
       if (winner && pitchers[winner.id]) pitchers[winner.id].wins++;
       if (loser && pitchers[loser.id]) pitchers[loser.id].losses++;
-      
       if (sg.id === gId) {
         if (winner && pitchers[winner.id]) pitchers[winner.id].decision = 'W';
         if (loser && pitchers[loser.id]) pitchers[loser.id].decision = 'L';
       }
     });
 
-    // --- 3. MAIN STAT ACCUMULATION ---
+    // --- MAIN STAT ACCUMULATION ---
     seasonAtBats.forEach(ab => {
       const isCurrent = ab.gameId === gId;
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
+      const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'K', 'STRIKEOUT', 'DOUBLE_PLAY'].some(o => res.includes(o));
       const isWalk = res.includes('WALK') || res === 'BB' || res.includes('HBP');
-      const isHit = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
-      const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'K', 'STRIKEOUT'].some(o => res.includes(o));
+      const isHit = !isOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
       const isAB = isHit || isOut;
 
       if (isCurrent) {
         if (ab.isTopInning) {
-          lineScore[ab.inning].away += ab.runsScored;
+          if (lineScore[ab.inning]) lineScore[ab.inning].away += ab.runsScored;
           if (isHit) totals.awayH++;
           if (res.includes('ERROR')) totals.awayE++;
         } else {
-          lineScore[ab.inning].home += ab.runsScored;
+          if (lineScore[ab.inning]) lineScore[ab.inning].home += ab.runsScored;
           if (isHit) totals.homeH++;
           if (res.includes('ERROR')) totals.homeE++;
         }
@@ -132,11 +147,8 @@ export async function GET(
         if (isAB) { b.season_ab++; if (isCurrent) b.ab++; }
         if (isWalk) { b.season_bb++; if (isCurrent) b.bb++; }
         if (isHit) {
-          let bases = 1;
-          if (res.includes('DOUBLE') || res.includes('2B')) bases = 2;
-          else if (res.includes('TRIPLE') || res.includes('3B')) bases = 3;
-          else if (res.includes('HR') || res.includes('4B')) {
-            bases = 4;
+          let bases = (res.includes('HR') || res.includes('4B')) ? 4 : (res.includes('TRIPLE') || res.includes('3B')) ? 3 : (res.includes('DOUBLE') || res.includes('2B')) ? 2 : 1;
+          if (bases === 4) {
             seasonHRTracker[ab.batterId] = (seasonHRTracker[ab.batterId] || 0) + 1;
             if (isCurrent) {
               hrEvents.push({
@@ -144,8 +156,7 @@ export async function GET(
                 inning: ab.inning, side: ab.isTopInning ? 'TOP' : 'BOT',
                 teamId: ab.isTopInning ? game.awayTeamId : game.homeTeamId,
                 seasonTotal: seasonHRTracker[ab.batterId],
-                runnersOn: (ab as any).runnersOn || 0,
-                outs: (ab as any).outsAtStart || 0
+                runnersOn: ab.runnersOn || 0, outs: ab.outsAtStart || 0
               });
               b.hr++;
             }
@@ -155,8 +166,13 @@ export async function GET(
         }
         if (isCurrent) {
           if (res.includes('K')) b.k++;
-          b.rbi += ab.rbi || ab.runsScored;
-          if (ab.scorerIds) ab.scorerIds.split(',').map(Number).forEach(sid => { if (batters[sid]) batters[sid].r++; });
+          b.rbi += ab.rbi || 0;
+          if (ab.scorerIds) {
+            ab.scorerIds.split(',').forEach(sid => {
+              const sId = parseInt(sid.trim());
+              if (!isNaN(sId) && batters[sId]) batters[sId].r++;
+            });
+          }
         }
       }
 
@@ -172,7 +188,22 @@ export async function GET(
           if (res.includes('FLY')) p.flyOuts += (ab.outs > 1 ? 2 : 1);
           p.totalPitches += (ab.balls + ab.strikes + 1);
           p.totalStrikes += (ab.strikes + (isWalk ? 0 : 1));
-          p.r += ab.runsScored; p.er += ab.runsScored;
+        }
+      }
+
+      // EARNED RUN ACCUMULATION (Fixing double counting from previous version)
+      if (ab.runsScored > 0) {
+        if (ab.runAttribution) {
+          ab.runAttribution.split(',').forEach(sid => {
+            const pId = parseInt(sid.trim());
+            if (pitchers[pId]) {
+              pitchers[pId].season_er += 1;
+              if (isCurrent) { pitchers[pId].r += 1; pitchers[pId].er += 1; }
+            }
+          });
+        } else if (p) {
+          p.season_er += ab.runsScored;
+          if (isCurrent) { p.r += ab.runsScored; p.er += ab.runsScored; }
         }
       }
     });
@@ -189,25 +220,27 @@ export async function GET(
         ...p,
         ip: `${Math.floor(p.outs / 3)}.${p.outs % 3}`,
         whip: ipDec > 0 ? ((p.season_h + p.season_bb) / ipDec).toFixed(2) : '0.00',
-        era: ipDec > 0 ? ((p.season_er * eraStandard) / ipDec).toFixed(2) : '0.00',
+        // --- THE ERA FIX: Use the calculated multiplier ---
+        era: ipDec > 0 ? ((p.season_er * multiplier) / ipDec).toFixed(2) : '0.00',
         record: `${p.wins}-${p.losses}`
       };
     };
 
     return NextResponse.json({
-      lineScore: Object.entries(lineScore).map(([inn, runs]) => ({ inning: inn, ...runs })),
+      lineScore: Object.entries(lineScore).map(([inn, runs]) => ({ inning: Number(inn), ...runs })),
       totals,
       away: {
-        batters: Object.values(batters).filter(b => b.teamId === game.awayTeamId).map(formatB),
-        pitchers: Object.values(pitchers).filter(p => p.teamId === game.awayTeamId).map(formatP)
+        batters: Object.values(batters).filter((b:any) => b.teamId === game.awayTeamId).map(formatB),
+        pitchers: Object.values(pitchers).filter((p:any) => p.teamId === game.awayTeamId).map(formatP)
       },
       home: {
-        batters: Object.values(batters).filter(b => b.teamId === game.homeTeamId).map(formatB),
-        pitchers: Object.values(pitchers).filter(p => p.teamId === game.homeTeamId).map(formatP)
+        batters: Object.values(batters).filter((b:any) => b.teamId === game.homeTeamId).map(formatB),
+        pitchers: Object.values(pitchers).filter((p:any) => p.teamId === game.homeTeamId).map(formatP)
       },
       hrEvents
     });
   } catch (error: any) {
+    console.error("Box Score API Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
