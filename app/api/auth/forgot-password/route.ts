@@ -23,7 +23,7 @@ export async function POST(request: Request) {
       data: { resetToken, resetTokenExpiry },
     });
 
-    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://wiffplus.com'}/reset-password?token=${resetToken}`;
 
     await resend.emails.send({
       from: 'Wiff+ Security <security@wiffplus.com>',
