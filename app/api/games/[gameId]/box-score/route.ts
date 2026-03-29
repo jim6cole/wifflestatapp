@@ -1,225 +1,234 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ gameId: string }> }
-) {
+export async function GET(request: Request, { params }: { params: Promise<{ gameId: string }> }) {
   const { gameId } = await params;
   const gId = parseInt(gameId);
 
   try {
-    // 1. Check for manual stats first
-    const manualStats = await prisma.manualStatLine.findMany({
-      where: { gameId: gId },
-      include: { player: true }
-    });
-
-    // --- BRANCH A: MANUAL STATS FOUND (ADVANCED MAPPING) ---
-    if (manualStats.length > 0) {
-      const batters = manualStats.map(s => {
-        // Calculate Total Bases for Slugging
-        // 1B = H - 2B - 3B - HR
-        const singles = s.h - s.d2b - s.d3b - s.hr;
-        const tb = (singles * 1) + (s.d2b * 2) + (s.d3b * 3) + (s.hr * 4);
-        
-        const obp = (s.ab + s.bb) > 0 ? (s.h + s.bb) / (s.ab + s.bb) : 0;
-        const slg = s.ab > 0 ? tb / s.ab : 0;
-        
-        return {
-          id: s.playerId,
-          name: s.player.name,
-          teamId: s.teamId,
-          slot: 0,
-          ab: s.ab, 
-          r: s.r, 
-          h: s.h, 
-          hr: s.hr, 
-          rbi: s.rbi, 
-          bb: s.bb, 
-          k: s.k,
-          d: s.d2b, // Mapped for frontend 'd'
-          t: s.d3b, // Mapped for frontend 't'
-          avg: s.ab > 0 ? (s.h / s.ab).toFixed(3).replace(/^0/, '') : '.000',
-          ops: (obp + slg).toFixed(3).replace(/^0/, '')
-        };
-      });
-
-      const pitchers = manualStats.filter(s => s.ip > 0 || s.pk > 0).map(s => {
-        // Convert Wiffleball IP (e.g., 3.1) to mathematical decimal (3.33) for averages
-        const wholeInnings = Math.floor(s.ip);
-        const fraction = s.ip % 1;
-        const mathIP = wholeInnings + (fraction >= 0.2 ? 0.666 : fraction >= 0.1 ? 0.333 : 0);
-
-        return {
-          id: s.playerId,
-          name: s.player.name,
-          teamId: s.teamId,
-          ip: s.ip.toFixed(1),
-          h: s.ph,   // Mapped to frontend 'h'
-          r: s.pr,   // Mapped to frontend 'r'
-          er: s.per, // Mapped to frontend 'er'
-          bb: s.pbb, // Mapped to frontend 'bb'
-          k: s.pk,   // Mapped to frontend 'k'
-          hr: 0,     // Placeholder if not in manual schema
-          whip: mathIP > 0 ? ((s.ph + s.pbb) / mathIP).toFixed(2) : '0.00',
-          era: mathIP > 0 ? ((s.per * 6) / mathIP).toFixed(2) : '0.00' // 6-Inning ERA
-        };
-      });
-
-      return NextResponse.json({ 
-        batters, 
-        pitchers, 
-        hrEvents: [], 
-        isManual: true 
-      });
-    }
-
-    // --- BRANCH B: LIVE SCORING LOGIC (ORIGINAL FALLBACK) ---
-    const currentGame = await prisma.game.findUnique({
+    const game = await prisma.game.findUnique({
       where: { id: gId },
-      select: { seasonId: true, scheduledAt: true, homeTeamId: true, awayTeamId: true }
+      include: { homeTeam: true, awayTeam: true, season: true }
     });
 
-    if (!currentGame) return NextResponse.json({ error: "Game not found" }, { status: 404 });
+    if (!game) return NextResponse.json({ error: "Game not found" }, { status: 404 });
+    const eraStandard = game.season?.eraStandard || 4;
 
     const lineups = await prisma.lineupEntry.findMany({
       where: { gameId: gId },
-      include: { player: true }
+      include: { player: true },
+      orderBy: { battingOrder: 'asc' }
     });
 
-    const batterStats: Record<string, any> = {};
-    const pitcherStats: Record<number, any> = {};
+    // Load season at-bats including names for the HR log and stats for the math
+    const seasonAtBats = await prisma.atBat.findMany({
+      where: { 
+        game: { 
+          seasonId: game.seasonId, 
+          scheduledAt: { lte: game.scheduledAt } 
+        } 
+      },
+      include: { batter: true, pitcher: true },
+      orderBy: { id: 'asc' }
+    });
+
+    // Load all completed games in this season to calculate W-L records
+    const seasonGames = await prisma.game.findMany({
+      where: { 
+        seasonId: game.seasonId, 
+        status: 'COMPLETED',
+        scheduledAt: { lte: game.scheduledAt }
+      }
+    });
+
+    const maxInning = Math.max(game.season?.inningsPerGame || 5, ...seasonAtBats.filter(ab => ab.gameId === gId).map(ab => ab.inning));
+    const lineScore: Record<number, { away: number, home: number }> = {};
+    for (let i = 1; i <= maxInning; i++) { lineScore[i] = { away: 0, home: 0 }; }
+    const totals = { awayH: 0, awayE: 0, homeH: 0, homeE: 0 };
+
+    const batters: Record<number, any> = {};
+    const pitchers: Record<number, any> = {};
     const hrEvents: any[] = [];
     const seasonHRTracker: Record<number, number> = {};
-    const playerLookup: Record<number, { name: string, teamId: number, position: string }> = {};
 
-    lineups.forEach(entry => {
-      playerLookup[entry.playerId] = { 
-        name: entry.player.name, 
-        teamId: entry.teamId,
-        position: entry.position 
+    lineups.forEach(l => {
+      batters[l.playerId] = { 
+        id: l.playerId, name: l.player.name, teamId: l.teamId, slot: l.battingOrder, 
+        ab: 0, r: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0, k: 0, 
+        season_ab: 0, season_h: 0, season_bb: 0, season_tb: 0 
       };
-
-      if (!pitcherStats[entry.playerId]) {
-        pitcherStats[entry.playerId] = {
-          id: entry.playerId, name: entry.player.name, teamId: entry.teamId,
-          outs: 0, k: 0, h: 0, bb: 0, hr: 0, r: 0, er: 0,
-          season_outs: 0, season_er: 0, season_h: 0, season_bb: 0, faced: 0
+      if (l.isPitcher || pitchers[l.playerId]) {
+        pitchers[l.playerId] = { 
+          id: l.playerId, name: l.player.name, teamId: l.teamId, 
+          outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, 
+          season_outs: 0, season_h: 0, season_bb: 0, season_er: 0,
+          wins: 0, losses: 0, decision: null,
+          // NEW DETAILS
+          totalPitches: 0, totalStrikes: 0, groundOuts: 0, flyOuts: 0, battersFaced: 0
         };
       }
     });
 
-    const seasonAtBats = await prisma.atBat.findMany({
-      where: {
-        game: { seasonId: currentGame.seasonId, scheduledAt: { lte: currentGame.scheduledAt } }
-      },
-      include: {
-        batter: { select: { name: true } },
-        pitcher: { select: { name: true } },
-        game: { select: { id: true, homeTeamId: true, awayTeamId: true, scheduledAt: true } }
-      },
-      orderBy: [{ game: { scheduledAt: 'asc' } }, { id: 'asc' }]
+    // --- DECISION TRACKER FOR ALL GAMES ---
+    seasonGames.forEach(sg => {
+      const sgAbs = seasonAtBats.filter(ab => ab.gameId === sg.id);
+      const sgHomeWon = sg.homeScore > sg.awayScore;
+      const winTeamId = sgHomeWon ? sg.homeTeamId : sg.awayTeamId;
+      const lossTeamId = sgHomeWon ? sg.awayTeamId : sg.homeTeamId;
+
+      const pSummary: Record<number, { outs: number, er: number, teamId: number }> = {};
+      sgAbs.forEach(ab => {
+        const pId = ab.pitcherId;
+        if (!pSummary[pId]) {
+           const pTeamId = ab.isTopInning ? sg.homeTeamId : sg.awayTeamId;
+           pSummary[pId] = { outs: 0, er: 0, teamId: pTeamId };
+        }
+        pSummary[pId].outs += ab.outs;
+        pSummary[pId].er += ab.runsScored;
+      });
+
+      const pArray = Object.entries(pSummary).map(([id, s]) => ({ id: Number(id), ...s }));
+      const winner = pArray.filter(p => p.teamId === winTeamId).sort((a,b) => b.outs - a.outs)[0];
+      const loser = pArray.filter(p => p.teamId === lossTeamId).sort((a,b) => b.er - a.er)[0];
+
+      if (winner && pitchers[winner.id]) pitchers[winner.id].wins++;
+      if (loser && pitchers[loser.id]) pitchers[loser.id].losses++;
+      
+      if (sg.id === gId) {
+        if (winner && pitchers[winner.id]) pitchers[winner.id].decision = 'W';
+        if (loser && pitchers[loser.id]) pitchers[loser.id].decision = 'L';
+      }
     });
 
-    seasonAtBats.forEach((ab) => {
-      const isCurrent = ab.gameId === gId;
-      const res = ab.result?.toUpperCase() || '';
-      const isHR = res.includes('HR') || res.includes('4B');
+    seasonAtBats.forEach(ab => {
+      const isCurrentGame = ab.gameId === gId;
+      const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
+      
+      const isWalk = res.includes('WALK') || res === 'BB' || res.includes('HBP');
+      const isHit = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
+      const isError = res.includes('ERROR');
+      const isK = res.includes('K') || res.includes('STRIKEOUT');
+      const isOut = ['OUT', 'FLY', 'GROUND', 'DP'].some(o => res.includes(o)) || isK;
+      const isAB = isHit || isOut;
 
-      if (isHR) {
-        seasonHRTracker[ab.batterId] = (seasonHRTracker[ab.batterId] || 0) + 1;
-        if (isCurrent) {
-          const batterTeamId = ab.isTopInning ? ab.game.awayTeamId : ab.game.homeTeamId;
-          hrEvents.push({
-            batterName: ab.batter.name,
-            pitcherName: ab.pitcher.name,
-            inning: ab.inning,
-            teamId: batterTeamId,
-            seasonTotal: seasonHRTracker[ab.batterId],
-            runnersOn: (ab as any).runnersOn || 0,
-            outs: (ab as any).outsAtStart || 0
-          });
+      if (isCurrentGame) {
+        if (ab.isTopInning) {
+          lineScore[ab.inning].away += ab.runsScored;
+          if (isHit) totals.awayH++;
+          if (isError) totals.awayE++;
+        } else {
+          lineScore[ab.inning].home += ab.runsScored;
+          if (isHit) totals.homeH++;
+          if (isError) totals.homeE++;
         }
       }
 
-      const isHit = ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
-      const isOut = ['K', 'STRIKEOUT', 'FLY_OUT', 'GROUND_OUT', 'OUT', 'DP', 'TAG UP', 'SAC FLY'].some(o => res.includes(o));
-      const isWalk = res.includes('WALK') || res.includes('BB') || res.includes('HBP');
+      const b = batters[ab.batterId];
+      if (b) {
+        if (isAB) { b.season_ab++; if (isCurrentGame) b.ab++; }
+        if (isWalk) { b.season_bb++; if (isCurrentGame) b.bb++; }
+        
+        if (isHit) {
+          let bases = 1;
+          if (res.includes('DOUBLE') || res.includes('2B')) bases = 2;
+          else if (res.includes('TRIPLE') || res.includes('3B')) bases = 3;
+          else if (res.includes('HR') || res.includes('4B')) {
+            bases = 4;
+            seasonHRTracker[ab.batterId] = (seasonHRTracker[ab.batterId] || 0) + 1;
+            if (isCurrentGame) {
+              hrEvents.push({
+                batterName: ab.batter.name, pitcherName: ab.pitcher.name,
+                inning: ab.inning, side: ab.isTopInning ? 'TOP' : 'BOT',
+                teamId: ab.isTopInning ? game.awayTeamId : game.homeTeamId,
+                seasonTotal: seasonHRTracker[ab.batterId],
+                runnersOn: ab.runnersOn || 0, outs: ab.outsAtStart || 0
+              });
+              b.hr++;
+            }
+          }
+          
+          b.season_h++;
+          b.season_tb += bases;
+          if (isCurrentGame) {
+            b.h++;
+            if (bases === 2) b.d++;
+            if (bases === 3) b.t++;
+          }
+        }
 
-      const bKey = `${ab.batterId}-${ab.slot}`;
-      const playerData = playerLookup[ab.batterId];
-      if (playerData && (isCurrent || ab.gameId !== gId)) {
-        if (!batterStats[bKey]) {
-          batterStats[bKey] = {
-            id: ab.batterId, name: playerData.name, teamId: playerData.teamId, slot: ab.slot, position: playerData.position,
-            ab: 0, r: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0, k: 0, tb: 0,
-            season_ab: 0, season_h: 0, season_bb: 0, season_tb: 0, playedInThisGame: false
-          };
+        if (isCurrentGame) {
+          if (isK) b.k++;
+          b.rbi += ab.rbi || ab.runsScored;
+          if (ab.scorerIds) ab.scorerIds.split(',').map(Number).forEach(sid => { if (batters[sid]) batters[sid].r++; });
         }
-        const b = batterStats[bKey];
-        if (isCurrent) { 
-          b.playedInThisGame = true;
-          const rbiVal = ab.rbi > 0 ? ab.rbi : (ab.runsScored || 0); 
-          b.rbi += rbiVal; b.r += ab.runsScored || 0; 
-        }
-        if (isWalk) { b.season_bb++; if (isCurrent) b.bb++; }
-        else if (isHit || isOut) {
-          b.season_ab++;
-          if (isCurrent) { b.ab++; if (res.includes('K')) b.k++; }
-          if (isHit) {
-            let bases = 1;
-            if (res.includes('DOUBLE')) { bases = 2; if (isCurrent) b.d++; }
-            else if (res.includes('TRIPLE')) { bases = 3; if (isCurrent) b.t++; }
-            else if (isHR) { bases = 4; if (isCurrent) b.hr++; }
-            b.season_h++; b.season_tb += bases;
-            if (isCurrent) { b.h++; b.tb += bases; }
+      }
+
+      const p = pitchers[ab.pitcherId];
+      if (p) {
+        p.season_outs += ab.outs;
+        if (isHit) p.season_h++;
+        if (isWalk) p.season_bb++;
+
+        if (isCurrentGame) {
+          p.battersFaced++;
+          p.outs += ab.outs;
+          if (isHit) p.h++;
+          if (isWalk) p.bb++;
+          if (isK) p.k++;
+          if (res.includes('HR')) p.hr++;
+          
+          // Categorize Outs for Details Section
+          if (res.includes('GROUND')) p.groundOuts += (ab.outs > 1 ? 2 : 1);
+          if (res.includes('FLY')) p.flyOuts += (ab.outs > 1 ? 2 : 1);
+
+          // Calculate Pitches (Balls + Strikes + 1 for the final pitch)
+          p.totalPitches += (ab.balls + ab.strikes + 1);
+          p.totalStrikes += (ab.strikes + (isWalk && !res.includes('HBP') ? 0 : 1));
+          
+          if (ab.runAttribution) {
+            ab.runAttribution.split(',').forEach(pid => { if (Number(pid) === p.id) p.season_er++; });
+            if (ab.runAttribution.split(',').includes(String(p.id))) { p.r++; p.er++; }
+          } else {
+            p.season_er += ab.runsScored;
+            p.r += ab.runsScored; p.er += ab.runsScored;
           }
         }
       }
-
-      const p = pitcherStats[ab.pitcherId];
-      if (p) {
-        p.season_outs += ab.outs;
-        if (isCurrent) {
-          p.faced++; p.outs += ab.outs;
-          if (isHit) p.h++; if (isWalk) p.bb++; if (res.includes('K')) p.k++; if (isHR) p.hr++;
-        }
-      }
-      
-      if (ab.runAttribution) {
-        ab.runAttribution.split(',').forEach(pid => {
-          const rp = pitcherStats[parseInt(pid)];
-          if (rp) rp.season_er++;
-          if (isCurrent && rp) { rp.r++; rp.er++; }
-        });
-      } else {
-        const rp = pitcherStats[ab.pitcherId];
-        if (rp) {
-            rp.season_er += ab.runsScored;
-            if (isCurrent) { rp.r += ab.runsScored; rp.er += ab.runsScored; }
-        }
-      }
     });
 
-    const mapRow = (s: any) => ({
-      ...s,
-      avg: s.season_ab > 0 ? (s.season_h / s.season_ab).toFixed(3).replace(/^0/, '') : '.000',
-      ops: (s.season_ab + s.season_bb) === 0 ? '.000' : ((s.season_h + s.season_bb) / (s.season_ab + s.season_bb) + (s.season_tb / s.season_ab)).toFixed(3).replace(/^0/, '')
-    });
+    const formatB = (b: any) => {
+      const avg = b.season_ab > 0 ? (b.season_h / b.season_ab) : 0;
+      const obp = (b.season_ab + b.season_bb) > 0 ? (b.season_h + b.season_bb) / (b.season_ab + b.season_bb) : 0;
+      const slg = b.season_ab > 0 ? (b.season_tb / b.season_ab) : 0;
+      return { ...b, avg: avg.toFixed(3).replace(/^0/, ''), ops: (obp + slg).toFixed(3).replace(/^0/, '') };
+    };
+
+    const formatP = (p: any) => {
+      const ipDecimal = p.season_outs / 3;
+      return {
+        ...p,
+        ip: `${Math.floor(p.outs / 3)}.${p.outs % 3}`,
+        whip: ipDecimal > 0 ? ((p.season_h + p.season_bb) / ipDecimal).toFixed(2) : '0.00',
+        era: ipDecimal > 0 ? ((p.season_er * eraStandard) / ipDecimal).toFixed(2) : '0.00',
+        record: `${p.wins}-${p.losses}`
+      };
+    };
 
     return NextResponse.json({
-      batters: Object.values(batterStats).filter(b => b.playedInThisGame).map(mapRow).sort((a, b) => a.slot - b.slot),
-      pitchers: Object.values(pitcherStats).filter(p => p.faced > 0 || p.r > 0).map(p => ({
-        ...p, ip: `${Math.floor(p.outs / 3)}.${p.outs % 3}`,
-        era: (p.season_outs > 0 ? (p.season_er * 4) / (p.season_outs / 3) : 0).toFixed(2),
-        whip: (p.season_outs > 0 ? (p.season_h + p.season_bb) / (p.season_outs / 3) : 0).toFixed(2)
-      })),
-      hrEvents,
-      isManual: false
+      lineScore: Object.entries(lineScore).map(([inn, runs]) => ({ inning: inn, ...runs })),
+      totals,
+      away: {
+        batters: Object.values(batters).filter(b => b.teamId === game.awayTeamId).map(formatB),
+        pitchers: Object.values(pitchers).filter(p => p.teamId === game.awayTeamId).map(formatP)
+      },
+      home: {
+        batters: Object.values(batters).filter(b => b.teamId === game.homeTeamId).map(formatB),
+        pitchers: Object.values(pitchers).filter(p => p.teamId === game.homeTeamId).map(formatP)
+      },
+      hrEvents
     });
   } catch (error: any) {
-    console.error("API ERROR:", error.message);
+    console.error("BOX SCORE API ERROR:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

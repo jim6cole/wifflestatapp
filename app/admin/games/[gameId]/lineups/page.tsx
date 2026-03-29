@@ -373,8 +373,13 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
                           <p className="font-black uppercase text-xl text-[#001d3d] leading-none">{p.name}</p>
                         </div>
                         <div className="flex items-center gap-3 w-full sm:w-auto">
-                          <select value={String(p.id) === pitcher ? 'Pitcher' : (p.position || 'Fielder')} disabled={String(p.id) === pitcher} onChange={(e) => handlePositionChange(side as 'home' | 'away', p.id, e.target.value)} className="bg-[#fdf0d5] text-[#001d3d] p-2 border-2 border-[#001d3d] text-[10px] font-black uppercase outline-none cursor-pointer w-full sm:w-auto">
-                            <option value="Pitcher">Pitcher</option>
+                          <select 
+                            value={String(p.id) === pitcher ? 'Pitcher' : (p.position === 'Pitcher' ? 'Fielder' : (p.position || 'Fielder'))} 
+                            disabled={String(p.id) === pitcher} 
+                            onChange={(e) => handlePositionChange(side as 'home' | 'away', p.id, e.target.value)} 
+                            className="bg-[#fdf0d5] text-[#001d3d] p-2 border-2 border-[#001d3d] text-[10px] font-black uppercase outline-none cursor-pointer w-full sm:w-auto"
+                          >
+                            {String(p.id) === pitcher && <option value="Pitcher">Pitcher</option>}
                             <option value="Fielder">Fielder</option>
                             <option value="DH">DH</option>
                             <option value="EH">EH</option>

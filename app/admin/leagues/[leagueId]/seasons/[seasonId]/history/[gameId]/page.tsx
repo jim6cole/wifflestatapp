@@ -2,29 +2,42 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import BoxScoreTable from '@/components/stats/BoxScoreTable';
+import PitchingBoxScoreTable from '@/components/stats/PitchingBoxScoreTable';
 
 export default function StatCorrectionPage({ params }: { params: Promise<{ gameId: string, leagueId: string, seasonId: string }> }) {
   const { gameId, leagueId, seasonId } = use(params);
   const [game, setGame] = useState<any>(null);
+  const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  // Fetch both the raw history and the computed box score stats
+  const fetchGameData = async () => {
+    try {
+      const [historyRes, statsRes] = await Promise.all([
+        fetch(`/api/admin/games/${gameId}/history`),
+        fetch(`/api/games/${gameId}/box-score`)
+      ]);
+
+      const historyData = await historyRes.json();
+      const statsData = await statsRes.json();
+
+      if (!historyData || historyData.error) {
+        setGame(null);
+      } else {
+        setGame(historyData);
+        setStats(statsData);
+      }
+    } catch (err) {
+      console.error("Fetch Error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetch(`/api/admin/games/${gameId}/history`)
-      .then(res => res.json())
-      .then(data => {
-        if (!data || data.error) {
-          console.error("API Error:", data?.error);
-          setGame(null);
-        } else {
-          setGame(data);
-        }
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Fetch Error:", err);
-        setLoading(false);
-      });
+    fetchGameData();
   }, [gameId]);
 
   const handleUpdate = async (atBatId: number, result: string, runs: string) => {
@@ -33,13 +46,19 @@ export default function StatCorrectionPage({ params }: { params: Promise<{ gameI
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ result, runsScored: runs })
     });
+    
     if (res.ok) {
       const updated = await res.json();
+      // Update the big scoreboard
       setGame((prev: any) => ({
         ...prev,
         homeScore: updated.updatedGame.homeScore,
         awayScore: updated.updatedGame.awayScore
       }));
+      
+      // THE MAGIC: Re-fetch the box score so the tables update instantly!
+      const newStats = await fetch(`/api/games/${gameId}/box-score`).then(r => r.json());
+      setStats(newStats);
     }
   };
 
@@ -56,9 +75,12 @@ export default function StatCorrectionPage({ params }: { params: Promise<{ gameI
     </div>
   );
 
+  const awayId = game.awayTeamId;
+  const homeId = game.homeTeamId;
+
   return (
     <div className="min-h-screen bg-[#001d3d] text-white p-4 md:p-12 border-[16px] border-[#c1121f]">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         
         <header className="mb-12 border-b-8 border-[#ffd60a] pb-6">
           <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}/history`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-[0.3em] hover:text-[#ffd60a] transition-colors mb-4 block">
@@ -76,6 +98,41 @@ export default function StatCorrectionPage({ params }: { params: Promise<{ gameI
           </div>
         </header>
 
+        {/* --- THE LIVE BOX SCORE TABLES --- */}
+        <div className="space-y-12 mb-16 bg-white border-4 border-[#ffd60a] p-6 shadow-[12px_12px_0px_#000]">
+          <h2 className="text-2xl font-black italic uppercase text-[#001d3d] mb-4 border-b-4 border-[#001d3d] pb-2">Computed Box Score</h2>
+          
+          <section className="space-y-6 text-[#001d3d]">
+            <BoxScoreTable 
+              stats={(stats?.batters || []).filter((b: any) => b.teamId === awayId)} 
+              teamName={game.awayTeam?.name || "Visitors"} 
+              isAdmin={true} 
+              hrDetails={(stats?.hrEvents || []).filter((hr: any) => hr.teamId === awayId)}
+            />
+            <PitchingBoxScoreTable 
+              stats={(stats?.pitchers || []).filter((p: any) => p.teamId === awayId)} 
+              teamName={game.awayTeam?.name || "Visitors"} 
+            />
+          </section>
+
+          <div className="h-[4px] bg-[#c1121f] w-full opacity-50"></div>
+
+          <section className="space-y-6 text-[#001d3d]">
+            <BoxScoreTable 
+              stats={(stats?.batters || []).filter((b: any) => b.teamId === homeId)} 
+              teamName={game.homeTeam?.name || "Home"} 
+              isAdmin={true} 
+              hrDetails={(stats?.hrEvents || []).filter((hr: any) => hr.teamId === homeId)}
+            />
+            <PitchingBoxScoreTable 
+              stats={(stats?.pitchers || []).filter((p: any) => p.teamId === homeId)} 
+              teamName={game.homeTeam?.name || "Home"} 
+            />
+          </section>
+        </div>
+
+        {/* --- THE RAW PLAY-BY-PLAY EDITOR --- */}
+        <h2 className="text-3xl font-black italic uppercase text-[#ffd60a] mb-6 border-b-2 border-white/20 pb-2">Raw Play Editor</h2>
         <div className="space-y-6">
           {!game.atBats || game.atBats.length === 0 ? (
             <div className="bg-black/30 border-4 border-dashed border-[#669bbc] p-20 text-center">

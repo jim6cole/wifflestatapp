@@ -14,7 +14,6 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
   const [homeTeamId, setHomeTeamId] = useState('');
   const [awayTeamId, setAwayTeamId] = useState('');
   const [gameDate, setGameDate] = useState('');
-  // UPDATED: Defaulting to 9:00 AM (09:00 in 24h format)
   const [gameTime, setGameTime] = useState('09:00'); 
   const [fieldNumber, setFieldNumber] = useState('1'); 
   const [isPlayoff, setIsPlayoff] = useState(false);
@@ -83,7 +82,6 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
         setGames([...games, newGame].sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()));
         setHomeTeamId('');
         setAwayTeamId('');
-        // We reset to 9:00 AM default for the next entry
         setGameTime('09:00'); 
       } else {
         const err = await res.json();
@@ -93,6 +91,29 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
       console.error("Scheduling error:", error);
     }
   };
+
+  // Delete Game Function
+  const handleDeleteGame = async (gameId: number) => {
+    if (!confirm("Are you sure you want to delete this scheduled game? This cannot be undone.")) return;
+
+    try {
+      const res = await fetch(`/api/admin/games/${gameId}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        setGames(games.filter(g => g.id !== gameId));
+      } else {
+        const err = await res.json();
+        alert(`Failed to delete game: ${err.error}`);
+      }
+    } catch (error) {
+      console.error("Delete error:", error);
+    }
+  };
+
+  // --- THE FIX: Filter out completed games right here ---
+  const upcomingGamesList = games.filter(g => g.status !== 'COMPLETED');
 
   return (
     <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] font-sans p-8 md:p-16 border-[16px] border-[#001d3d]">
@@ -185,13 +206,13 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
             
             {loading ? (
               <div className="py-20 text-center text-[#001d3d] animate-pulse italic font-black">SCANNING...</div>
-            ) : games.length === 0 ? (
+            ) : upcomingGamesList.length === 0 ? (
               <div className="bg-white border-4 border-[#001d3d] p-12 text-center shadow-[8px_8px_0px_#ffd60a]">
-                <p className="text-2xl font-black italic uppercase opacity-30">Schedule is Empty</p>
+                <p className="text-2xl font-black italic uppercase opacity-30">No Upcoming Matches</p>
               </div>
             ) : (
               <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-                {games.map((game) => {
+                {upcomingGamesList.map((game) => {
                   const gameDateObj = new Date(game.scheduledAt);
                   const isLive = game.status === 'LIVE'; 
                   return (
@@ -207,7 +228,15 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                         </div>
                         <p className="text-[10px] font-bold uppercase text-slate-500 tracking-widest mt-1">ID: {game.id} | Status: <span className={isLive ? "text-green-500" : ""}>{game.status}</span></p>
                       </div>
-                      <div className="flex items-center gap-4">
+                      
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => handleDeleteGame(game.id)}
+                          className="bg-white text-red-600 px-3 py-2 font-black italic uppercase text-lg border-2 border-[#001d3d] hover:bg-red-600 hover:text-white transition-colors"
+                          title="Delete Matchup"
+                        >
+                          X
+                        </button>
                         {isLive && <Link href={`/games/${game.id}/live`} className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border-2 border-[#001d3d] hover:bg-white hover:text-[#c1121f]">Enter Game →</Link>}
                         <div className="bg-[#fdf0d5] border-2 border-[#001d3d] px-4 py-2 text-right min-w-[140px] shadow-inner">
                           <p className="font-black text-sm text-[#001d3d]">{gameDateObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</p>

@@ -190,6 +190,13 @@ model AtBat {
   createdAt      DateTime @default(now())
   runnersOn      Int      @default(0)
   outsAtStart    Int      @default(0)
+  // Baserunner Snapshots (Pre-Pitch)
+  runner1Id       Int?     // Player on 1st
+  runner2Id       Int?     // Player on 2nd
+  runner3Id       Int?     // Player on 3rd
+  
+  // Scoring Data (Post-Pitch)
+  scorerIds       String?  // IDs of players who actually crossed home
 }
 
 model LineupEntry {

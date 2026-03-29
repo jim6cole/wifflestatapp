@@ -1,47 +1,37 @@
-import prisma from '@/lib/prisma';
 import { NextResponse } from 'next/server';
+import prisma from '@/lib/prisma';
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const body = await req.json();
+    const body = await request.json();
     const { 
-      gameId, 
-      batterId, 
-      pitcherId, 
-      result, 
-      inning, 
-      runnersOn,   
-      outsAtStart, 
-      slot,        
-      isTopInning, 
-      rbi,         
-      runsScored,  
-      outs         
+      gameId, batterId, pitcherId, result, runsScored, outs, inning, 
+      isTopInning, slot, runAttribution, runner1Id, runner2Id, runner3Id, scorerIds 
     } = body;
 
     const atBat = await prisma.atBat.create({
       data: {
-        gameId: Number(gameId),
-        batterId: Number(batterId),
-        pitcherId: Number(pitcherId),
+        gameId: parseInt(gameId),
+        batterId: parseInt(batterId),
+        pitcherId: parseInt(pitcherId),
         result,
-        inning: Number(inning),
-        runnersOn: Number(runnersOn || 0),
-        outsAtStart: Number(outsAtStart || 0),
-        
-        // FIXED: Using Number(slot || 0) ensures it is never 'undefined'
-        slot: Number(slot || 0), 
-        
+        runsScored: parseInt(runsScored) || 0,
+        outs: parseInt(outs) || 0,
+        inning: parseInt(inning),
         isTopInning: Boolean(isTopInning),
-        rbi: Number(rbi || 0),
-        runsScored: Number(runsScored || 0),
-        outs: Number(outs || 0),
+        slot: parseInt(slot) || 0,
+        runAttribution: runAttribution || null,
+        // NEW SNAPSHOT FIELDS
+        runner1Id: runner1Id ? parseInt(runner1Id) : null,
+        runner2Id: runner2Id ? parseInt(runner2Id) : null,
+        runner3Id: runner3Id ? parseInt(runner3Id) : null,
+        scorerIds: scorerIds || null,
       }
     });
 
     return NextResponse.json(atBat);
   } catch (error: any) {
-    console.error("Stat Save Error:", error.message);
+    console.error("AtBat Save Error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

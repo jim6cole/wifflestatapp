@@ -32,8 +32,8 @@ export async function POST(
     const resolvedParams = await params;
     const seasonId = parseInt(resolvedParams.seasonId);
     
-    // Extract the new isPlayoff flag from the request
-    const { homeTeamId, awayTeamId, scheduledAt, isPlayoff } = await request.json();
+    // Extract the fieldNumber from the request
+    const { homeTeamId, awayTeamId, scheduledAt, isPlayoff, fieldNumber } = await request.json();
 
     if (!homeTeamId || !awayTeamId || !scheduledAt) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -50,7 +50,9 @@ export async function POST(
         awayTeamId: parseInt(awayTeamId),
         scheduledAt: new Date(scheduledAt),
         status: "UPCOMING",
-        isPlayoff: isPlayoff || false // Pass it to the database
+        isPlayoff: isPlayoff || false,
+        // Pass the fieldNumber safely to the database
+        fieldNumber: fieldNumber ? Number(fieldNumber) : null 
       },
       include: {
         homeTeam: { select: { name: true } },
