@@ -1,27 +1,25 @@
 "use client";
 
-export default function PitchingBoxScoreTable({ stats, teamName, isSeasonStats = false }: any) {
+export default function PitchingBoxScoreTable({ stats, teamName }: any) {
   const formatLastName = (fullName: string) => {
     const parts = fullName.trim().split(' ');
     return parts.length > 0 ? parts[parts.length - 1] : fullName;
   };
 
+  const pitchStrikeDetails = stats.map((p: any) => `${formatLastName(p.name)} ${p.totalPitches}-${p.totalStrikes}`).join('; ');
+  const goFoDetails = stats.map((p: any) => `${formatLastName(p.name)} ${p.groundOuts}-${p.flyOuts}`).join('; ');
+  const bfDetails = stats.map((p: any) => `${formatLastName(p.name)} ${p.battersFaced}`).join('; ');
+
   return (
-    <div className="bg-[#001d3d] rounded-lg overflow-hidden border-4 border-[#001d3d] mb-10 shadow-2xl">
+    <div className="bg-[#001d3d] text-slate-200 rounded-lg overflow-hidden shadow-xl border-4 border-[#001d3d] mb-8">
       <div className="p-4 border-b-4 border-[#669bbc] bg-[#001d3d]">
-        <h2 className="font-black text-lg uppercase text-[#669bbc] italic tracking-wider">
-          {teamName} - Pitching
-        </h2>
+        <h2 className="font-black text-lg uppercase tracking-wider text-[#669bbc] italic">{teamName} - Pitching</h2>
       </div>
-      
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm min-w-[700px]">
-          <thead className="text-slate-500 uppercase text-[9px] tracking-widest border-b border-white/10 bg-[#001d3d]">
+        <table className="w-full text-left text-sm min-w-[600px]">
+          <thead className="text-slate-500 uppercase text-[9px] bg-[#001d3d] tracking-widest border-b border-white/10">
             <tr>
-              <th className="px-4 py-3 text-white">Pitcher</th>
-              {/* Decision columns for Season Stats */}
-              {isSeasonStats && <th className="px-2 py-3 text-center">W</th>}
-              {isSeasonStats && <th className="px-2 py-3 text-center">L</th>}
+              <th className="px-4 py-3">Pitcher</th>
               <th className="px-2 py-3 text-center">IP</th>
               <th className="px-2 py-3 text-center">H</th>
               <th className="px-2 py-3 text-center">R</th>
@@ -34,29 +32,31 @@ export default function PitchingBoxScoreTable({ stats, teamName, isSeasonStats =
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5 bg-white/5">
-            {stats.map((p: any, idx: number) => (
-              <tr key={idx} className="hover:bg-white/10 transition-colors group">
-                <td className="px-4 py-3 text-white font-black italic uppercase group-hover:text-[#ffd60a]">
+            {stats.map((p: any) => (
+              <tr key={p.id} className="hover:bg-white/10 transition-colors">
+                <td className="px-4 py-3 font-black italic uppercase text-white">
                   {formatLastName(p.name)}
-                  {!isSeasonStats && p.decision && (
-                    <span className="ml-2 text-slate-500 text-[10px] lowercase">({p.decision}, {p.record})</span>
-                  )}
+                  {p.decision && <span className="ml-2 text-slate-400 font-bold lowercase italic text-xs">({p.decision}, {p.record})</span>}
                 </td>
-                {isSeasonStats && <td className="px-2 py-3 text-center tabular-nums font-bold text-green-500">{p.wins || 0}</td>}
-                {isSeasonStats && <td className="px-2 py-3 text-center tabular-nums font-bold text-red-500">{p.losses || 0}</td>}
                 <td className="px-2 py-3 text-center tabular-nums">{p.ip}</td>
                 <td className="px-2 py-3 text-center tabular-nums">{p.h}</td>
                 <td className="px-2 py-3 text-center tabular-nums">{p.r}</td>
                 <td className="px-2 py-3 text-center tabular-nums">{p.er}</td>
-                <td className="px-2 py-3 text-center tabular-nums">{p.bb}</td>
-                <td className="px-2 py-3 text-center tabular-nums">{p.k}</td>
-                <td className="px-2 py-3 text-center tabular-nums">{p.hr}</td>
-                <td className="px-2 py-3 text-center tabular-nums font-black text-[#669bbc] text-[11px]">{p.whip}</td>
-                <td className="px-2 py-3 text-center tabular-nums text-[#c1121f] font-black text-[11px]">{p.era}</td>
+                <td className="px-2 py-3 text-center tabular-nums text-[#ffd60a] font-bold">{p.bb}</td>
+                <td className="px-2 py-3 text-center tabular-nums text-[#669bbc] font-bold">{p.k}</td>
+                <td className="px-2 py-3 text-center tabular-nums text-[#c1121f] font-bold">{p.hr}</td>
+                <td className="px-2 py-3 text-center tabular-nums text-slate-400 font-mono text-xs">{p.whip}</td>
+                <td className="px-2 py-3 text-center font-black text-white font-mono text-xs">{p.era}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="bg-black/20 p-5 text-[11px] font-bold uppercase italic space-y-1.5 text-slate-300 border-t border-white/5">
+        <div className="text-[#669bbc] mb-1 font-black tracking-widest">Pitching Details</div>
+        <p><span className="text-white mr-2">Pitches-strikes:</span>{pitchStrikeDetails}.</p>
+        <p><span className="text-white mr-2">Groundouts-flyouts:</span>{goFoDetails}.</p>
+        <p><span className="text-white mr-2">Batters faced:</span>{bfDetails}.</p>
       </div>
     </div>
   );

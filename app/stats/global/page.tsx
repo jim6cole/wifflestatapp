@@ -30,27 +30,6 @@ export default function GlobalStatsPage() {
       });
   }, [leagueFilter, yearFilter, speedFilter]);
 
-  const exportToCSV = () => {
-    const data = activeTab === 'hitting' ? batters : pitchers;
-    if (!data || data.length === 0) return;
-    const hittingHeaders = ['Player', 'LEAGUE', 'SPEED', 'GP', 'PA', 'AB', 'H', '2B', '3B', 'HR', 'RBI', 'BB', 'K', 'AVG', 'OBP', 'OPS'];
-    const pitchingHeaders = ['Player', 'LEAGUE', 'SPEED', 'W', 'L', 'SV', 'IP', 'H', 'R', 'ER', 'BB', 'K', 'HR', 'ERA', 'WHIP'];
-    const headers = activeTab === 'hitting' ? hittingHeaders : pitchingHeaders;
-    const csvRows = data.map(row => {
-      if (activeTab === 'hitting') {
-        return `"${row.name}","${row.leagueDisplay}","${row.speedDisplay}",${row.gp},${row.pa},${row.ab},${row.h},${row.d},${row.t},${row.hr},${row.rbi},${row.bb},${row.k},${row.avg},${row.obp},${row.ops}`;
-      } else {
-        return `"${row.name}","${row.leagueDisplay}","${row.speedDisplay}",${row.w},${row.l},${row.sv},${row.ip},${row.h},${row.r},${row.er},${row.bb},${row.k},${row.hr || 0},${row.era},${row.whip}`;
-      }
-    });
-    const blob = new Blob([[headers.join(','), ...csvRows].join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `AWAA_${activeTab.toUpperCase()}_STATS.csv`);
-    link.click();
-  };
-
   return (
     <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-12 border-[16px] border-[#001d3d]">
       <div className="max-w-[1600px] mx-auto">
@@ -61,9 +40,6 @@ export default function GlobalStatsPage() {
               {yearFilter === 'all' ? 'All-Time' : yearFilter} Global
             </h1>
           </div>
-          <button onClick={exportToCSV} className="bg-[#001d3d] text-white px-6 py-3 font-black italic uppercase tracking-widest border-4 border-[#001d3d] shadow-[6px_6px_0px_#c1121f] hover:bg-[#c1121f] transition-all whitespace-nowrap">
-            ↓ Export {activeTab} CSV
-          </button>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -118,29 +94,32 @@ function PitchingTable({ data }: { data: any[] }) {
   const sortedData = sortArray(activePitchers, sortConfig);
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'desc';
-    if (['era', 'whip', 'h', 'r', 'er', 'bb', 'hr'].includes(key)) direction = 'asc';
+    if (['era', 'whip', 'h', 'r', 'er', 'bb', 'k', 'hr'].includes(key)) direction = 'asc';
     if (sortConfig.key === key) direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
     setSortConfig({ key, direction });
   };
+
+  const SortIndicator = ({ columnKey }: { columnKey: string }) => sortConfig.key === columnKey ? <span className="ml-1 text-[#c1121f]">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span> : null;
 
   return (
     <table className="w-full text-left border-collapse whitespace-nowrap">
       <thead className="bg-[#001d3d] text-[#ffd60a] text-[10px] font-black uppercase italic tracking-widest select-none">
         <tr>
-          <th className="p-4 border-r border-white/10 cursor-pointer" onClick={() => handleSort('name')}>Player</th>
-          <th className="p-4 text-center cursor-pointer" onClick={() => handleSort('leagueDisplay')}>LEAGUE</th>
-          <th className="p-4 text-center cursor-pointer" onClick={() => handleSort('speedDisplay')}>SPEED</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('w')}>W</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('l')}>L</th>
-          <th className="px-3 py-4 text-center cursor-pointer text-[#669bbc]" onClick={() => handleSort('sv')}>SV</th>
-          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('ip')}>IP</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('h')}>H</th>
-          <th className="px-3 py-4 text-center cursor-pointer text-[#c1121f]" onClick={() => handleSort('r')}>R</th>
-          <th className="px-3 py-4 text-center cursor-pointer text-[#c1121f]" onClick={() => handleSort('er')}>ER</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('bb')}>BB</th>
-          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('k')}>K</th>
-          <th className="px-3 py-4 text-center text-[#c1121f] cursor-pointer" onClick={() => handleSort('hr')}>HR</th>
-          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('era')}>ERA</th>
+          <th className="p-4 border-r border-white/10 cursor-pointer" onClick={() => handleSort('name')}>Player <SortIndicator columnKey="name" /></th>
+          <th className="p-4 text-center cursor-pointer" onClick={() => handleSort('leagueDisplay')}>LEAGUE <SortIndicator columnKey="leagueDisplay" /></th>
+          <th className="p-4 text-center cursor-pointer" onClick={() => handleSort('speedDisplay')}>SPEED <SortIndicator columnKey="speedDisplay" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('w')}>W <SortIndicator columnKey="w" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('l')}>L <SortIndicator columnKey="l" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer text-[#669bbc]" onClick={() => handleSort('sv')}>SV <SortIndicator columnKey="sv" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('ip')}>IP <SortIndicator columnKey="ip" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('h')}>H <SortIndicator columnKey="h" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer text-[#c1121f]" onClick={() => handleSort('r')}>R <SortIndicator columnKey="r" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer text-[#c1121f]" onClick={() => handleSort('er')}>ER <SortIndicator columnKey="er" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('bb')}>BB <SortIndicator columnKey="bb" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('k')}>K <SortIndicator columnKey="k" /></th>
+          <th className="px-3 py-4 text-center text-[#c1121f] cursor-pointer" onClick={() => handleSort('hr')}>HR <SortIndicator columnKey="hr" /></th>
+          <th className="px-4 py-4 text-center text-[#669bbc] cursor-pointer" onClick={() => handleSort('whip')}>WHIP <SortIndicator columnKey="whip" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('era')}>ERA <SortIndicator columnKey="era" /></th>
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
@@ -148,7 +127,7 @@ function PitchingTable({ data }: { data: any[] }) {
           <tr key={p.id} className="hover:bg-slate-50 transition-colors">
             <td className="p-4 font-black italic uppercase text-lg border-r border-slate-100"><span className="text-slate-300 mr-2 tabular-nums">{idx + 1}</span><Link href={`/players/${p.id}`} className="hover:text-[#c1121f]">{p.name}</Link></td>
             <td className="p-4 text-center font-black text-[#669bbc] text-xs uppercase">{p.leagueDisplay}</td>
-            <td className={`p-4 text-center font-black text-[10px] uppercase ${p.speedDisplay.startsWith('FAST') ? 'text-[#c1121f]' : p.speedDisplay.startsWith('MED') ? 'text-[#669bbc]' : 'text-[#001d3d]'}`}>{p.speedDisplay}</td>
+            <td className={`p-4 text-center font-black text-[10px] uppercase ${p.speedDisplay?.startsWith('FAST') ? 'text-[#c1121f]' : p.speedDisplay?.startsWith('MED') ? 'text-[#669bbc]' : 'text-[#001d3d]'}`}>{p.speedDisplay}</td>
             <td className="px-3 py-3 text-center font-bold tabular-nums opacity-70">{p.w}</td>
             <td className="px-3 py-3 text-center font-bold tabular-nums opacity-70">{p.l}</td>
             <td className="px-3 py-3 text-center font-black text-[#669bbc] tabular-nums">{p.sv}</td>
@@ -159,6 +138,7 @@ function PitchingTable({ data }: { data: any[] }) {
             <td className="px-3 py-3 text-center font-bold tabular-nums opacity-50">{p.bb}</td>
             <td className="px-4 py-3 text-center font-black text-[#003566] text-xl tabular-nums">{p.k}</td>
             <td className="px-3 py-3 text-center font-black text-[#c1121f] text-xl tabular-nums bg-red-50/30">{p.hr || 0}</td>
+            <td className="px-4 py-3 text-center font-black text-[#669bbc] text-xl tabular-nums">{p.whip}</td>
             <td className="px-4 py-3 text-center font-black text-[#c1121f] text-2xl italic tracking-tighter tabular-nums bg-slate-50">{p.era}</td>
           </tr>
         ))}
@@ -176,27 +156,29 @@ function HittingTable({ data }: { data: any[] }) {
     if (sortConfig.key === key) direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
     setSortConfig({ key, direction });
   };
+  const SortIndicator = ({ columnKey }: { columnKey: string }) => sortConfig.key === columnKey ? <span className="ml-1 text-[#c1121f]">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span> : null;
 
   return (
     <table className="w-full text-left border-collapse whitespace-nowrap">
       <thead className="bg-[#001d3d] text-[#ffd60a] text-[10px] font-black uppercase italic tracking-widest select-none">
         <tr>
-          <th className="px-4 py-4 border-r border-white/10 cursor-pointer" onClick={() => handleSort('name')}>Player</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('leagueDisplay')}>LEAGUE</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('speedDisplay')}>SPEED</th>
-          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('gp')}>GP</th>
-          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('pa')}>PA</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('ab')}>AB</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('h')}>H</th>
-          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('d')}>2B</th>
-          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('t')}>3B</th>
-          <th className="px-3 py-4 text-center text-[#c1121f] cursor-pointer" onClick={() => handleSort('hr')}>HR</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('rbi')}>RBI</th>
-          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('bb')}>BB</th>
-          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('k')}>K</th>
-          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('avg')}>AVG</th>
-          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('obp')}>OBP</th>
-          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('ops')}>OPS</th>
+          <th className="px-4 py-4 border-r border-white/10 cursor-pointer" onClick={() => handleSort('name')}>Player <SortIndicator columnKey="name" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('leagueDisplay')}>LEAGUE <SortIndicator columnKey="leagueDisplay" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('speedDisplay')}>SPEED <SortIndicator columnKey="speedDisplay" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('gp')}>GP <SortIndicator columnKey="gp" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('pa')}>PA <SortIndicator columnKey="pa" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('ab')}>AB <SortIndicator columnKey="ab" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('h')}>H <SortIndicator columnKey="h" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('d')}>2B <SortIndicator columnKey="d" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('t')}>3B <SortIndicator columnKey="t" /></th>
+          <th className="px-3 py-4 text-center text-[#c1121f] cursor-pointer" onClick={() => handleSort('hr')}>HR <SortIndicator columnKey="hr" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('rbi')}>RBI <SortIndicator columnKey="rbi" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('r')}>R <SortIndicator columnKey="r" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('bb')}>BB <SortIndicator columnKey="bb" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('k')}>K <SortIndicator columnKey="k" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('avg')}>AVG <SortIndicator columnKey="avg" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer opacity-60" onClick={() => handleSort('obp')}>OBP <SortIndicator columnKey="obp" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('ops')}>OPS <SortIndicator columnKey="ops" /></th>
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
@@ -204,7 +186,7 @@ function HittingTable({ data }: { data: any[] }) {
           <tr key={b.id} className="hover:bg-slate-50 transition-colors">
             <td className="px-4 py-3 font-black italic uppercase text-lg border-r border-slate-100"><span className="text-slate-300 mr-2 tabular-nums">{idx + 1}</span><Link href={`/players/${b.id}`} className="hover:text-[#c1121f]">{b.name}</Link></td>
             <td className="px-3 py-3 text-center font-black text-[#669bbc] text-xs uppercase">{b.leagueDisplay}</td>
-            <td className={`px-3 py-3 text-center font-black text-[10px] uppercase ${b.speedDisplay.startsWith('FAST') ? 'text-[#c1121f]' : b.speedDisplay.startsWith('MED') ? 'text-[#669bbc]' : 'text-[#001d3d]'}`}>{b.speedDisplay}</td>
+            <td className={`px-3 py-3 text-center font-black text-[10px] uppercase ${b.speedDisplay?.startsWith('FAST') ? 'text-[#c1121f]' : b.speedDisplay?.startsWith('MED') ? 'text-[#669bbc]' : 'text-[#001d3d]'}`}>{b.speedDisplay}</td>
             <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.gp}</td>
             <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.pa}</td>
             <td className="px-3 py-3 text-center font-bold tabular-nums">{b.ab}</td>
@@ -213,6 +195,7 @@ function HittingTable({ data }: { data: any[] }) {
             <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.t}</td>
             <td className="px-3 py-3 text-center font-black text-[#c1121f] text-xl tabular-nums">{b.hr}</td>
             <td className="px-3 py-3 text-center font-bold tabular-nums">{b.rbi}</td>
+            <td className="px-3 py-3 text-center font-bold tabular-nums">{b.r}</td>
             <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.bb}</td>
             <td className="px-3 py-3 text-center font-bold tabular-nums opacity-60">{b.k}</td>
             <td className="px-3 py-3 text-center font-black text-[#003566] text-xl font-mono tabular-nums">{b.avg}</td>

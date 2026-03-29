@@ -11,9 +11,7 @@ export async function GET(request: Request) {
     const leagueIdFilter = searchParams.get('leagueId');
     const yearFilter = searchParams.get('year');
 
-    const currentYear = new Date().getFullYear();
-    const targetYear = yearFilter ? parseInt(yearFilter) : currentYear;
-    
+    const targetYear = yearFilter ? parseInt(yearFilter) : new Date().getFullYear();
     const startOfYear = new Date(Date.UTC(targetYear, 0, 1));
     const endOfYear = new Date(Date.UTC(targetYear, 11, 31, 23, 59, 59, 999));
 
@@ -50,20 +48,20 @@ export async function GET(request: Request) {
       seasonIdFilter ? prisma.season.findUnique({ where: { id: parseInt(seasonIdFilter) } }) : null
     ]);
 
+    const eraStandard = seasonMeta?.eraStandard || 4;
     const batterMap: Record<number, any> = {};
     const pitcherMap: Record<number, any> = {};
+    const gamesWithLiveAtBats = new Set(atBats.map(ab => ab.gameId));
 
     const addToMap = (map: any, id: number, name: string, game: any) => {
       const leagueLabel = game?.season?.league?.shortName || game?.season?.league?.name || 'AWAA';
-      
       const isMed = game?.season?.isSpeedRestricted;
       const speedLimitVal = game?.season?.speedLimit;
-      // ADDED "mph" unit here
       const speedLabel = isMed ? (speedLimitVal ? `MED ${speedLimitVal} mph` : 'MED') : 'FAST';
 
       if (!map[id]) {
         map[id] = { 
-          id, name, ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0, k: 0, tb: 0, 
+          id, name, ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, r: 0, bb: 0, k: 0, tb: 0, 
           ipOuts: 0, ph: 0, pr: 0, per: 0, pbb: 0, pk: 0, phr: 0, w: 0, l: 0, sv: 0,
           gameIds: new Set<number>(),
           leagueDisplay: leagueLabel,
@@ -72,85 +70,94 @@ export async function GET(request: Request) {
         };
       } else {
         map[id].stylesPlayed.add(isMed ? 'MED' : 'FAST');
-        if (isMed && speedLimitVal && map[id].speedDisplay === 'MED') {
-            map[id].speedDisplay = `MED ${speedLimitVal} mph`;
-        }
       }
       return map[id];
     };
 
+    // 1. Process Live Data (VOLUME STATS ONLY)
     atBats.forEach(ab => {
-      addToMap(batterMap, ab.batterId, ab.batter.name, ab.game);
-      const b = batterMap[ab.batterId];
+      const b = addToMap(batterMap, ab.batterId, ab.batter.name, ab.game);
       b.gameIds.add(ab.gameId);
       const res = ab.result?.toUpperCase() || '';
-      if (['WALK', 'BB'].some(w => res.includes(w))) b.bb++;
+      const isH = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
+      const isWalk = ['WALK', 'BB', 'HBP'].some(w => res.includes(w));
+      
+      if (isWalk) b.bb++;
       else {
         b.ab++;
         if (res.includes('K')) b.k++;
-        if (['SINGLE', '1B', 'DOUBLE', '2B', 'TRIPLE', '3B', 'HR', '4B'].some(h => res.includes(h))) {
+        if (isH) {
           b.h++;
-          if (res.includes('DOUBLE') || res.includes('2B')) { b.d++; b.tb += 2; }
-          else if (res.includes('TRIPLE') || res.includes('3B')) { b.t++; b.tb += 3; }
-          else if (res.includes('HR') || res.includes('4B')) { b.hr++; b.tb += 4; }
-          else b.tb += 1;
+          const bases = (res.includes('HR') || res.includes('4B')) ? 4 : (res.includes('TRIPLE') || res.includes('3B')) ? 3 : (res.includes('DOUBLE') || res.includes('2B')) ? 2 : 1;
+          b.tb += bases;
+          if (bases === 2) b.d++; else if (bases === 3) b.t++; else if (bases === 4) b.hr++;
         }
       }
       b.rbi += (ab.rbi || 0);
+      if (ab.scorerIds) {
+        ab.scorerIds.split(',').forEach(sid => { if (batterMap[parseInt(sid)]) batterMap[parseInt(sid)].r++; });
+      }
 
-      addToMap(pitcherMap, ab.pitcherId, ab.pitcher.name, ab.game);
-      const p = pitcherMap[ab.pitcherId];
+      const p = addToMap(pitcherMap, ab.pitcherId, ab.pitcher.name, ab.game);
       p.gameIds.add(ab.gameId);
-      p.ipOuts += ab.outs || (['K', 'OUT'].some(o => res.includes(o)) ? 1 : 0);
+      p.ipOuts += (ab.outs || 0);
       if (res.includes('K')) p.pk++;
-      if (['SINGLE', 'DOUBLE', 'TRIPLE', 'HR'].some(h => res.includes(h))) { p.ph++; if (res.includes('HR')) p.phr++; }
-      p.pbb += (['WALK', 'BB'].some(w => res.includes(w)) ? 1 : 0);
-      p.pr += ab.runsScored || 0;
-      p.per += ab.runsScored || 0; 
+      if (isH) { 
+        p.ph++; 
+        if (res.includes('HR') || res.includes('4B')) p.phr++; 
+      }
+      if (isWalk) p.pbb++;
+      p.pr += ab.runsScored;
+      p.per += ab.runsScored; 
     });
 
+    // 2. Process Manual Data (DECISIONS FOR ALL, VOLUME FOR NON-LIVE)
     manualLines.forEach((ms: any) => { 
-      addToMap(batterMap, ms.playerId, ms.player.name, ms.game);
-      const b = batterMap[ms.playerId];
-      b.gameIds.add(ms.gameId);
-      b.ab += ms.ab; b.h += ms.h; b.hr += ms.hr; b.rbi += ms.rbi; b.bb += ms.bb; b.k += ms.k;
-      b.d += ms.d2b; b.t += ms.d3b;
-      b.tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
+      const p = addToMap(pitcherMap, ms.playerId, ms.player.name, ms.game);
+      
+      // DECISIONS: Pulled exclusively from manual lines to match scorecard exactly
+      if (ms.win) p.w++;
+      if (ms.loss) p.l++;
+      if (ms.save) p.sv++;
 
-      const isPitcher = ms.ip > 0 || ms.pk > 0 || ms.pbb > 0 || ms.ph > 0 || ms.pr > 0 || ms.win || ms.loss || ms.save;
-      if (isPitcher) {
-        addToMap(pitcherMap, ms.playerId, ms.player.name, ms.game);
-        const p = pitcherMap[ms.playerId];
+      // VOLUME: Skip if live data exists to prevent double counting
+      if (!gamesWithLiveAtBats.has(ms.gameId)) {
+        const b = addToMap(batterMap, ms.playerId, ms.player.name, ms.game);
+        b.gameIds.add(ms.gameId);
+        b.ab += ms.ab; b.h += ms.h; b.hr += ms.hr; b.rbi += ms.rbi; b.r += ms.r; b.bb += ms.bb; b.k += ms.k;
+        b.d += ms.d2b; b.t += ms.d3b;
+        b.tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
+
         p.gameIds.add(ms.gameId);
-        p.ipOuts += (Math.floor(ms.ip) * 3) + (Math.round((ms.ip % 1) * 10));
+        p.ipOuts += (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
         p.pk += ms.pk; p.ph += ms.ph; p.pr += ms.pr; p.per += ms.per; p.pbb += ms.pbb; p.phr += (ms.phr || 0); 
-        p.w += ms.win ? 1 : 0; p.l += ms.loss ? 1 : 0; p.sv += ms.save ? 1 : 0;
       }
     });
 
     const finalBatters = Object.values(batterMap).map((b: any) => {
       const pa = b.ab + b.bb;
+      const speedDisplay = b.stylesPlayed.has('FAST') && b.stylesPlayed.has('MED') ? 'BOTH' : b.speedDisplay;
       return { 
-        ...b, gp: b.gameIds.size, pa,
-        speedDisplay: b.stylesPlayed.has('FAST') && b.stylesPlayed.has('MED') ? 'BOTH' : b.speedDisplay,
+        ...b, gp: b.gameIds.size, pa, speedDisplay, leagueDisplay: b.leagueDisplay,
         avg: b.ab > 0 ? (b.h / b.ab).toFixed(3).replace(/^0/, '') : '.000', 
         obp: pa > 0 ? ((b.h + b.bb) / pa).toFixed(3).replace(/^0/, '') : '.000', 
-        ops: (b.ab > 0 && pa > 0) ? (((b.h + b.bb) / pa) + (b.tb / b.ab)).toFixed(3).replace(/^0/, '') : '.000' 
+        ops: b.ab > 0 ? (((b.h + b.bb) / pa) + (b.tb / b.ab)).toFixed(3).replace(/^0/, '') : '.000' 
       };
     });
 
     const finalPitchers = Object.values(pitcherMap).map((p: any) => {
       const mathIP = p.ipOuts / 3;
+      const speedDisplay = p.stylesPlayed.has('FAST') && p.stylesPlayed.has('MED') ? 'BOTH' : p.speedDisplay;
       return { 
-        ...p, gp: p.gameIds.size,
-        speedDisplay: p.stylesPlayed.has('FAST') && p.stylesPlayed.has('MED') ? 'BOTH' : p.speedDisplay,
+        id: p.id, name: p.name, w: p.w, l: p.l, sv: p.sv, gp: p.gameIds.size, speedDisplay, leagueDisplay: p.leagueDisplay,
         ip: `${Math.floor(p.ipOuts / 3)}.${p.ipOuts % 3}`, 
-        era: mathIP > 0 ? ((p.per * 4) / mathIP).toFixed(2) : "0.00", 
+        h: p.ph, r: p.pr, er: p.per, bb: p.pbb, k: p.pk, hr: p.phr,
+        era: mathIP > 0 ? ((p.per * eraStandard) / mathIP).toFixed(2) : "0.00", 
         whip: mathIP > 0 ? ((p.ph + p.pbb) / mathIP).toFixed(2) : "0.00" 
       };
     });
 
-    return NextResponse.json({ leagues, batters: finalBatters, pitchers: finalPitchers, year: targetYear, seasonName: seasonMeta?.name || `${targetYear} Global Stats` });
+    return NextResponse.json({ leagues, batters: finalBatters, pitchers: finalPitchers, seasonName: seasonMeta?.name || "Global Stats" });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
