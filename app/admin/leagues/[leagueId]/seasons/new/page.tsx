@@ -166,7 +166,8 @@ export default function SeasonWizard() {
                     <WizardSelect 
                       label="Speed Limit" 
                       val={rules.speedLimit} 
-                      options={Array.from({length: 21}, (_, i) => i + 60)} 
+                      // CHANGED: Length 26, starting at 55
+                      options={Array.from({length: 26}, (_, i) => i + 55)} 
                       onChange={(v: number) => setRules({...rules, speedLimit: v})} 
                     />
                     <p className="text-[9px] font-bold text-[#c1121f] uppercase mt-1 px-1 italic">Maximum velocity permitted (MPH)</p>

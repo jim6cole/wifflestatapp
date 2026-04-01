@@ -32,8 +32,8 @@ export async function POST(
     const resolvedParams = await params;
     const seasonId = parseInt(resolvedParams.seasonId);
     
-    // Extract the fieldNumber from the request
-    const { homeTeamId, awayTeamId, scheduledAt, isPlayoff, fieldNumber } = await request.json();
+    // Extract the fieldNumber AND eventId from the request
+    const { homeTeamId, awayTeamId, scheduledAt, isPlayoff, fieldNumber, eventId } = await request.json();
 
     if (!homeTeamId || !awayTeamId || !scheduledAt) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -51,8 +51,10 @@ export async function POST(
         scheduledAt: new Date(scheduledAt),
         status: "UPCOMING",
         isPlayoff: isPlayoff || false,
-        // Pass the fieldNumber safely to the database
-        fieldNumber: fieldNumber ? Number(fieldNumber) : null 
+        fieldNumber: fieldNumber ? Number(fieldNumber) : null,
+        
+        // NEW: Link the game to the Tournament if one was selected
+        eventId: eventId ? parseInt(eventId) : null
       },
       include: {
         homeTeam: { select: { name: true } },

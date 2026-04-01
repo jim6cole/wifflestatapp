@@ -60,6 +60,7 @@ model Team {
   rosterSlots RosterSlot[]
   lineups     LineupEntry[]
   manualStats ManualStatLine[]
+  wonEvents   Event[]       @relation("EventWinner")
   createdAt   DateTime      @default(now())
 }
 
@@ -129,6 +130,8 @@ model Event {
   seasonId  Int
   season    Season   @relation(fields: [seasonId], references: [id])
   games     Game[]
+  winnerId  Int?
+  winner    Team?    @relation("EventWinner", fields: [winnerId], references: [id])
   createdAt DateTime @default(now())
 }
 

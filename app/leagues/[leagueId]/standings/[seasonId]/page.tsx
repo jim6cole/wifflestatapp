@@ -146,7 +146,15 @@ export default function SeasonStandingsPage() {
                           {/* Only show numeric rank if using the default API sort */}
                           {!sortConfig ? idx + 1 : '-'}
                         </span>
-                        <span className="text-[#001d3d] tracking-tighter">{team.name}</span>
+                        <span className="text-[#001d3d] tracking-tighter flex items-center gap-2">
+                          {team.name}
+                          {/* NEW: Render a star for every tournament won */}
+                          {team.tournamentWins > 0 && (
+                            <span className="text-[#ffd60a] text-xl not-italic drop-shadow-sm flex" title={`${team.tournamentWins} Tournament Win(s)`}>
+                              {Array(team.tournamentWins).fill('⭐').join('')}
+                            </span>
+                          )}
+                        </span>
                       </td>
                       
                       {/* Record */}

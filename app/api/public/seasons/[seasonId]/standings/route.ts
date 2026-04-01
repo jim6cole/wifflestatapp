@@ -26,12 +26,27 @@ export async function GET(
       select: { name: true, leagueId: true }
     });
 
+    // NEW: Fetch all completed tournaments for this season to see who won them
+    const events = await prisma.event.findMany({
+      where: { seasonId: sId, status: 'COMPLETED', winnerId: { not: null } },
+      select: { winnerId: true }
+    });
+
+    // Count up the tournament wins per team ID
+    const tournamentWinsCount: Record<number, number> = {};
+    events.forEach(event => {
+      if (event.winnerId) {
+        tournamentWinsCount[event.winnerId] = (tournamentWinsCount[event.winnerId] || 0) + 1;
+      }
+    });
+
     const teams: Record<number, any> = {};
 
     // Helper to setup a team profile
     const initTeam = (id: number, name: string) => {
       if (!teams[id]) {
-        teams[id] = { id, name, w: 0, l: 0, t: 0, rf: 0, ra: 0, streakList: [] };
+        // NEW: Inject the tournamentWins into the initial team object
+        teams[id] = { id, name, w: 0, l: 0, t: 0, rf: 0, ra: 0, streakList: [], tournamentWins: tournamentWinsCount[id] || 0 };
       }
     };
 
@@ -97,7 +112,8 @@ export async function GET(
         rf: t.rf,
         ra: t.ra,
         rd: t.rf - t.ra,
-        streak: currentStreak
+        streak: currentStreak,
+        tournamentWins: t.tournamentWins // NEW: Pass the count to the frontend
       };
     });
 

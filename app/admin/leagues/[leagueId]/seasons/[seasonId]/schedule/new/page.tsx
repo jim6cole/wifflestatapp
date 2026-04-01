@@ -17,8 +17,10 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
   const [gameTime, setGameTime] = useState('09:00'); 
   const [fieldNumber, setFieldNumber] = useState('1'); 
   const [isPlayoff, setIsPlayoff] = useState(false);
+  
+  // NEW: Tournament State
+  const [eventId, setEventId] = useState('');
 
-  // Generate 15 fields
   const availableFields = Array.from({ length: 15 }, (_, i) => (i + 1).toString());
 
   const generateTimeSlots = () => {
@@ -73,7 +75,8 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
           awayTeamId, 
           scheduledAt, 
           isPlayoff, 
-          fieldNumber: parseInt(fieldNumber) 
+          fieldNumber: parseInt(fieldNumber),
+          eventId // <-- Pass the selected tournament to the backend
         }),
       });
 
@@ -83,6 +86,7 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
         setHomeTeamId('');
         setAwayTeamId('');
         setGameTime('09:00'); 
+        // We leave the eventId set so they can rapidly schedule multiple games for the same tournament!
       } else {
         const err = await res.json();
         alert(`Error: ${err.error}`);
@@ -92,7 +96,6 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
     }
   };
 
-  // Delete Game Function
   const handleDeleteGame = async (gameId: number) => {
     if (!confirm("Are you sure you want to delete this scheduled game? This cannot be undone.")) return;
 
@@ -112,7 +115,6 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
     }
   };
 
-  // --- THE FIX: Filter out completed games right here ---
   const upcomingGamesList = games.filter(g => g.status !== 'COMPLETED');
 
   return (
@@ -165,6 +167,19 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                     <button type="button" onClick={() => setIsPlayoff(true)} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest border-2 transition-all ${isPlayoff ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d]' : 'bg-slate-100 text-slate-400 border-slate-300'}`}>{season?.isTournament ? "Bracket" : "Playoffs"}</button>
                   </div>
                 </div>
+
+                {/* NEW: TOURNAMENT ATTACHMENT DROPDOWN */}
+                {season?.events && season.events.length > 0 && (
+                  <div className="bg-white border-2 border-[#001d3d] p-4">
+                    <label className="block text-[10px] font-bold uppercase text-[#c1121f] tracking-widest mb-2 text-center">Tournament Link (Optional)</label>
+                    <select value={eventId} onChange={(e) => setEventId(e.target.value)} className="w-full bg-[#fdf0d5] border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer">
+                      <option value="">-- No Tournament (Standard Game) --</option>
+                      {season.events.map((ev: any) => (
+                        <option key={ev.id} value={ev.id}>{ev.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   <div>
@@ -225,6 +240,12 @@ export default function GameScheduler({ params }: { params: Promise<{ leagueId: 
                           <span className="bg-[#001d3d] text-[#ffd60a] px-2 py-0.5 text-[10px] font-black uppercase border-2 border-[#ffd60a]">
                              F{game.fieldNumber || '1'}
                           </span>
+                          {/* NEW: Show an indicator if it belongs to an Event */}
+                          {game.eventId && (
+                            <span className="bg-[#c1121f] text-white px-2 py-0.5 text-[8px] font-black uppercase tracking-widest border border-[#001d3d]">
+                              Tournament Play
+                            </span>
+                          )}
                         </div>
                         <p className="text-[10px] font-bold uppercase text-slate-500 tracking-widest mt-1">ID: {game.id} | Status: <span className={isLive ? "text-green-500" : ""}>{game.status}</span></p>
                       </div>

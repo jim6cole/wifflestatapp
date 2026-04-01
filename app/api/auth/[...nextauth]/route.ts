@@ -15,11 +15,11 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const normalizedEmail = credentials.email.toLowerCase
+        const normalizedEmail = credentials.email.toLowerCase().trim();
         
         // Fetch the user AND all of their league memberships
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
+          where: { email: normalizedEmail },
           include: { memberships: true }
         });
 

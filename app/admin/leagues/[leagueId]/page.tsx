@@ -114,28 +114,8 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
           {/* COLUMN 3: GAME DAY */}
           <HubColumn title="Game Day" icon="⚾" highlight>
             <HubButton 
-              title="Live Action" 
-              subtitle="Active Scoreboard" 
-              href={`/admin/games/active?leagueId=${leagueId}`}
-              highlight
-            />
-           
-            <HubButton 
-              title="Auto-Gen" 
-              subtitle="Matchup Engine" 
-              href={latestActiveSeason 
-                ? `/admin/leagues/${leagueId}/events/generator?seasonId=${latestActiveSeason.id}` 
-                : `/admin/leagues/${leagueId}/events/generator`}
-            />
-             <HubButton 
-              title="Schedule" 
-              subtitle="League Calendar" 
-              href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/schedule` : '#'}
-              disabled={!latestActiveSeason}
-            />
-            <HubButton 
               title="Season Archives" 
-              subtitle="Historical Stats" 
+              subtitle="Active, Planned, and Past Seasons" 
               href={`/admin/leagues/${leagueId}/seasons`} 
             />
           </HubColumn>

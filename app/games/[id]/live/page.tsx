@@ -193,25 +193,39 @@ export default function LiveScorer() {
     const mercyLimit = rules?.mercyRule || 0;
 
     const scoreDiff = Math.abs(homeScore - awayScore);
+    
+    // 1. MERCY RULE CHECK
     if (mercyLimit > 0 && scoreDiff >= mercyLimit) {
         setGameOverMessage(`MERCY RULE! ${homeScore > awayScore ? 'Home' : 'Away'} Team wins.`);
         setShowEndGameModal(true);
         return;
     }
 
-    // FIXED: Only end game at transition if someone has officially won after full turns
+    // 2. 🚨 NEW: HOME TEAM ALREADY WINNING CHECK 🚨
+    // If the Top half of the final (or extra) inning just ended, and Home is winning, end game.
+    if (isTopInning && inning >= targetInnings && homeScore > awayScore) {
+        setGameOverMessage(`GAME OVER! ${game.homeTeam.name} Wins!`);
+        setShowEndGameModal(true);
+        return;
+    }
+
+    // 3. FULL INNING COMPLETE CHECK
+    // If the Bottom half of the final (or extra) inning just ended, and it's not tied, end game.
     if (!isTopInning && inning >= targetInnings && homeScore !== awayScore) {
         setGameOverMessage(`GAME OVER! ${homeScore > awayScore ? 'Home' : 'Away'} Team Wins!`);
         setShowEndGameModal(true);
         return; 
     }
 
+    // If game is still alive, set up the next half-inning
     const breakLabel = isTopInning ? `Mid ${inning}` : `End ${inning}`;
     const nextIsTop = !isTopInning;
     const nextInning = nextIsTop ? inning + 1 : inning;
     
     let nextBases: (any | null)[] = [null, null, null];
     let nextPitchers: (number | null)[] = [null, null, null];
+    
+    // Add Ghost Runner if going into extra innings
     if (rules?.ghostRunner && nextInning > targetInnings) {
        nextBases[1] = { id: `ghost-${Date.now()}`, name: 'Ghost Runner' };
        nextPitchers[1] = null;

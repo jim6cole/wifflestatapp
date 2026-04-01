@@ -13,38 +13,64 @@ export default function SeasonStatsPage() {
   const [batters, setBatters] = useState<any[]>([]);
   const [seasonName, setSeasonName] = useState('Season');
   const [loading, setLoading] = useState(true);
+  
+  // NEW: Tournament Filter State
+  const [events, setEvents] = useState<any[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string>('');
 
   useEffect(() => {
     if (!seasonId) return;
     setLoading(true);
     
-    // Filter the shared Global Stat Engine for this specific season
-    fetch(`/api/public/stats/global?seasonId=${seasonId}`)
+    // NEW: Add eventId to the fetch URL if a tournament is selected
+    const url = `/api/public/stats/global?seasonId=${seasonId}${selectedEventId ? `&eventId=${selectedEventId}` : ''}`;
+    
+    fetch(url)
       .then(res => res.json())
       .then(data => {
         setPitchers(data.pitchers || []);
         setBatters(data.batters || []);
         setSeasonName(data.seasonName || 'Season Stats');
+        if (data.events) setEvents(data.events); // Store the tournaments for the dropdown
         setLoading(false);
       })
       .catch(err => {
         console.error("Failed to load season stats", err);
         setLoading(false);
       });
-  }, [seasonId]);
+  }, [seasonId, selectedEventId]); // Re-run when the dropdown changes
 
   return (
     <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-12 border-[16px] border-[#001d3d]">
       <div className="max-w-[1400px] mx-auto">
         
         {/* --- HEADER --- */}
-        <header className="mb-8 border-b-8 border-[#c1121f] pb-6">
-          <Link href={`/leagues/${leagueId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] mb-4 block transition-colors">
-            ← BACK TO LEAGUE
-          </Link>
-          <h1 className="text-6xl md:text-8xl font-black italic uppercase tracking-tighter drop-shadow-[6px_6px_0px_#ffd60a]">
-            {seasonName}
-          </h1>
+        <header className="mb-8 border-b-8 border-[#c1121f] pb-6 flex flex-col md:flex-row md:justify-between md:items-end gap-6">
+          <div>
+            <Link href={`/leagues/${leagueId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] mb-4 block transition-colors">
+              ← BACK TO LEAGUE
+            </Link>
+            <h1 className="text-6xl md:text-8xl font-black italic uppercase tracking-tighter drop-shadow-[6px_6px_0px_#ffd60a] leading-none">
+              {seasonName}
+            </h1>
+          </div>
+
+          {/* NEW: TOURNAMENT FILTER DROPDOWN */}
+          {events.length > 0 && (
+            <div className="shrink-0 w-full md:w-auto">
+              <label className="block text-[10px] font-black uppercase text-[#c1121f] tracking-widest mb-2">Filter By Event</label>
+              <select 
+                value={selectedEventId}
+                onChange={(e) => setSelectedEventId(e.target.value)}
+                className="w-full bg-white border-4 border-[#001d3d] p-3 md:p-4 text-[#001d3d] font-black italic uppercase tracking-tight outline-none focus:border-[#c1121f] cursor-pointer shadow-[6px_6px_0px_#001d3d]"
+              >
+                <option value="">-- FULL SEASON STATS --</option>
+                {events.map(ev => (
+                  <option key={ev.id} value={ev.id}>🏆 {ev.name} STATS</option>
+                ))}
+              </select>
+            </div>
+          )}
         </header>
 
         {/* --- TAB TOGGLES --- */}

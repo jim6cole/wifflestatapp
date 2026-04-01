@@ -17,7 +17,8 @@ export async function GET(
     if (isNaN(id)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
 
     const season = await prisma.season.findUnique({
-      where: { id }
+      where: { id }, // <-- Add the comma right here
+      include: { events: true }
     });
 
     if (!season) return NextResponse.json({ error: "Season not found" }, { status: 404 });

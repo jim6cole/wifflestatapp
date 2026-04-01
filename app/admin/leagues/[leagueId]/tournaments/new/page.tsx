@@ -166,7 +166,8 @@ export default function TournamentWizard() {
                     <WizardSelect 
                       label="Speed Limit (MPH)" 
                       val={rules.speedLimit} 
-                      options={Array.from({length: 21}, (_, i) => i + 60)} 
+                      // CHANGED: Length 26, starting at 55
+                      options={Array.from({length: 26}, (_, i) => i + 55)} 
                       onChange={(v: number) => setRules(p => ({...p, speedLimit: v}))} 
                     />
                   </div>

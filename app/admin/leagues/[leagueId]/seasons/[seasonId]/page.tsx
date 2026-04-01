@@ -103,6 +103,14 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
             disabled={isCompleted}
           />
 
+          <SeasonActionCard 
+            title="Tournaments" 
+            desc="Manage Sub-Events & Winners." 
+            href={`/admin/leagues/${leagueId}/seasons/${seasonId}/events`} 
+            icon="🏆"
+            highlight
+          />
+
           {/* MANUAL ENTRY CARD */}
           <SeasonActionCard 
             title="Scorecard" 
