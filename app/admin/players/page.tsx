@@ -128,23 +128,17 @@ export default function MasterPlayerRegistry() {
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  if (loading && players.length === 0) {
-    return (
-      <div className="min-h-screen bg-[#001d3d] flex items-center justify-center border-[12px] border-[#c1121f]">
-        <div className="text-white font-black italic uppercase animate-pulse text-4xl tracking-tighter">
-          Scanning Scouting Reports...
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#001d3d] p-8 md:p-16 border-[12px] border-[#c1121f]">
       <div className="max-w-5xl mx-auto">
+        
+        {/* --- STICKY HEADER SECTION --- */}
         <header className="mb-12 border-b-8 border-[#ffd60a] pb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-6xl font-black italic uppercase text-white tracking-tighter leading-none">Master Roster</h1>
-            <p className="text-[#fdf0d5] font-bold uppercase text-xs tracking-[0.3em] mt-2 italic text-white/60">Global Player Database</p>
+            <p className="text-[#fdf0d5] font-bold uppercase text-xs tracking-[0.3em] mt-2 italic text-white/60">
+              {loading ? "Scanning Reports..." : `Listing ${filteredPlayers.length} Active Players`}
+            </p>
           </div>
           <div className="flex gap-4">
             {isGlobalAdmin && (
@@ -165,12 +159,13 @@ export default function MasterPlayerRegistry() {
           </div>
         </header>
 
+        {/* --- STICKY SEARCH BAR --- */}
         {!isMergeMode && (
-          <div className="relative mb-8">
+          <div className="sticky top-4 z-30 mb-8">
             <input 
               type="text" 
               placeholder="Search Player Name..." 
-              className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-5 text-[#001d3d] font-black outline-none focus:border-[#c1121f] uppercase placeholder:opacity-40"
+              className="w-full bg-[#fdf0d5] border-4 border-[#001d3d] p-5 text-[#001d3d] font-black outline-none focus:border-[#c1121f] uppercase placeholder:opacity-40 shadow-[8px_8px_0px_#000]"
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
@@ -208,10 +203,14 @@ export default function MasterPlayerRegistry() {
           </div>
         )}
 
-        <div className="grid gap-4">
-          {filteredPlayers.length > 0 ? (
+        {/* --- SCROLLABLE LIST --- */}
+        <div className="grid gap-4 pb-20">
+          {loading ? (
+             <div className="text-center text-white font-black italic uppercase text-4xl animate-pulse py-20">
+                Scanning Reports...
+             </div>
+          ) : filteredPlayers.length > 0 ? (
             filteredPlayers.map(player => {
-              // SECURITY: Only allow edits if they own the league or are Global Admin
               const canManage = isGlobalAdmin || (player.leagueId && userLeagueIds.includes(player.leagueId));
 
               return (

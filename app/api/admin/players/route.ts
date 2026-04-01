@@ -30,8 +30,7 @@ export async function GET(request: Request) {
     // If no search term, return a small sample of the roster
     if (!searchTerm) {
       const allPlayers = await prisma.player.findMany({ 
-        take: 10, 
-        orderBy: { name: 'asc' } 
+                orderBy: { name: 'asc' } 
       });
       return NextResponse.json(allPlayers);
     }
@@ -47,8 +46,7 @@ export async function GET(request: Request) {
           { name: { contains: lastNameQuery } }  // Fallback match for just the last name
         ]
       },
-      take: 15, // Limit results for a cleaner dropdown UI
-      orderBy: { name: 'asc' },
+            orderBy: { name: 'asc' },
     });
 
     return NextResponse.json(players);

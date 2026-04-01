@@ -16,7 +16,7 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
 
   // Secure Multi-Tenant Check for Commissioner Powers
   const isCommish = user?.isGlobalAdmin || user?.memberships?.some(
-    (m: any) => m.leagueId === parseInt(leagueId) && m.roleLevel >= 2 && m.isApproved
+    (m: any) => Number(m.leagueId) === Number(leagueId) && m.roleLevel >= 2 && m.isApproved
   );
 
   useEffect(() => {
