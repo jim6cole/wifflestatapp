@@ -30,6 +30,29 @@ export default function GlobalStatsPage() {
       });
   }, [leagueFilter, yearFilter, speedFilter]);
 
+  // --- CSV EXPORT LOGIC ---
+  const exportToCSV = () => {
+    const dataToExport = activeTab === 'hitting' ? batters : pitchers;
+    if (dataToExport.length === 0) return;
+
+    const headers = activeTab === 'hitting' 
+      ? ["Name", "League", "Speed", "GP", "PA", "AB", "H", "2B", "3B", "HR", "RBI", "R", "BB", "K", "AVG", "OBP", "OPS"]
+      : ["Name", "League", "Speed", "W", "L", "SV", "GP", "IP", "H", "R", "ER", "BB", "K", "HR", "WHIP", "ERA"];
+
+    const rows = dataToExport.map(p => activeTab === 'hitting' 
+      ? [p.name, p.leagueDisplay, p.speedDisplay, p.gp, p.pa, p.ab, p.h, p.d, p.t, p.hr, p.rbi, p.r, p.bb, p.k, p.avg, p.obp, p.ops]
+      : [p.name, p.leagueDisplay, p.speedDisplay, p.w, p.l, p.sv, p.gp, p.ip, p.h, p.r, p.er, p.bb, p.k, p.hr, p.whip, p.era]
+    );
+
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `AWAA_Global_${activeTab}_${yearFilter}.csv`;
+    link.click();
+  };
+
   return (
     <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-12 border-[16px] border-[#001d3d]">
       <div className="max-w-[1600px] mx-auto">
@@ -40,6 +63,13 @@ export default function GlobalStatsPage() {
               {yearFilter === 'all' ? 'All-Time' : yearFilter} Global
             </h1>
           </div>
+          {/* EXPORT BUTTON */}
+          <button 
+            onClick={exportToCSV}
+            className="bg-[#c1121f] text-white border-4 border-[#001d3d] px-6 py-4 font-black uppercase italic hover:bg-[#ffd60a] hover:text-[#001d3d] transition-all shadow-[6px_6px_0px_#001d3d] active:translate-y-1 active:shadow-none"
+          >
+            ↓ Export CSV
+          </button>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -76,6 +106,8 @@ export default function GlobalStatsPage() {
     </div>
   );
 }
+
+// ... Rest of your sortArray, PitchingTable, and HittingTable components
 
 const sortArray = (data: any[], sortConfig: { key: string, direction: 'asc' | 'desc' }) => {
   return [...data].sort((a, b) => {

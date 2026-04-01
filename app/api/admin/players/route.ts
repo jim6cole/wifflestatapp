@@ -62,6 +62,8 @@ export async function GET(request: Request) {
  * POST: Create a brand new player in the Global Database.
  * Runs the Umpire's Logic to ensure data remains clean.
  */
+// app/api/admin/players/route.ts
+
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -74,21 +76,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
+    const user = session.user as any;
+    const isGlobalAdmin = user.isGlobalAdmin;
+    const requestedLeagueId = body.leagueId ? parseInt(body.leagueId) : null;
+
+    // NEW SECURITY CHECK:
+    // If not a Global Admin, ensure they are a Commissioner for the league they are trying to add a player to.
+    if (!isGlobalAdmin && requestedLeagueId) {
+      const userLeagueIds = user.memberships
+        ?.filter((m: any) => m.roleLevel >= 2)
+        .map((m: any) => m.leagueId) || [];
+
+      if (!userLeagueIds.includes(requestedLeagueId)) {
+        return NextResponse.json({ error: "Unauthorized: You cannot create players for this league." }, { status: 403 });
+      }
+    }
+
     const formattedName = formatName(body.name);
 
-    // Optional: Check if a player with this exact name already exists to prevent duplicates
     const existingPlayer = await prisma.player.findFirst({
       where: { name: formattedName }
     });
 
     if (existingPlayer) {
-      return NextResponse.json(existingPlayer); // Return existing instead of creating a dupe
+      return NextResponse.json(existingPlayer);
     }
 
     const newPlayer = await prisma.player.create({
       data: {
         name: formattedName,
-        leagueId: body.leagueId ? parseInt(body.leagueId) : null 
+        leagueId: requestedLeagueId 
       }
     });
 

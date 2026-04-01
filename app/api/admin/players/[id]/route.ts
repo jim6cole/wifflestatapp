@@ -23,17 +23,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { name } = await request.json();
     if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
 
-    // SECURITY CHECK: Fetch the player to see what league they belong to
     const targetPlayer = await prisma.player.findUnique({ where: { id: playerId } });
     if (!targetPlayer) return NextResponse.json({ error: "Player not found" }, { status: 404 });
 
     const user = session.user as any;
     const isGlobalAdmin = user.isGlobalAdmin;
-    const userLeagueIds = user.memberships?.map((m: any) => m.leagueId) || [];
 
-    // Only Global Admins OR Commissioners of the player's specific league can edit them
+    // UPDATED SECURITY: Only check for Tier 2 (Commissioner) or Tier 3 (Admin)
+    const userLeagueIds = user.memberships
+        ?.filter((m: any) => m.roleLevel >= 2)
+        .map((m: any) => m.leagueId) || [];
+
     if (!isGlobalAdmin && !userLeagueIds.includes(targetPlayer.leagueId)) {
-        return NextResponse.json({ error: "Unauthorized: Player belongs to another league." }, { status: 403 });
+        return NextResponse.json({ error: "Unauthorized: You are not a commissioner for this player's league." }, { status: 403 });
     }
 
     const updatedPlayer = await prisma.player.update({
@@ -56,19 +58,21 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       const { id } = await params; 
       const playerId = parseInt(id);
   
-      // SECURITY CHECK
       const targetPlayer = await prisma.player.findUnique({ where: { id: playerId } });
       if (!targetPlayer) return NextResponse.json({ error: "Player not found" }, { status: 404 });
   
       const user = session.user as any;
       const isGlobalAdmin = user.isGlobalAdmin;
-      const userLeagueIds = user.memberships?.map((m: any) => m.leagueId) || [];
+
+      // UPDATED SECURITY: Tier 2 Commissioner level required
+      const userLeagueIds = user.memberships
+          ?.filter((m: any) => m.roleLevel >= 2)
+          .map((m: any) => m.leagueId) || [];
   
       if (!isGlobalAdmin && !userLeagueIds.includes(targetPlayer.leagueId)) {
-          return NextResponse.json({ error: "Unauthorized: Player belongs to another league." }, { status: 403 });
+          return NextResponse.json({ error: "Unauthorized: You are not a commissioner for this player's league." }, { status: 403 });
       }
   
-      // EXECUTE DELETE
       await prisma.player.delete({
         where: { id: playerId }
       });
@@ -76,7 +80,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       return NextResponse.json({ success: true });
   
     } catch (error: any) {
-      // THE MAGIC CHECK: Catch standard Prisma codes AND raw Postgres constraint locks
       const isConstraintError = 
         error.code === 'P2003' || 
         error.code === 'P2014' || 
@@ -85,14 +88,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
       if (isConstraintError) {
           return NextResponse.json({ 
-              error: "Cannot delete player: They already have stats or game history recorded. If this is a duplicate, please contact support for a roster merge." 
+              error: "Cannot delete player: They already have stats or game history recorded. If this is a duplicate, please contact a Hall of Fame Admin for a roster merge." 
           }, { status: 400 });
       }
-  
-      console.error("=== PLAYER DELETE ERROR ===");
-      console.error("Error Code:", error.code);
-      console.error("Full Error:", error);
-      console.error("===========================");
       
       return NextResponse.json({ error: "Failed to delete player due to server error." }, { status: 500 });
     }

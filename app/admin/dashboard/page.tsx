@@ -21,6 +21,10 @@ export default async function AdminDashboard() {
   if (!dbUser) redirect('/login');
 
   const isGlobalAdmin = dbUser.isGlobalAdmin;
+
+  // NEW: Identify if the user is a Commissioner (Tier 2+) for any league
+  const isCommissioner = isGlobalAdmin || dbUser.memberships.some(m => m.isApproved && m.roleLevel >= 2);
+
   let displayLeagues: any[] = [];
   let pendingMemberships: any[] = [];
 
@@ -123,19 +127,31 @@ export default async function AdminDashboard() {
             
             {!isGlobalAdmin && <ProButton title="Join League" desc="Request a roster spot" href="/admin/join" />}
             
-            {isGlobalAdmin && (
+            {/* UPDATED: Visible to Global Admins AND Commissioners (Tier 2+) */}
+            {isCommissioner && (
               <div className="mt-8 pt-8 border-t-4 border-[#c1121f] space-y-4">
-                <p className="text-[10px] font-black uppercase text-[#ffd60a] tracking-widest">Master Controls</p>
+                <p className="text-[10px] font-black uppercase text-[#ffd60a] tracking-widest">Administrative Tools</p>
+                
                 <ProButton 
                   title="Master Roster" 
-                  desc="Edit names & merge duplicates" 
+                  desc="Edit names & manage players" 
                   href="/admin/players" 
                 />
+
                 <ProButton 
-                  title="User Management" 
-                  desc="View all system officials" 
-                  href="/admin/users" 
+                  title="Legacy Import" 
+                  desc="Upload historical season stats" 
+                  href="/admin/legacy-import" 
                 />
+                
+                {/* Global Admin exclusive buttons */}
+                {isGlobalAdmin && (
+                  <ProButton 
+                    title="User Management" 
+                    desc="View all system officials" 
+                    href="/admin/users" 
+                  />
+                )}
               </div>
             )}
           </div>

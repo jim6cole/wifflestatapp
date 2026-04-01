@@ -18,8 +18,10 @@ export default function MasterPlayerRegistry() {
   const user = session?.user as any;
   const isGlobalAdmin = user?.isGlobalAdmin;
   
-  // Extract all the leagues this user is a commissioner for
-  const userLeagueIds = user?.memberships?.map((m: any) => m.leagueId) || [];
+  // UPDATED: Only extract IDs for leagues where the user is a Commissioner (Tier 2 or 3)
+  const userLeagueIds = user?.memberships
+    ?.filter((m: any) => m.roleLevel >= 2)
+    .map((m: any) => m.leagueId) || [];
   
   const router = useRouter();
 
@@ -73,7 +75,6 @@ export default function MasterPlayerRegistry() {
     }
   };
 
-  // NEW: Delete Handler
   const handleDeletePlayer = async (id: number, name: string) => {
     if (!confirm(`Are you sure you want to permanently delete ${name}? This cannot be undone.`)) return;
 
@@ -210,8 +211,8 @@ export default function MasterPlayerRegistry() {
         <div className="grid gap-4">
           {filteredPlayers.length > 0 ? (
             filteredPlayers.map(player => {
-              // Only allow edits/deletes if they are Global Admin or Commissioner of that player's league
-              const canManage = isGlobalAdmin || userLeagueIds.includes(player.leagueId);
+              // SECURITY: Only allow edits if they own the league or are Global Admin
+              const canManage = isGlobalAdmin || (player.leagueId && userLeagueIds.includes(player.leagueId));
 
               return (
                 <div 
