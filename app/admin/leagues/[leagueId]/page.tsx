@@ -1,13 +1,21 @@
 'use client';
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react'; // NEW: Import session hook
 
 export default function LeagueHub({ params }: { params: Promise<{ leagueId: string }> }) {
   const { leagueId } = use(params);
+  const { data: session } = useSession(); // NEW: Get session data
+  const user = session?.user as any;
   
   const [league, setLeague] = useState<any>(null);
   const [seasons, setSeasons] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
+
+  // NEW: Robust Commissioner check (Covers Level 2 and Global Admins)
+  const isCommish = user?.isGlobalAdmin || user?.memberships?.some(
+    (m: any) => Number(m.leagueId) === Number(leagueId) && m.roleLevel >= 2 && m.isApproved
+  );
 
   useEffect(() => {
     async function fetchData() {
@@ -118,6 +126,15 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
               subtitle="Active, Planned, and Past Seasons" 
               href={`/admin/leagues/${leagueId}/seasons`} 
             />
+            {/* NEW: LEGACY IMPORT BUTTON (Visible to Commissioners only) */}
+            {isCommish && (
+              <HubButton 
+                title="Import Legacy Stats" 
+                subtitle="Sync historical data/seasons" 
+                href={`/admin/leagues/${leagueId}/import`} 
+                highlight
+              />
+            )}
           </HubColumn>
 
         </div>

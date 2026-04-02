@@ -53,6 +53,7 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
 
   const isCompleted = season?.status === 'COMPLETED';
   const isActive = season?.status === 'ACTIVE';
+  const isHistoric = season?.status === 'HISTORIC'; // NEW
 
   return (
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-8 md:p-16 border-[12px] border-[#c1121f]">
@@ -72,6 +73,7 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
             
             <div className={`px-8 py-4 font-black italic uppercase tracking-widest text-xl border-4 shadow-[6px_6px_0px_#001d3d] ${
               isActive ? 'bg-[#22c55e] text-white border-white animate-pulse' :
+              isHistoric ? 'bg-[#669bbc] text-white border-white' : // Style for Historic status
               season?.status === 'UPCOMING' ? 'bg-[#ffd60a] text-[#001d3d] border-white' :
               'bg-slate-800 text-slate-400 border-slate-600'
             }`}>
@@ -85,22 +87,23 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
           
           <SeasonActionCard title="Leaders" desc="Stats & Standings." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/stats`} highlight icon="★" />
           
-          <SeasonActionCard title="Rosters" desc="Teams & trades." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/teams`} icon="⚒" disabled={isCompleted} />
+          {/* Rosters, Matchups, and Auto-Gen disabled if Historic */}
+          <SeasonActionCard title="Rosters" desc="Teams & trades." href={`/admin/leagues/${leagueId}/seasons/${seasonId}/teams`} icon="⚒" disabled={isCompleted || isHistoric} />
           
           <SeasonActionCard 
             title="Matchups" 
-            desc={isCompleted ? "Season closed." : "Single game."} 
-            href={isCompleted ? "#" : `/admin/leagues/${leagueId}/seasons/${seasonId}/schedule/new`} 
+            desc={isCompleted || isHistoric ? "Season archived." : "Single game."} 
+            href={isCompleted || isHistoric ? "#" : `/admin/leagues/${leagueId}/seasons/${seasonId}/schedule/new`} 
             icon="📅"
-            disabled={isCompleted}
+            disabled={isCompleted || isHistoric}
           />
 
           <SeasonActionCard 
             title="Auto-Gen" 
-            desc={isCompleted ? "Season closed." : "Round-Robin."} 
-            href={isCompleted ? "#" : `/admin/leagues/${leagueId}/events/generator?seasonId=${seasonId}`} 
+            desc={isCompleted || isHistoric ? "Season archived." : "Round-Robin."} 
+            href={isCompleted || isHistoric ? "#" : `/admin/leagues/${leagueId}/events/generator?seasonId=${seasonId}`} 
             icon="⚙️"
-            disabled={isCompleted}
+            disabled={isCompleted || isHistoric}
           />
 
           <SeasonActionCard 
@@ -142,8 +145,8 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
             </div>
           )}
 
-          {/* SYSTEM CONTROL CARD */}
-          {isCommish && (
+          {/* SYSTEM CONTROL CARD: Hidden for Historic Seasons */}
+          {isCommish && !isHistoric && (
             <div className="xl:col-span-6 bg-black/30 border-4 border-[#c1121f] p-8 shadow-[8px_8px_0px_#c1121f] flex flex-col xl:flex-row xl:items-center justify-between gap-6 mt-8">
               <div>
                 <h3 className="text-3xl font-black uppercase italic text-white mb-1 leading-tight">Coach's Controls</h3>

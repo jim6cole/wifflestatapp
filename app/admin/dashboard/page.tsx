@@ -138,11 +138,7 @@ export default async function AdminDashboard() {
                   href="/admin/players" 
                 />
 
-                <ProButton 
-                  title="Legacy Import" 
-                  desc="Upload historical season stats" 
-                  href="/admin/legacy-import" 
-                />
+            
                 
                 {/* Global Admin exclusive buttons */}
                 {isGlobalAdmin && (
