@@ -11,21 +11,32 @@ export async function GET(request: Request) {
     const leagueIdFilter = searchParams.get('leagueId');
     const yearFilter = searchParams.get('year');
 
-    const targetYear = yearFilter ? parseInt(yearFilter) : new Date().getFullYear();
-    const startOfYear = new Date(Date.UTC(targetYear, 0, 1));
-    const endOfYear = new Date(Date.UTC(targetYear, 11, 31, 23, 59, 59, 999));
-
     const whereClause: any = { status: 'COMPLETED' };
 
+    // --- UPDATED FILTERING LOGIC ---
     if (seasonIdFilter) {
       whereClause.seasonId = parseInt(seasonIdFilter);
     } else {
-      whereClause.scheduledAt = { gte: startOfYear, lte: endOfYear };
       const seasonConditions: any = {};
-      if (leagueIdFilter && leagueIdFilter !== 'all') seasonConditions.leagueId = parseInt(leagueIdFilter);
-      if (style === 'fast') seasonConditions.isSpeedRestricted = false;
-      else if (style === 'medium') seasonConditions.isSpeedRestricted = true;
-      if (Object.keys(seasonConditions).length > 0) whereClause.season = seasonConditions;
+      
+      // Pivot: Filter by the Season.year column instead of scheduledAt date range
+      if (yearFilter && yearFilter !== 'all') {
+        seasonConditions.year = parseInt(yearFilter);
+      }
+      
+      if (leagueIdFilter && leagueIdFilter !== 'all') {
+        seasonConditions.leagueId = parseInt(leagueIdFilter);
+      }
+      
+      if (style === 'fast') {
+        seasonConditions.isSpeedRestricted = false;
+      } else if (style === 'medium') {
+        seasonConditions.isSpeedRestricted = true;
+      }
+
+      if (Object.keys(seasonConditions).length > 0) {
+        whereClause.season = seasonConditions;
+      }
     }
 
     const [atBats, manualLines, leagues, seasonMeta] = await Promise.all([
@@ -64,6 +75,7 @@ export async function GET(request: Request) {
           ipOuts: 0, ph: 0, pr: 0, per: 0, pbb: 0, pk: 0, phr: 0, w: 0, l: 0, sv: 0,
           weighted_per: 0,
           gameIds: new Set<number>(),
+          manualGP: 0, // Track Games Played from legacy imports
           leagueDisplay: leagueLabel,
           speedDisplay: speedLabel,
           stylesPlayed: new Set<string>([isMed ? 'MED' : 'FAST'])
@@ -105,12 +117,10 @@ export async function GET(request: Request) {
       if (isH) { p.ph++; if (res.includes('HR') || res.includes('4B')) p.phr++; }
       if (isWalk) p.pbb++;
       
-      // THE FIX: Check inningsPerGame if eraStandard is the default 4
       const standard = (ab.game?.season?.eraStandard === 4 && ab.game?.season?.inningsPerGame !== 4) 
         ? ab.game?.season?.inningsPerGame 
         : (ab.game?.season?.eraStandard || 4);
 
-      // ERA Math: Attribution Charging
       if (ab.runsScored > 0) {
         if (ab.runAttribution) {
           ab.runAttribution.split(',').forEach(sid => {
@@ -131,18 +141,22 @@ export async function GET(request: Request) {
     // 2. Process Manual Data
     manualLines.forEach((ms: any) => { 
       const p = addToMap(pitcherMap, ms.playerId, ms.player.name, ms.game);
-      if (ms.win) p.w++;
-      if (ms.loss) p.l++;
-      if (ms.save) p.sv++;
+      // Pitching decisions use the updated count fields
+      if (ms.winCount) p.w += ms.winCount;
+      if (ms.lossCount) p.l += ms.lossCount;
+      if (ms.saveCount) p.sv += ms.saveCount;
 
       if (!gamesWithLiveAtBats.has(ms.gameId)) {
         const b = addToMap(batterMap, ms.playerId, ms.player.name, ms.game);
-        b.gameIds.add(ms.gameId);
+        
+        // --- UPDATED: Batting GP logic ---
+        // For legacy seasons, gp might be 12. For manual single games, gp is 1.
+        b.manualGP += (ms.gp || 1);
+        
         b.ab += ms.ab; b.h += ms.h; b.hr += ms.hr; b.rbi += ms.rbi; b.r += ms.r; b.bb += ms.bb; b.k += ms.k;
         b.d += ms.d2b; b.t += ms.d3b;
         b.tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
 
-        p.gameIds.add(ms.gameId);
         p.ipOuts += (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
         p.pk += ms.pk; p.ph += ms.ph; p.pr += ms.pr; p.per += ms.per; p.pbb += ms.pbb; p.phr += (ms.phr || 0); 
 
@@ -156,8 +170,12 @@ export async function GET(request: Request) {
     const finalBatters = Object.values(batterMap).map((b: any) => {
       const pa = b.ab + b.bb;
       const speedDisplay = b.stylesPlayed.has('FAST') && b.stylesPlayed.has('MED') ? 'BOTH' : b.speedDisplay;
+      
+      // --- UPDATED: Final Batting GP ---
+      const totalGP = b.gameIds.size + b.manualGP;
+
       return { 
-        ...b, gp: b.gameIds.size, pa, speedDisplay, leagueDisplay: b.leagueDisplay,
+        ...b, gp: totalGP, pa, speedDisplay, leagueDisplay: b.leagueDisplay,
         avg: b.ab > 0 ? (b.h / b.ab).toFixed(3).replace(/^0/, '') : '.000', 
         obp: pa > 0 ? ((b.h + b.bb) / pa).toFixed(3).replace(/^0/, '') : '.000', 
         ops: b.ab > 0 ? (((b.h + b.bb) / pa) + (b.tb / b.ab)).toFixed(3).replace(/^0/, '') : '.000' 

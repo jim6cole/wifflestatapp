@@ -9,10 +9,39 @@ export default function GlobalStatsPage() {
   const [leagues, setLeagues] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // --- DYNAMIC YEAR STATE ---
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
+  const [loadingYears, setLoadingYears] = useState(true);
+
   const [leagueFilter, setLeagueFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState(new Date().getFullYear().toString());
   const [speedFilter, setSpeedFilter] = useState('all');
   
+  // Fetch available years on mount
+  useEffect(() => {
+    async function fetchAvailableYears() {
+      try {
+        const res = await fetch('/api/public/stats/years');
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          const yearStrings = data.map(y => y.toString());
+          setAvailableYears(yearStrings);
+          
+          // Fallback if current year has no data
+          if (yearStrings.length > 0 && !yearStrings.includes(yearFilter)) {
+            setYearFilter(yearStrings[0]);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load available years:", err);
+      } finally {
+        setLoadingYears(false);
+      }
+    }
+    fetchAvailableYears();
+  }, []);
+
+  // Fetch stats when filters change
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams();
@@ -63,7 +92,6 @@ export default function GlobalStatsPage() {
               {yearFilter === 'all' ? 'All-Time' : yearFilter} Global
             </h1>
           </div>
-          {/* EXPORT BUTTON */}
           <button 
             onClick={exportToCSV}
             className="bg-[#c1121f] text-white border-4 border-[#001d3d] px-6 py-4 font-black uppercase italic hover:bg-[#ffd60a] hover:text-[#001d3d] transition-all shadow-[6px_6px_0px_#001d3d] active:translate-y-1 active:shadow-none"
@@ -77,10 +105,24 @@ export default function GlobalStatsPage() {
             <option value="all">ALL LEAGUES</option>
             {leagues.map(l => <option key={l.id} value={l.id.toString()}>{l.shortName || l.name}</option>)}
           </select>
-          <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} className="w-full bg-white border-4 border-[#001d3d] p-4 font-black italic uppercase text-sm outline-none shadow-[6px_6px_0px_#001d3d]">
+
+          {/* DYNAMIC YEAR FILTER */}
+          <select 
+            value={yearFilter} 
+            onChange={(e) => setYearFilter(e.target.value)} 
+            disabled={loadingYears}
+            className="w-full bg-white border-4 border-[#001d3d] p-4 font-black italic uppercase text-sm outline-none shadow-[6px_6px_0px_#001d3d] cursor-pointer max-h-60 overflow-y-auto"
+          >
             <option value="all">ALL YEARS</option>
-            <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
+            {loadingYears ? (
+              <option disabled className="italic">Loading...</option>
+            ) : (
+              availableYears.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))
+            )}
           </select>
+
           <select value={speedFilter} onChange={(e) => setSpeedFilter(e.target.value)} className="w-full bg-white border-4 border-[#001d3d] p-4 font-black italic uppercase text-sm outline-none shadow-[6px_6px_0px_#001d3d]">
             <option value="all">ALL SPEEDS</option>
             <option value="fast">FAST (Unrestricted)</option>
@@ -107,7 +149,7 @@ export default function GlobalStatsPage() {
   );
 }
 
-// ... Rest of your sortArray, PitchingTable, and HittingTable components
+// ... Rest of your sortArray, PitchingTable, and HittingTable components follow exactly as before
 
 const sortArray = (data: any[], sortConfig: { key: string, direction: 'asc' | 'desc' }) => {
   return [...data].sort((a, b) => {

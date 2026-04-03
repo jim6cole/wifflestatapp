@@ -8,7 +8,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ lea
   const playerMap: Record<string, number> = {};
   const teamMap: Record<string, number> = {};
 
-  // 1. Resolve Teams
+  // 1. Fetch the season first to get the correct year for the timestamp
+  const targetSeason = await prisma.season.findUnique({
+    where: { id: parseInt(seasonId) },
+    select: { year: true }
+  });
+
+  // 2. Resolve Teams
   for (const team of mapping.teams) {
     if (team.resolvedId === 'NEW') {
       const newTeam = await prisma.team.create({
@@ -20,7 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ lea
     }
   }
 
-  // 2. Resolve Players
+  // 3. Resolve Players
   for (const player of mapping.players) {
     if (player.resolvedId === 'NEW') {
       const newPlayer = await prisma.player.create({
@@ -32,13 +38,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ lea
     }
   }
 
-  // 3. Create Dummy Game for this season
+  // 4. Create Dummy Game for this season
+  // We set the scheduledAt date to Jan 1st of the season's actual year
   const dummyGame = await prisma.game.create({
     data: {
       seasonId: parseInt(seasonId),
+      // Use the first team resolved above as a placeholder
       homeTeamId: Object.values(teamMap)[0],
       awayTeamId: Object.values(teamMap)[0],
-      scheduledAt: new Date(),
+      scheduledAt: new Date(Date.UTC(targetSeason?.year || 2026, 0, 1)), // Fixed targetSeason reference
       status: 'COMPLETED',
       location: 'Legacy Archive'
     }

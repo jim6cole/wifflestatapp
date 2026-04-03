@@ -93,7 +93,7 @@ model Season {
   id                   Int          @id @default(autoincrement())
   events               Event[]
   name                 String
-  year                 Int          @default(2026)
+  year                 Int          
   leagueId             Int
   league               League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   status               String       @default("ACTIVE")
@@ -225,6 +225,7 @@ model ManualStatLine {
   teamId    Int
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   position  String?  @default("F") 
+  gp        Int      @default(0)
 
   // Hitting Stats
   pa        Int      @default(0)
@@ -246,9 +247,9 @@ model ManualStatLine {
   pbb       Int      @default(0)
   pk        Int      @default(0)
   phr       Int      @default(0) // Pitching Home Runs Allowed
-  win       Boolean  @default(false)
-  loss      Boolean  @default(false)
-  save      Boolean  @default(false)
+  winCount   Int      @default(0)
+  lossCount  Int      @default(0)
+  saveCount  Int      @default(0)
 }
 
 model HistoricalStat {
