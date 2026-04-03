@@ -8,8 +8,13 @@ export default function TournamentWizard() {
   const { leagueId } = useParams();
   const [loading, setLoading] = useState(false);
 
+  // Generate an array of years for the dropdown
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 40 }, (_, i) => currentYear + 1 - i);
+
   const [rules, setRules] = useState({
     name: '',
+    year: currentYear, // <-- ADDED YEAR STATE
     leagueId: 0,
     status: 'UPCOMING',
     isTournament: true, 
@@ -93,6 +98,16 @@ export default function TournamentWizard() {
               onChange={(e) => setRules(prev => ({...prev, name: e.target.value.toUpperCase()}))}
             />
 
+            {/* --- NEW YEAR DROPDOWN --- */}
+            <label className="block text-[10px] font-black uppercase text-[#669bbc] mt-6 mb-2 tracking-widest">Tournament Year</label>
+            <select 
+              value={rules.year}
+              onChange={(e) => setRules(prev => ({...prev, year: parseInt(e.target.value)}))}
+              className="w-full bg-white border-4 border-[#001d3d] p-5 text-2xl font-black italic uppercase text-[#001d3d] outline-none focus:border-[#c1121f] cursor-pointer shadow-inner"
+            >
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+
             <div className="mt-6 flex gap-4">
               <button 
                 type="button"
@@ -127,7 +142,7 @@ export default function TournamentWizard() {
                 <WizardSelect label="Strikes" val={rules.strikes} options={[2,3,4]} onChange={(v: number) => setRules(p => ({...p, strikes: v}))} />
               </div>
 
-              {/* NEW: LINEUP RESTRICTIONS */}
+              {/* LINEUP RESTRICTIONS */}
               <div className="pt-4 border-t-4 border-[#001d3d]/10 space-y-4">
                 <h4 className="text-[10px] font-black uppercase text-[#c1121f] tracking-widest text-center">Lineup Restrictions</h4>
                 <div className="grid grid-cols-2 gap-4">
@@ -166,7 +181,6 @@ export default function TournamentWizard() {
                     <WizardSelect 
                       label="Speed Limit (MPH)" 
                       val={rules.speedLimit} 
-                      // CHANGED: Length 26, starting at 55
                       options={Array.from({length: 26}, (_, i) => i + 55)} 
                       onChange={(v: number) => setRules(p => ({...p, speedLimit: v}))} 
                     />

@@ -202,7 +202,6 @@ export default function LiveScorer() {
     }
 
     // 2. 🚨 NEW: HOME TEAM ALREADY WINNING CHECK 🚨
-    // If the Top half of the final (or extra) inning just ended, and Home is winning, end game.
     if (isTopInning && inning >= targetInnings && homeScore > awayScore) {
         setGameOverMessage(`GAME OVER! ${game.homeTeam.name} Wins!`);
         setShowEndGameModal(true);
@@ -210,14 +209,12 @@ export default function LiveScorer() {
     }
 
     // 3. FULL INNING COMPLETE CHECK
-    // If the Bottom half of the final (or extra) inning just ended, and it's not tied, end game.
     if (!isTopInning && inning >= targetInnings && homeScore !== awayScore) {
         setGameOverMessage(`GAME OVER! ${homeScore > awayScore ? 'Home' : 'Away'} Team Wins!`);
         setShowEndGameModal(true);
         return; 
     }
 
-    // If game is still alive, set up the next half-inning
     const breakLabel = isTopInning ? `Mid ${inning}` : `End ${inning}`;
     const nextIsTop = !isTopInning;
     const nextInning = nextIsTop ? inning + 1 : inning;
@@ -225,7 +222,6 @@ export default function LiveScorer() {
     let nextBases: (any | null)[] = [null, null, null];
     let nextPitchers: (number | null)[] = [null, null, null];
     
-    // Add Ghost Runner if going into extra innings
     if (rules?.ghostRunner && nextInning > targetInnings) {
        nextBases[1] = { id: `ghost-${Date.now()}`, name: 'Ghost Runner' };
        nextPitchers[1] = null;
@@ -280,8 +276,6 @@ export default function LiveScorer() {
 
     const newAwayScore = isTopInning ? awayScore + runs : awayScore;
     const newHomeScore = !isTopInning ? homeScore + runs : homeScore;
-    const currentDiff = Math.abs(newAwayScore - newHomeScore);
-    const mercyRule = game.season?.mercyRule || 0;
 
     if (isTopInning) setAwayScore(prev => prev + runs); else setHomeScore(prev => prev + runs);
 
@@ -300,7 +294,6 @@ export default function LiveScorer() {
       [isTopInning ? 'away' : 'home']: (prev[isTopInning ? 'away' : 'home'] + 1) % lineup.length
     }));
 
-    // FIXED: WALK-OFF Logic - only ends game if Home team WAS NOT leading but now is.
     const homeJustTookLead = !isTopInning && inning >= (game.season?.inningsPerGame || 5) && newHomeScore > newAwayScore;
     const wasHomeAlreadyLeading = !isTopInning && homeScore > awayScore;
 
@@ -889,9 +882,17 @@ export default function LiveScorer() {
         <div className="bg-white/5 px-4 py-2 font-black uppercase text-[10px] text-slate-400 text-center italic">Live Game Feed</div>
         <div className="p-2 space-y-1 h-[120px] overflow-y-auto scrollbar-hide">
           {playLog.filter(l => l.type !== 'pitch').map((log, i) => (
-            <div key={i} className={`flex justify-between items-center px-3 py-2 rounded text-xs ${log.runs > 0 ? 'bg-blue-600/20 border-blue-500/30 border' : ''}`}>
-              <div className="flex items-center gap-3 font-black uppercase"><span className="text-[9px] font-bold text-slate-500 w-8">{log.logDisplayInning}</span>{log.batter}</div>
-              <div className="flex items-center gap-4"><span className={`font-black italic uppercase ${log.runs > 0 ? 'text-blue-400' : 'text-slate-400'}`}>{log.result}</span>{log.runs > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black">+{log.runs}</span>}</div>
+            <div key={i} className={`flex flex-col px-3 py-2 rounded text-xs ${log.runs > 0 ? 'bg-blue-600/20 border-blue-500/30 border' : ''}`}>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-3 font-black uppercase"><span className="text-[9px] font-bold text-slate-500 w-8">{log.logDisplayInning}</span>{log.batter}</div>
+                <div className="flex items-center gap-4"><span className={`font-black italic uppercase ${log.runs > 0 ? 'text-blue-400' : 'text-slate-400'}`}>{log.result}</span>{log.runs > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black">+{log.runs}</span>}</div>
+              </div>
+              {/* ADDED: WHO SCORED DATA */}
+              {log.runs > 0 && log.scorerIds && (
+                <div className="text-[8px] text-blue-300/80 font-bold uppercase mt-1 pl-11">
+                   Scored: {log.scorerIds.split(',').map((id: string) => game?.lineups?.find((l:any) => String(l.playerId) === String(id))?.player.name || 'Ghost Runner').join(', ')}
+                </div>
+              )}
             </div>
           ))}
         </div>

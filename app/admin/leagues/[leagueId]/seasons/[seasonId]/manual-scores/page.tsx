@@ -9,11 +9,11 @@ export default function SeasonManualGameList({ params }: { params: Promise<{ lea
 
   useEffect(() => {
     async function fetchGames() {
-      // Re-using your existing schedule API to get the games
       const res = await fetch(`/api/admin/seasons/${seasonId}/schedule`);
       if (res.ok) {
         const data = await res.json();
-        setGames(data);
+        // Filter out completed games so they don't show up in the manual scorecard list
+        setGames(data.filter((g: any) => g.status !== 'COMPLETED'));
       }
       setLoading(false);
     }
@@ -45,28 +45,19 @@ export default function SeasonManualGameList({ params }: { params: Promise<{ lea
                   <div className="text-2xl font-black uppercase italic tracking-tight">
                     {game.awayTeam.name} <span className="text-[#c1121f] px-2">@</span> {game.homeTeam.name}
                   </div>
-                  {game.status === 'COMPLETED' && (
-                    <div className="inline-block mt-2 bg-slate-100 px-2 py-1 text-[9px] font-black uppercase border border-slate-300 text-slate-500">
-                      Already Scored: {game.awayScore} - {game.homeScore}
-                    </div>
-                  )}
                 </div>
 
                 <Link 
                   href={`/admin/games/${game.id}/manual`}
-                  className={`px-8 py-3 font-black uppercase italic text-sm transition-all border-4 shadow-[4px_4px_0px_#000] active:translate-y-1 active:shadow-none ${
-                    game.status === 'COMPLETED' 
-                      ? 'bg-[#003566] text-white border-[#001d3d] hover:bg-[#ffd60a] hover:text-[#001d3d]' 
-                      : 'bg-[#c1121f] text-white border-[#001d3d] hover:bg-[#ffd60a] hover:text-[#001d3d]'
-                  }`}
+                  className="px-8 py-3 font-black uppercase italic text-sm transition-all border-4 shadow-[4px_4px_0px_#000] active:translate-y-1 active:shadow-none bg-[#c1121f] text-white border-[#001d3d] hover:bg-[#ffd60a] hover:text-[#001d3d]"
                 >
-                  {game.status === 'COMPLETED' ? 'Edit Box Score' : 'Score This Game'}
+                  Score This Game
                 </Link>
               </div>
             ))
           ) : (
             <div className="border-4 border-dashed border-[#669bbc] p-20 text-center opacity-40">
-              <p className="font-black italic uppercase text-xl">No games found in the schedule.</p>
+              <p className="font-black italic uppercase text-xl">No pending games found to score.</p>
               <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}/schedule/new`} className="text-[10px] underline font-bold mt-2 inline-block">Add a matchup first</Link>
             </div>
           )}

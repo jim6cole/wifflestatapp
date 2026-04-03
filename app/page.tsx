@@ -9,12 +9,12 @@ export default function WiffPlusLauncher() {
       <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-[#c1121f] rounded-full blur-[120px] opacity-20"></div>
 
       {/* TOP NAV */}
-      <div className="absolute top-8 right-8 z-20">
+      <div className="absolute top-8 right-24 md:right-32 z-20">
         <Link 
           href="/login" 
           className="text-[10px] font-black uppercase tracking-[0.3em] border-2 border-[#ffd60a] px-8 py-3 rounded-full text-[#ffd60a] hover:bg-[#ffd60a] hover:text-[#001d3d] transition-all shadow-[4px_4px_0px_#c1121f]"
         >
-          Staff Portal
+          Sign In
         </Link>
       </div>
 
@@ -47,13 +47,6 @@ export default function WiffPlusLauncher() {
             highlight
           />
         </div>
-
-        {/* SYSTEM FOOTER */}
-        <footer className="mt-16 text-center border-t-2 border-white/10 pt-8">
-          <p className="text-[10px] font-black uppercase text-[#669bbc] tracking-[0.4em]">
-            Powered by WIFF+ // 1997 Edition
-          </p>
-        </footer>
       </div>
     </div>
   );

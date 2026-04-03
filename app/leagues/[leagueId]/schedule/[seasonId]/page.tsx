@@ -43,9 +43,9 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
               ← All Schedules
             </Link>
             <h1 className="text-5xl md:text-7xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] leading-none">
-              Tournament <span className="text-[#ffd60a]">Board</span>
+              Season <span className="text-[#ffd60a]">Schedule</span>
             </h1>
-            <p className="text-[#ffd60a] font-black uppercase text-[10px] tracking-[0.4em] mt-3 italic">Live Gameday Schedule</p>
+            <p className="text-[#ffd60a] font-black uppercase text-[10px] tracking-[0.4em] mt-3 italic">Live Gameday Board</p>
           </div>
           <div className="bg-[#c1121f] text-white px-6 py-3 border-4 border-[#001d3d] font-black italic uppercase tracking-widest text-lg shadow-[6px_6px_0px_#000] shrink-0">
             Season: {seasonId}
@@ -112,7 +112,7 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
                           </div>
                         </div>
 
-                        {/* Bases Indicator (Using simple numbers since we don't map exact bases) */}
+                        {/* Bases Indicator */}
                         <div className="w-full text-center xl:text-left pt-4 xl:border-t-4 border-[#001d3d]/50 hidden md:block">
                            <span className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] block mb-2">Runners On</span>
                            <span className="text-3xl font-black italic text-white">{runnersOn > 0 ? runnersOn : 'EMPTY'}</span>
@@ -120,9 +120,9 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
                       </div>
                     </div>
                     
-                    <Link href={`/games/${game.id}/feed`} className="...">
-  Open Live Feed →
-</Link>
+                    <Link href={`/games/${game.id}/feed`} className="block w-full bg-[#22c55e] text-center text-[#001d3d] py-4 font-black italic uppercase tracking-widest hover:bg-white transition-colors border-t-4 border-[#001d3d]">
+                      Open Live Feed →
+                    </Link>
                   </div>
                 );
               }
@@ -130,12 +130,9 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
               // ==========================================
               // THE STANDARD GAME CARD (Upcoming/Completed)
               // ==========================================
-              return (
-                <div 
-                  key={game.id} 
-                  className="group bg-white border-4 border-[#001d3d] shadow-[6px_6px_0px_#000] hover:shadow-[8px_8px_0px_#ffd60a] hover:-translate-y-1 transition-all flex flex-col h-full"
-                >
-                  {/* ... Existing standard card code ... */}
+              
+              const GameCardContent = (
+                <>
                   <div className="bg-[#001d3d] text-white p-2 md:p-3 flex justify-between items-center border-b-4 border-[#c1121f]">
                     <span className="text-[10px] font-black uppercase tracking-widest text-[#ffd60a]">
                       {new Date(game.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
@@ -164,20 +161,49 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
                     </div>
                   </div>
 
-                  <div className="bg-white p-4 text-center border-t-4 border-[#001d3d] mt-auto">
+                  <div className="bg-white p-4 text-center border-t-4 border-[#001d3d] mt-auto relative">
                     {game.status === 'COMPLETED' ? (
-                      <div className="flex items-center justify-center gap-3">
-                        <span className="text-3xl font-black italic text-[#001d3d] tracking-tighter leading-none">
-                          {game.awayScore} - {game.homeScore}
-                        </span>
-                        <span className="text-[9px] font-black uppercase text-[#c1121f] tracking-widest bg-[#fdf0d5] px-2 py-1 border-2 border-[#c1121f]">Final</span>
-                      </div>
+                      <>
+                        <div className="flex items-center justify-center gap-3">
+                          <span className="text-3xl font-black italic text-[#001d3d] tracking-tighter leading-none">
+                            {game.awayScore} - {game.homeScore}
+                          </span>
+                          <span className="text-[9px] font-black uppercase text-[#c1121f] tracking-widest bg-[#fdf0d5] px-2 py-1 border-2 border-[#c1121f]">Final</span>
+                        </div>
+                        {/* Hover instruction for completed games */}
+                        <div className="absolute inset-0 bg-[#c1121f] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <span className="text-white font-black italic uppercase tracking-widest text-sm">View Box Score →</span>
+                        </div>
+                      </>
                     ) : (
                       <div className="px-4 py-2 border-2 font-black italic uppercase text-[10px] tracking-[0.2em] inline-block bg-slate-100 text-[#001d3d] border-[#001d3d]">
                         Upcoming
                       </div>
                     )}
                   </div>
+                </>
+              );
+
+              // If completed, make the whole card a clickable link to the box score
+              if (game.status === 'COMPLETED') {
+                 return (
+                   <Link 
+                     key={game.id} 
+                     href={`/games/${game.id}`} 
+                     className="group bg-white border-4 border-[#001d3d] shadow-[6px_6px_0px_#000] hover:shadow-[8px_8px_0px_#c1121f] hover:-translate-y-1 transition-all flex flex-col h-full cursor-pointer relative overflow-hidden"
+                   >
+                     {GameCardContent}
+                   </Link>
+                 );
+              }
+
+              // Otherwise, just render the card as a non-clickable block
+              return (
+                <div 
+                  key={game.id} 
+                  className="group bg-white border-4 border-[#001d3d] shadow-[6px_6px_0px_#000] transition-all flex flex-col h-full"
+                >
+                  {GameCardContent}
                 </div>
               );
             })

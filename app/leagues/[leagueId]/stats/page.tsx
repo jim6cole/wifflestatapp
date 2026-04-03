@@ -13,7 +13,25 @@ export default function PublicStatsSeasonSelector() {
     fetch(`/api/public/leagues/${leagueId}/seasons`)
       .then(res => res.json())
       .then(data => {
-        setSeasons(Array.isArray(data) ? data : []);
+        if (Array.isArray(data)) {
+          // SMART SORTING: Active on top, then sort the rest by Year -> Creation Date
+          const sortedSeasons = [...data].sort((a, b) => {
+            // 1. Force ACTIVE to the very top
+            if (a.status === 'ACTIVE' && b.status !== 'ACTIVE') return -1;
+            if (b.status === 'ACTIVE' && a.status !== 'ACTIVE') return 1;
+            
+            // 2. Sort by the actual assigned Year (Newest first)
+            const yearDiff = (b.year || 0) - (a.year || 0);
+            if (yearDiff !== 0) return yearDiff;
+            
+            // 3. Fallback to creation date if years are identical
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          });
+          
+          setSeasons(sortedSeasons);
+        } else {
+          setSeasons([]);
+        }
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -37,28 +55,38 @@ export default function PublicStatsSeasonSelector() {
           <div className="text-4xl font-black italic uppercase animate-pulse text-[#001d3d]">Retrieving Archives...</div>
         ) : (
           <div className="grid gap-6">
-            {seasons.map((s) => (
-              <Link 
-                key={s.id} 
-                href={`/leagues/${leagueId}/stats/${s.id}`} 
-                className="group bg-white border-4 border-[#001d3d] p-10 shadow-[12px_12px_0px_#001d3d] hover:shadow-[12px_12px_0px_#ffd60a] hover:-translate-y-1 transition-all flex justify-between items-center"
-              >
-                <div>
-                  <h3 className="text-4xl md:text-6xl font-black italic uppercase text-[#001d3d] group-hover:text-[#c1121f] transition-colors">
-                    {s.name}
-                  </h3>
-                  <div className="flex gap-4 mt-2">
-                    <span className={`text-[10px] font-black uppercase px-2 py-1 ${s.status === 'ACTIVE' ? 'bg-green-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
-                      {s.status}
-                    </span>
-                    <span className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest self-center">
-                      {s.isTournament ? 'Tournament' : 'Regular Season'}
-                    </span>
+            {seasons.length === 0 ? (
+              <div className="p-12 border-4 border-dashed border-[#001d3d]/20 text-center">
+                 <p className="text-[#001d3d]/50 font-black uppercase italic text-xl">No stats available yet.</p>
+              </div>
+            ) : (
+              seasons.map((s) => (
+                <Link 
+                  key={s.id} 
+                  href={`/leagues/${leagueId}/stats/${s.id}`} 
+                  className="group bg-white border-4 border-[#001d3d] p-10 shadow-[12px_12px_0px_#001d3d] hover:shadow-[12px_12px_0px_#ffd60a] hover:-translate-y-1 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+                >
+                  <div>
+                    <h3 className="text-4xl md:text-6xl font-black italic uppercase text-[#001d3d] group-hover:text-[#c1121f] transition-colors">
+                      {s.name}
+                    </h3>
+                    <div className="flex flex-wrap gap-4 mt-2 items-center">
+                      <span className={`text-[10px] font-black uppercase px-2 py-1 ${
+                        s.status === 'ACTIVE' ? 'bg-green-500 text-white animate-pulse' : 
+                        s.status === 'HISTORIC' ? 'bg-[#c1121f] text-white' : 
+                        'bg-slate-200 text-slate-500'
+                      }`}>
+                        {s.status}
+                      </span>
+                      <span className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest">
+                        {s.year ? `Year: ${s.year}` : (s.isTournament ? 'Tournament' : 'Regular Season')}
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <span className="text-4xl font-black text-[#001d3d] group-hover:translate-x-4 transition-transform italic">GO</span>
-              </Link>
-            ))}
+                  <span className="text-4xl font-black text-[#001d3d] group-hover:translate-x-4 transition-transform italic self-end sm:self-center">GO</span>
+                </Link>
+              ))
+            )}
           </div>
         )}
       </div>

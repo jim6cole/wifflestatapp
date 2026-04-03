@@ -8,8 +8,13 @@ export default function SeasonWizard() {
   const { leagueId } = useParams();
   const [loading, setLoading] = useState(false);
 
+  // Generate an array of years for the dropdown
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 40 }, (_, i) => currentYear + 1 - i);
+
   const [rules, setRules] = useState({
     name: '',
+    year: currentYear, // <-- ADDED YEAR STATE
     status: 'UPCOMING',
     inningsPerGame: 5,
     balls: 4,
@@ -86,6 +91,16 @@ export default function SeasonWizard() {
               onChange={(e) => setRules({...rules, name: e.target.value.toUpperCase()})}
             />
 
+            {/* --- NEW YEAR DROPDOWN --- */}
+            <label className="block text-[10px] font-black uppercase text-[#669bbc] mt-6 mb-2 tracking-widest">Season Year</label>
+            <select 
+              value={rules.year}
+              onChange={(e) => setRules({...rules, year: parseInt(e.target.value)})}
+              className="w-full bg-[#001d3d] border-2 border-[#fdf0d5] p-5 text-2xl font-black italic uppercase text-white outline-none focus:border-[#c1121f] cursor-pointer"
+            >
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+
             <div className="mt-6 flex gap-4">
               <button 
                 onClick={() => setRules({...rules, status: 'UPCOMING'})} 
@@ -113,7 +128,7 @@ export default function SeasonWizard() {
                 <WizardSelect label="Strikes" val={rules.strikes} options={[2,3,4]} onChange={(v: number) => setRules({...rules, strikes: v})} />
               </div>
 
-              {/* NEW: LINEUP RESTRICTIONS */}
+              {/* LINEUP RESTRICTIONS */}
               <div className="pt-4 border-t border-white/5 space-y-4">
                 <h4 className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest text-center">Lineup Restrictions</h4>
                 <div className="grid grid-cols-2 gap-4">
@@ -166,7 +181,6 @@ export default function SeasonWizard() {
                     <WizardSelect 
                       label="Speed Limit" 
                       val={rules.speedLimit} 
-                      // CHANGED: Length 26, starting at 55
                       options={Array.from({length: 26}, (_, i) => i + 55)} 
                       onChange={(v: number) => setRules({...rules, speedLimit: v})} 
                     />

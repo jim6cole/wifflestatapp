@@ -89,13 +89,30 @@ export default function ManualBoxScore({ params }: { params: Promise<{ gameId: s
     if (!destination) return;
     const isAway = activeTab === 'away';
 
+    // 1. Reordering within the SAME list
+    if (source.droppableId === destination.droppableId) {
+      if (source.droppableId === 'lineup') {
+        const list = isAway ? Array.from(awayLineup) : Array.from(homeLineup);
+        const [reorderedItem] = list.splice(source.index, 1);
+        list.splice(destination.index, 0, reorderedItem);
+        if (isAway) setAwayLineup(list); else setHomeLineup(list);
+      } else if (source.droppableId === 'bench') {
+        const list = isAway ? Array.from(awayBench) : Array.from(homeBench);
+        const [reorderedItem] = list.splice(source.index, 1);
+        list.splice(destination.index, 0, reorderedItem);
+        if (isAway) setAwayBench(list); else setHomeBench(list);
+      }
+      return;
+    }
+
+    // 2. Moving BETWEEN lists
     let sourceList = source.droppableId === 'bench' 
-      ? (isAway ? [...awayBench] : [...homeBench]) 
-      : (isAway ? [...awayLineup] : [...homeLineup]);
+      ? (isAway ? Array.from(awayBench) : Array.from(homeBench)) 
+      : (isAway ? Array.from(awayLineup) : Array.from(homeLineup));
 
     let destList = destination.droppableId === 'bench' 
-      ? (isAway ? [...awayBench] : [...homeBench]) 
-      : (isAway ? [...awayLineup] : [...homeLineup]);
+      ? (isAway ? Array.from(awayBench) : Array.from(homeBench)) 
+      : (isAway ? Array.from(awayLineup) : Array.from(homeLineup));
 
     const [removed] = sourceList.splice(source.index, 1);
 
@@ -104,21 +121,20 @@ export default function ManualBoxScore({ params }: { params: Promise<{ gameId: s
         playerId: removed.id, name: removed.name, position: 'F', 
         ab: 0, h: 0, r: 0, hr: 0, d2b: 0, d3b: 0, rbi: 0, bb: 0, k: 0,
         ip: 0, pk: 0, per: 0, pbb: 0, ph: 0, pr: 0, phr: 0,
-        win: false, loss: false, save: false // ADDED INITIALIZATION
+        win: false, loss: false, save: false
       };
       destList.splice(destination.index, 0, newEntry);
     } else if (source.droppableId === 'lineup' && destination.droppableId === 'bench') {
+      // Revert from StatLine object back to simple Player object for the bench
       destList.splice(destination.index, 0, { id: (removed as StatLine).playerId, name: (removed as StatLine).name });
-    } else {
-      destList.splice(destination.index, 0, removed);
     }
 
     if (isAway) {
-      if (source.droppableId === 'bench' || destination.droppableId === 'bench') setAwayBench(source.droppableId === 'bench' ? sourceList : destList);
-      if (source.droppableId === 'lineup' || destination.droppableId === 'lineup') setAwayLineup((source.droppableId === 'lineup' ? sourceList : destList) as StatLine[]);
+      if (source.droppableId === 'bench') setAwayBench(sourceList); else setAwayLineup(sourceList as StatLine[]);
+      if (destination.droppableId === 'bench') setAwayBench(destList); else setAwayLineup(destList as StatLine[]);
     } else {
-      if (source.droppableId === 'bench' || destination.droppableId === 'bench') setHomeBench(source.droppableId === 'bench' ? sourceList : destList);
-      if (source.droppableId === 'lineup' || destination.droppableId === 'lineup') setHomeLineup((source.droppableId === 'lineup' ? sourceList : destList) as StatLine[]);
+      if (source.droppableId === 'bench') setHomeBench(sourceList); else setHomeLineup(sourceList as StatLine[]);
+      if (destination.droppableId === 'bench') setHomeBench(destList); else setHomeLineup(destList as StatLine[]);
     }
   };
 

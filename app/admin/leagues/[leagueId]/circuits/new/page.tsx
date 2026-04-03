@@ -8,8 +8,13 @@ export default function CircuitWizard() {
   const { leagueId } = useParams();
   const [loading, setLoading] = useState(false);
 
+  // Generate an array of years for the dropdown
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 40 }, (_, i) => currentYear + 1 - i);
+
   const [rules, setRules] = useState({
     name: '',
+    year: currentYear, // <-- ADDED YEAR STATE
     leagueId: 0,
     status: 'UPCOMING',
     isTournament: true, 
@@ -29,7 +34,6 @@ export default function CircuitWizard() {
     unlimitedLastInning: false,
     dpWithoutRunners: false,
     dpKeepsRunners: false,
-    // NEW LINEUP LOGIC
     maxDh: 1,
     minBatters: 0      
   });
@@ -86,6 +90,16 @@ export default function CircuitWizard() {
               onChange={(e) => setRules({...rules, name: e.target.value.toUpperCase()})}
             />
 
+            {/* --- NEW YEAR DROPDOWN --- */}
+            <label className="block text-[10px] font-black uppercase text-[#669bbc] mt-6 mb-2 tracking-widest">Circuit Year</label>
+            <select 
+              value={rules.year}
+              onChange={(e) => setRules({...rules, year: parseInt(e.target.value)})}
+              className="w-full bg-white border-4 border-[#001d3d] p-5 text-2xl font-black italic uppercase text-[#001d3d] outline-none focus:border-[#c1121f] cursor-pointer shadow-inner"
+            >
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+
             <div className="mt-6 flex gap-4">
               <button 
                 onClick={() => setRules({...rules, status: 'UPCOMING'})} 
@@ -118,7 +132,6 @@ export default function CircuitWizard() {
                 <WizardSelect label="Strikes" val={rules.strikes} options={[2,3,4]} onChange={(v: number) => setRules({...rules, strikes: v})} />
               </div>
 
-              {/* NEW: LINEUP RESTRICTIONS */}
               <div className="pt-4 border-t-4 border-[#001d3d]/10 space-y-4">
                 <h4 className="text-[10px] font-black uppercase text-[#c1121f] tracking-widest text-center">Lineup Restrictions</h4>
                 <div className="grid grid-cols-2 gap-4">
@@ -158,7 +171,6 @@ export default function CircuitWizard() {
                     <WizardSelect 
                       label="Speed Limit (MPH)" 
                       val={rules.speedLimit} 
-                      // CHANGED: Length 26, starting at 55
                       options={Array.from({length: 26}, (_, i) => i + 55)} 
                       onChange={(v: number) => setRules({...rules, speedLimit: v})} 
                     />
@@ -174,7 +186,6 @@ export default function CircuitWizard() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
-              {/* GAME MERCY RULE */}
               <div className="flex items-center justify-between p-5 bg-[#fdf0d5] border-2 border-[#001d3d] shadow-inner">
                 <div>
                   <p className="font-black italic uppercase text-sm text-[#001d3d]">Mercy Rule (Game)</p>
@@ -185,7 +196,6 @@ export default function CircuitWizard() {
                 </select>
               </div>
 
-              {/* WHEN MERCY RULE APPLIES */}
               {rules.mercyRule > 0 && (
                 <div className="flex items-center justify-between p-5 bg-[#c1121f] border-2 border-[#001d3d] shadow-[4px_4px_0px_#001d3d] animate-in fade-in zoom-in-95 duration-200">
                   <div>
@@ -198,7 +208,6 @@ export default function CircuitWizard() {
                 </div>
               )}
 
-              {/* INNING RUN LIMIT */}
               <div className="flex items-center justify-between p-5 bg-[#fdf0d5] border-2 border-[#001d3d] shadow-inner">
                 <div>
                   <p className="font-black italic uppercase text-sm text-[#001d3d]">Run Limit (Inning)</p>
@@ -209,7 +218,6 @@ export default function CircuitWizard() {
                 </select>
               </div>
 
-              {/* UNLIMITED LAST INNING TOGGLE */}
               <div className="md:col-span-2 mt-2">
                 <Toggle 
                   label="Unlimited Final Inning (Suspend limits in last scheduled inning)" 

@@ -33,22 +33,50 @@ export default function Sidebar() {
       {isOpen && <div onClick={() => setIsOpen(false)} className="fixed inset-0 bg-black/60 backdrop-blur-md z-[80]"></div>}
 
       {/* SIDEBAR PANEL */}
-      <div className={`fixed top-0 right-0 h-full bg-[#fdf0d5] border-l-[16px] border-[#001d3d] z-[90] transition-transform duration-300 w-80 p-8 shadow-[-12px_0px_0px_#c1121f] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed top-0 right-0 h-full bg-[#fdf0d5] border-l-[16px] border-[#001d3d] z-[90] transition-transform duration-300 w-80 p-8 shadow-[-12px_0px_0px_#c1121f] flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <nav className="flex flex-col h-full">
           
-          <div className="mb-12">
+          <div className="mb-8">
             <h2 className="text-4xl font-black italic uppercase text-[#001d3d] tracking-tighter drop-shadow-[2px_2px_0px_#ffd60a]">WIFF+</h2>
             <div className="h-2 w-16 bg-[#c1121f] mt-2"></div>
             <p className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest mt-2">Operations Menu</p>
           </div>
 
           <div className="space-y-6 flex-1">
+            {/* NEW: Home Button */}
+            <Link 
+              href="/" 
+              onClick={() => setIsOpen(false)} 
+              className="block text-2xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors border-b-4 border-transparent hover:border-[#ffd60a] w-fit pb-1"
+            >
+              Home
+            </Link>
+
+            {/* Existing: Dashboard Button */}
             <Link 
               href="/admin/dashboard" 
               onClick={() => setIsOpen(false)} 
               className="block text-2xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors border-b-4 border-transparent hover:border-[#ffd60a] w-fit pb-1"
             >
               Dashboard
+            </Link>
+
+            {/* NEW: Conditional Support Button */}
+            <Link 
+              href={session ? "/admin/support" : "/support"} 
+              onClick={() => setIsOpen(false)} 
+              className="block text-2xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors border-b-4 border-transparent hover:border-[#ffd60a] w-fit pb-1"
+            >
+              Support
+            </Link>
+
+            {/* MOVED: About Button */}
+            <Link 
+              href="/about" 
+              onClick={() => setIsOpen(false)} 
+              className="block text-2xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors border-b-4 border-transparent hover:border-[#ffd60a] w-fit pb-1"
+            >
+              About
             </Link>
             
             {/* If they are a commissioner anywhere, let them access the live scoreboard master list */}
@@ -84,12 +112,23 @@ export default function Sidebar() {
             )}
           </div>
 
-          <button 
-            onClick={() => signOut({ callbackUrl: '/' })}
-            className="mt-auto bg-[#c1121f] border-4 border-[#001d3d] p-4 text-[12px] text-white font-black italic uppercase tracking-widest hover:bg-[#001d3d] hover:text-[#ffd60a] transition-all shadow-[6px_6px_0px_#ffd60a] active:translate-y-1 active:shadow-none"
-          >
-            System Logout
-          </button>
+          {/* Conditional Login/Logout */}
+          {session ? (
+            <button 
+              onClick={() => signOut({ callbackUrl: '/' })}
+              className="mt-auto bg-[#c1121f] border-4 border-[#001d3d] p-4 text-[12px] text-white font-black italic uppercase tracking-widest hover:bg-[#001d3d] hover:text-[#ffd60a] transition-all shadow-[6px_6px_0px_#ffd60a] active:translate-y-1 active:shadow-none"
+            >
+              System Logout
+            </button>
+          ) : (
+            <Link 
+              href="/login"
+              onClick={() => setIsOpen(false)}
+              className="mt-auto text-center block bg-[#001d3d] border-4 border-[#c1121f] p-4 text-[12px] text-[#ffd60a] font-black italic uppercase tracking-widest hover:bg-[#c1121f] hover:text-white transition-all shadow-[6px_6px_0px_#c1121f] active:translate-y-1 active:shadow-none"
+            >
+              Sign In
+            </Link>
+          )}
         </nav>
       </div>
     </>

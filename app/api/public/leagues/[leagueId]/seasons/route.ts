@@ -8,25 +8,27 @@ export async function GET(
   { params }: { params: Promise<{ leagueId: string }> }
 ) {
   try {
-    // 1. Await the params to extract the dynamic ID
     const { leagueId } = await params;
     const lId = parseInt(leagueId);
 
-    // 2. Validate the ID
     if (isNaN(lId)) {
       return NextResponse.json({ error: "Invalid League ID" }, { status: 400 });
     }
 
-    // 3. Query the database
     const seasons = await prisma.season.findMany({
       where: { leagueId: lId },
-      orderBy: { createdAt: 'desc' },
+      // Order by year first to ensure 2026 > 2010 regardless of import date
+      orderBy: [
+        { year: 'desc' },
+        { createdAt: 'desc' }
+      ],
       select: {
         id: true,
         name: true,
         status: true,
         isTournament: true,
-        createdAt: true
+        createdAt: true,
+        year: true // Exposing the year for sorting
       }
     });
 

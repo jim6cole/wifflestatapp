@@ -225,15 +225,23 @@ export default function PublicLiveFeed() {
                    <div key={i} className="bg-[#ffd60a] text-[#001d3d] text-center py-1 font-black uppercase tracking-[0.3em] text-[10px] border-y-2 border-[#001d3d] my-4 italic">{log.label}</div>
                  );
                  return (
-                   <div key={i} className={`flex justify-between items-center p-4 border-2 ${log.runs > 0 ? 'bg-[#22c55e] text-[#001d3d] border-[#001d3d] shadow-[4px_4px_0px_#000]' : 'bg-white/5 border-white/10'}`}>
-                     <div className="flex items-center gap-3">
-                       <span className="text-[10px] font-black uppercase text-[#669bbc] w-8">{log.inning}</span>
-                       <span className="font-black italic uppercase text-xs break-words max-w-[80px] leading-tight">{log.batter}</span>
+                   <div key={i} className={`flex flex-col p-4 border-2 ${log.runs > 0 ? 'bg-[#22c55e] text-[#001d3d] border-[#001d3d] shadow-[4px_4px_0px_#000]' : 'bg-white/5 border-white/10'}`}>
+                     <div className="flex justify-between items-center">
+                       <div className="flex items-center gap-3">
+                         <span className={`text-[10px] font-black uppercase w-8 ${log.runs > 0 ? 'text-[#001d3d]/70' : 'text-[#669bbc]'}`}>{log.inning}</span>
+                         <span className="font-black italic uppercase text-xs break-words max-w-[80px] leading-tight">{log.batter}</span>
+                       </div>
+                       <div className="flex items-center gap-2">
+                         <span className="font-black italic uppercase text-[10px]">{log.result}</span>
+                         {log.runs > 0 && <span className="bg-[#001d3d] text-white px-1.5 py-0.5 font-black text-[9px]">+{log.runs}</span>}
+                       </div>
                      </div>
-                     <div className="flex items-center gap-2">
-                       <span className="font-black italic uppercase text-[10px]">{log.result}</span>
-                       {log.runs > 0 && <span className="bg-[#001d3d] text-white px-1.5 py-0.5 font-black text-[9px]">+{log.runs}</span>}
-                     </div>
+                     {/* ADDED: WHO SCORED DATA */}
+                     {log.runs > 0 && log.scorerIds && (
+                        <div className={`text-[8px] font-black uppercase mt-2 pt-2 border-t ${log.runs > 0 ? 'text-[#001d3d]/80 border-[#001d3d]/20' : 'text-slate-400 border-white/10'}`}>
+                          Scored: {log.scorerIds.split(',').map((id: string) => game?.lineups?.find((l:any) => String(l.playerId) === String(id))?.player.name || 'Ghost Runner').join(', ')}
+                        </div>
+                     )}
                    </div>
                  );
                })}

@@ -34,18 +34,31 @@ export async function GET(
       orderBy: { id: 'asc' }
     });
 
-    // 2. FETCH SEASON DATA (Live + Manual) for accurate Season ERA/AVG
-    const [seasonAtBats, seasonGames, seasonManualStats] = await Promise.all([
+    // 2. NEW LOGIC: Accurately determine all games up to THIS game to lock in historic stats
+    const allSeasonGames = await prisma.game.findMany({
+      where: { seasonId: game.seasonId, status: { in: ['COMPLETED', 'ACTIVE'] } },
+      orderBy: [ { scheduledAt: 'asc' }, { id: 'asc' } ] // id asc breaks timestamp ties
+    });
+
+    // Find where the current game sits in the chronological season timeline
+    const currentIndex = allSeasonGames.findIndex(g => g.id === gId);
+    
+    // Slice out ONLY the games leading up to and including this one
+    const validGames = currentIndex !== -1 
+      ? allSeasonGames.slice(0, currentIndex + 1)
+      : [...allSeasonGames.filter(g => g.scheduledAt <= game.scheduledAt), game];
+
+    const validGameIds = validGames.map(g => g.id);
+
+    // Fetch AtBats and Manual Stats strictly limited to the valid timeline
+    const [seasonAtBats, seasonManualStats] = await Promise.all([
       prisma.atBat.findMany({
-        where: { game: { seasonId: game.seasonId, scheduledAt: { lte: game.scheduledAt } } },
+        where: { gameId: { in: validGameIds } },
         include: { batter: true, pitcher: true },
         orderBy: { id: 'asc' }
       }),
-      prisma.game.findMany({
-        where: { seasonId: game.seasonId, status: 'COMPLETED', scheduledAt: { lte: game.scheduledAt } }
-      }),
       prisma.manualStatLine.findMany({
-        where: { game: { seasonId: game.seasonId, scheduledAt: { lte: game.scheduledAt } } }
+        where: { gameId: { in: validGameIds } }
       })
     ]);
 
@@ -91,13 +104,13 @@ export async function GET(
         pitchers[ms.playerId].season_h += ms.ph;
         pitchers[ms.playerId].season_bb += ms.pbb;
         pitchers[ms.playerId].season_er += ms.per;
-        if (ms.win) pitchers[ms.playerId].wins++;
-        if (ms.loss) pitchers[ms.playerId].losses++;
+        if (ms.winCount) pitchers[ms.playerId].wins += ms.winCount;
+        if (ms.lossCount) pitchers[ms.playerId].losses += ms.lossCount;
       }
     });
 
-    // --- PITCHER DECISION TRACKER (For Completed Games) ---
-    seasonGames.forEach(sg => {
+    // --- PITCHER DECISION TRACKER (Strictly up to current game) ---
+    validGames.filter(g => g.status === 'COMPLETED').forEach(sg => {
       const sgAbs = seasonAtBats.filter(ab => ab.gameId === sg.id);
       const sgHomeWon = sg.homeScore > sg.awayScore;
       const winTeamId = sgHomeWon ? sg.homeTeamId : sg.awayTeamId;
@@ -180,13 +193,12 @@ export async function GET(
         
         if (isCurrent) {
           if (res.includes('K')) b.k++;
-          // THE RBI FIX: Fallback to runsScored if rbi is null
+          // Fallback to runsScored if rbi is null
           b.rbi += (ab.rbi || ab.runsScored || 0);
-  
-  if (ab.scorerIds) {
-    ab.scorerIds.split(',').forEach(sid => {
-      const sId = parseInt(sid.trim());
-      if (!isNaN(sId) && batters[sId]) batters[sId].r++;
+          if (ab.scorerIds) {
+            ab.scorerIds.split(',').forEach(sid => {
+              const sId = parseInt(sid.trim());
+              if (!isNaN(sId) && batters[sId]) batters[sId].r++;
             });
           }
         }
@@ -223,11 +235,18 @@ export async function GET(
       }
     });
 
-    const formatB = (b: any) => ({
-      ...b,
-      avg: b.season_ab > 0 ? (b.season_h / b.season_ab).toFixed(3).replace(/^0/, '') : '.000',
-      ops: (b.season_ab + b.season_bb) > 0 ? (((b.season_h + b.season_bb) / (b.season_ab + b.season_bb)) + (b.season_tb / b.season_ab)).toFixed(3).replace(/^0/, '') : '.000'
-    });
+    const formatB = (b: any) => {
+      // Improved OPS calculation logic to prevent NaN issues
+      const obp = (b.season_ab + b.season_bb) > 0 ? (b.season_h + b.season_bb) / (b.season_ab + b.season_bb) : 0;
+      const slg = b.season_ab > 0 ? b.season_tb / b.season_ab : 0;
+      const ops = (obp + slg).toFixed(3).replace(/^0/, '');
+      
+      return {
+        ...b,
+        avg: b.season_ab > 0 ? (b.season_h / b.season_ab).toFixed(3).replace(/^0/, '') : '.000',
+        ops: (b.season_ab + b.season_bb) > 0 ? ops : '.000'
+      };
+    };
 
     const formatP = (p: any) => {
       const ipDec = p.season_outs / 3;
