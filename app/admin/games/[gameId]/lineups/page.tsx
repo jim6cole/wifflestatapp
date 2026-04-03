@@ -9,7 +9,6 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
   const router = useRouter();
 
   // --- NAVIGATION FIX ---
-  // We grab these from the URL to know exactly which Play Ball board to return to
   const searchParams = useSearchParams();
   const leagueId = searchParams.get('leagueId');
   const seasonId = searchParams.get('seasonId');
@@ -33,8 +32,11 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
   // Lineup & Bench States
   const [homeActive, setHomeActive] = useState<any[]>([]);
+  const [homeFielders, setHomeFielders] = useState<any[]>([]); // NEW: Fielders/Pitchers Only
   const [homeBench, setHomeBench] = useState<any[]>([]);
+  
   const [awayActive, setAwayActive] = useState<any[]>([]);
+  const [awayFielders, setAwayFielders] = useState<any[]>([]); // NEW: Fielders/Pitchers Only
   const [awayBench, setAwayBench] = useState<any[]>([]);
 
   // Pitcher States
@@ -51,14 +53,12 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     async function init() {
       try {
         const res = await fetch(`/api/admin/games/${gameId}/prepare`);
-        
         if (!res.ok) throw new Error(`API Error: ${await res.text()}`);
         
         const data = await res.json();
         
         if (data && data.game) {
           setGame(data.game);
-          // Initialize players with a default 'position' of Fielder
           setHomeBench(data.homeRoster?.map((p:any) => ({...p, position: 'Fielder'})) || []);
           setAwayBench(data.awayRoster?.map((p:any) => ({...p, position: 'Fielder'})) || []);
         } else {
@@ -74,12 +74,20 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     init();
   }, [gameId]);
 
-  // --- POSITION HANDLER ---
+  // --- POSITION & DH HANDLER ---
   const handlePositionChange = (side: 'home' | 'away', playerId: number, newPosition: string) => {
     if (side === 'home') {
-      setHomeActive(prev => prev.map(p => p.id === playerId ? { ...p, position: newPosition } : p));
+      setHomeActive(prev => prev.map(p => p.id === playerId ? { ...p, position: newPosition, dhForId: newPosition !== 'DH' ? null : p.dhForId } : p));
     } else {
-      setAwayActive(prev => prev.map(p => p.id === playerId ? { ...p, position: newPosition } : p));
+      setAwayActive(prev => prev.map(p => p.id === playerId ? { ...p, position: newPosition, dhForId: newPosition !== 'DH' ? null : p.dhForId } : p));
+    }
+  };
+
+  const handleDhForChange = (side: 'home' | 'away', batterId: number, fielderId: string) => {
+    if (side === 'home') {
+      setHomeActive(prev => prev.map(p => p.id === batterId ? { ...p, dhForId: fielderId } : p));
+    } else {
+      setAwayActive(prev => prev.map(p => p.id === batterId ? { ...p, dhForId: fielderId } : p));
     }
   };
 
@@ -99,6 +107,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
     const remove = (list: any[]) => list.filter(p => p.id !== player.id);
 
+    // Reordering within Active list
     if (fromList === toList && toList.endsWith('Active')) {
       const currentList = toList === 'homeActive' ? [...homeActive] : [...awayActive];
       const oldIndex = currentList.findIndex(p => p.id === player.id);
@@ -118,24 +127,38 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
     if (fromList === toList) return;
 
+    // Remove from source
     if (fromList === 'homeActive') {
       setHomeActive(remove);
       if (homePitcher === String(player.id)) setHomePitcher('');
     }
+    if (fromList === 'homeFielders') {
+      setHomeFielders(remove);
+      if (homePitcher === String(player.id)) setHomePitcher('');
+    }
     if (fromList === 'homeBench') setHomeBench(remove);
+
     if (fromList === 'awayActive') {
       setAwayActive(remove);
       if (awayPitcher === String(player.id)) setAwayPitcher('');
     }
+    if (fromList === 'awayFielders') {
+      setAwayFielders(remove);
+      if (awayPitcher === String(player.id)) setAwayPitcher('');
+    }
     if (fromList === 'awayBench') setAwayBench(remove);
 
+    // Add to destination
     if (toList === 'homeActive') setHomeActive(prev => [...prev, { ...player, position: player.position || 'Fielder' }]);
+    if (toList === 'homeFielders') setHomeFielders(prev => [...prev, { ...player, position: 'Fielder' }]);
     if (toList === 'homeBench') setHomeBench(prev => [...prev, player]);
+    
     if (toList === 'awayActive') setAwayActive(prev => [...prev, { ...player, position: player.position || 'Fielder' }]);
+    if (toList === 'awayFielders') setAwayFielders(prev => [...prev, { ...player, position: 'Fielder' }]);
     if (toList === 'awayBench') setAwayBench(prev => [...prev, player]);
   };
 
-  const usedPlayerIds = new Set([...homeActive, ...homeBench, ...awayActive, ...awayBench].map(p => p.id));
+  const usedPlayerIds = new Set([...homeActive, ...homeFielders, ...homeBench, ...awayActive, ...awayFielders, ...awayBench].map(p => p.id));
 
   // --- GLOBAL SEARCH & CREATE LOGIC ---
   const handleInitiateSearch = async (e: React.FormEvent) => {
@@ -149,7 +172,6 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     try {
       const res = await fetch(`/api/admin/players/search?lastName=${lastName}`);
       const matches = await res.json();
-      
       const availableMatches = matches.filter((m: any) => !usedPlayerIds.has(m.id));
 
       if (availableMatches.length > 0) {
@@ -230,21 +252,25 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       return alert("Please select a starting pitcher for both teams!");
     }
 
-    const safeHomeActive = homeActive.map(p => p.id === Number(homePitcher) ? { ...p, position: 'Pitcher' } : p);
-    const safeAwayActive = awayActive.map(p => p.id === Number(awayPitcher) ? { ...p, position: 'Pitcher' } : p);
+    // Merge active batters and active fielders for the API payload
+    const finalHomeRoster = [...homeActive, ...homeFielders].map(p => ({
+      ...p, teamId: game.homeTeamId, isPitcher: p.id === Number(homePitcher)
+    }));
+    const finalAwayRoster = [...awayActive, ...awayFielders].map(p => ({
+      ...p, teamId: game.awayTeamId, isPitcher: p.id === Number(awayPitcher)
+    }));
 
     try {
       const res = await fetch(`/api/admin/games/${gameId}/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          homeLineup: safeHomeActive.map((p) => ({ ...p, teamId: game.homeTeamId, isPitcher: p.id === Number(homePitcher) })),
-          awayLineup: safeAwayActive.map((p) => ({ ...p, teamId: game.awayTeamId, isPitcher: p.id === Number(awayPitcher) })) 
+          homeLineup: finalHomeRoster,
+          awayLineup: finalAwayRoster 
         }),
       });
 
       if (res.ok) {
-          // FIX: Pass source=admin so the Live Scorer knows where to go back to later
           router.push(`/games/${gameId}/live?source=admin`);
       } else {
           const errData = await res.json();
@@ -326,10 +352,9 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       )}
 
       {/* --- MAIN UI --- */}
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[1800px] mx-auto">
         <header className="mb-12 border-b-8 border-[#c1121f] pb-6 flex flex-col md:flex-row justify-between md:items-end gap-6">
           <div>
-            {/* NAVIGATION FIX: Link back to the board we came from */}
             <Link href={backUrl} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors block mb-4">
                ← Back to Gameday Board
             </Link>
@@ -344,6 +369,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
             const isHome = side === 'home';
             const team = isHome ? game.homeTeam : game.awayTeam;
             const active = isHome ? homeActive : awayActive;
+            const fielders = isHome ? homeFielders : awayFielders;
             const bench = isHome ? homeBench : awayBench;
             const pitcher = isHome ? homePitcher : awayPitcher;
             const setPitcher = isHome ? setHomePitcher : setAwayPitcher;
@@ -359,47 +385,85 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
                   <label className="text-[10px] font-black text-[#c1121f] uppercase tracking-widest block mb-2">Starting Pitcher</label>
                   <select className="w-full bg-white p-3 border-2 border-[#001d3d] font-black uppercase text-[#001d3d] outline-none cursor-pointer" value={pitcher} onChange={(e) => setPitcher(e.target.value)}>
                     <option value="">-- SELECT PITCHER --</option>
-                    {active.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    {[...active, ...fielders].map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
 
-                <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDrop(e, `${side}Active`)} className="bg-[#001d3d] border-4 border-[#001d3d] p-4 min-h-[350px] shadow-inner relative">
-                  <h3 className="text-[10px] font-black text-[#ffd60a] mb-4 uppercase tracking-widest border-b-2 border-white/10 pb-2">Batting Order</h3>
+                {/* 1. BATTING ORDER */}
+                <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDrop(e, `${side}Active`)} className="bg-[#001d3d] border-4 border-[#001d3d] p-4 min-h-[250px] shadow-inner relative">
+                  <h3 className="text-[10px] font-black text-[#ffd60a] mb-4 uppercase tracking-widest border-b-2 border-white/10 pb-2">1. Batting Order</h3>
                   <div className="space-y-3 relative z-10">
                     {active.map((p, i) => (
                       <div key={p.id} draggable data-player-id={p.id} onDragStart={(e) => onDragStart(e, p, `${side}Active`)} className="bg-white p-4 flex flex-col sm:flex-row justify-between items-center border-4 border-[#001d3d] cursor-grab hover:border-[#c1121f] shadow-[4px_4px_0px_#c1121f] gap-3">
-                        <div className="flex items-center gap-4 pointer-events-none">
+                        <div className="flex items-center gap-4 pointer-events-none w-full sm:w-auto">
                           <span className="text-[#669bbc] font-black italic text-2xl">#{i + 1}</span>
-                          <p className="font-black uppercase text-xl text-[#001d3d] leading-none">{p.name}</p>
+                          <p className="font-black uppercase text-xl text-[#001d3d] leading-none truncate max-w-[200px]">{p.name}</p>
                         </div>
-                        <div className="flex items-center gap-3 w-full sm:w-auto">
-                          <select 
-                            value={String(p.id) === pitcher ? 'Pitcher' : (p.position === 'Pitcher' ? 'Fielder' : (p.position || 'Fielder'))} 
-                            disabled={String(p.id) === pitcher} 
-                            onChange={(e) => handlePositionChange(side as 'home' | 'away', p.id, e.target.value)} 
-                            className="bg-[#fdf0d5] text-[#001d3d] p-2 border-2 border-[#001d3d] text-[10px] font-black uppercase outline-none cursor-pointer w-full sm:w-auto"
-                          >
-                            {String(p.id) === pitcher && <option value="Pitcher">Pitcher</option>}
-                            <option value="Fielder">Fielder</option>
-                            <option value="DH">DH</option>
-                            <option value="EH">EH</option>
-                          </select>
-                          {String(p.id) === pitcher && <span className="bg-[#c1121f] text-white text-[9px] font-black px-3 py-2 uppercase shadow-sm">PITCHER</span>}
+                        
+                        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                          <div className="flex items-center gap-3">
+                            <select 
+                              value={String(p.id) === pitcher ? 'Pitcher' : (p.position === 'Pitcher' ? 'Fielder' : (p.position || 'Fielder'))} 
+                              disabled={String(p.id) === pitcher} 
+                              onChange={(e) => handlePositionChange(side as 'home' | 'away', p.id, e.target.value)} 
+                              className="bg-[#fdf0d5] text-[#001d3d] p-2 border-2 border-[#001d3d] text-[10px] font-black uppercase outline-none cursor-pointer"
+                            >
+                              {String(p.id) === pitcher && <option value="Pitcher">Pitcher</option>}
+                              <option value="Fielder">Fielder</option>
+                              <option value="DH">DH</option>
+                              <option value="EH">EH</option>
+                            </select>
+                            {String(p.id) === pitcher && <span className="bg-[#c1121f] text-white text-[9px] font-black px-3 py-2 uppercase shadow-sm">PITCHER</span>}
+                          </div>
+
+                          {/* DH Link Dropdown */}
+                          {p.position === 'DH' && fielders.length > 0 && (
+                             <select 
+                               value={p.dhForId || ''} 
+                               onChange={(e) => handleDhForChange(side as 'home' | 'away', p.id, e.target.value)}
+                               className="bg-black text-[#ffd60a] p-2 border-2 border-[#ffd60a] text-[10px] font-black uppercase outline-none w-full sm:w-auto mt-2 sm:mt-0"
+                             >
+                               <option value="">Hitting For...</option>
+                               {fielders.map(f => (
+                                 <option key={f.id} value={f.id}>{f.name}</option>
+                               ))}
+                             </select>
+                          )}
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDrop(e, `${side}Bench`)} className="bg-[#fdf0d5] border-4 border-dashed border-[#001d3d]/30 p-6 min-h-[150px] flex flex-col">
-                  <h3 className="text-[10px] font-black text-[#001d3d] mb-4 uppercase tracking-widest">Available Bench</h3>
-                  <div className="flex flex-wrap gap-2 flex-1">
-                    {bench.map(p => (
-                      <div key={p.id} draggable onDragStart={(e) => onDragStart(e, p, `${side}Bench`)} className="bg-[#001d3d] px-4 py-2 text-sm font-bold text-white border-2 border-[#001d3d] cursor-grab hover:bg-[#c1121f] transition-colors uppercase h-fit shadow-sm">{p.name}</div>
+                {/* 2. FIELDERS/PITCHERS ONLY (NEW) */}
+                <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDrop(e, `${side}Fielders`)} className="bg-[#e0e1dd] border-4 border-dashed border-[#001d3d] p-4 min-h-[120px] shadow-inner relative">
+                  <h3 className="text-[10px] font-black text-[#001d3d] mb-4 uppercase tracking-widest border-b-2 border-[#001d3d]/10 pb-2">2. Fielders & Pitchers Only (Non-Batters)</h3>
+                  <div className="space-y-3 relative z-10">
+                    {fielders.map((p) => (
+                      <div key={p.id} draggable onDragStart={(e) => onDragStart(e, p, `${side}Fielders`)} className="bg-white p-3 flex flex-col sm:flex-row justify-between items-center border-2 border-[#001d3d] cursor-grab hover:border-[#669bbc] shadow-[4px_4px_0px_#001d3d] gap-2">
+                        <p className="font-black uppercase text-base text-[#001d3d] leading-none">{p.name}</p>
+                        <div className="flex items-center gap-2">
+                          <span className="bg-slate-200 text-[#001d3d] p-1 px-2 border border-slate-300 text-[9px] font-black uppercase">
+                            {String(p.id) === pitcher ? 'Pitcher' : 'Fielder'}
+                          </span>
+                          {String(p.id) === pitcher && <span className="bg-[#c1121f] text-white text-[8px] font-black px-2 py-1 uppercase">PITCHER</span>}
+                        </div>
+                      </div>
                     ))}
                   </div>
-                  <button onClick={() => setAddingForTeam(side as 'home' | 'away')} className="w-full mt-6 bg-white border-4 border-[#001d3d] text-[#001d3d] py-4 text-[10px] font-black uppercase tracking-widest hover:bg-[#001d3d] hover:text-white transition-all shadow-[4px_4px_0px_#c1121f]">+ Draft Player</button>
                 </div>
+
+                {/* 3. AVAILABLE BENCH */}
+                <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDrop(e, `${side}Bench`)} className="bg-white border-4 border-dashed border-[#669bbc] p-6 min-h-[150px] flex flex-col">
+                  <h3 className="text-[10px] font-black text-[#669bbc] mb-4 uppercase tracking-widest">3. Available Bench</h3>
+                  <div className="flex flex-wrap gap-2 flex-1">
+                    {bench.map(p => (
+                      <div key={p.id} draggable onDragStart={(e) => onDragStart(e, p, `${side}Bench`)} className="bg-white px-4 py-2 text-sm font-bold text-[#001d3d] border-2 border-[#669bbc] cursor-grab hover:bg-[#669bbc] hover:text-white transition-colors uppercase h-fit shadow-sm">{p.name}</div>
+                    ))}
+                  </div>
+                  <button onClick={() => setAddingForTeam(side as 'home' | 'away')} className="w-full mt-6 bg-white border-4 border-[#001d3d] text-[#001d3d] py-4 text-[10px] font-black uppercase tracking-widest hover:bg-[#001d3d] hover:text-white transition-all shadow-[4px_4px_0px_#c1121f]">+ Draft Player to Bench</button>
+                </div>
+
               </div>
             );
           })}

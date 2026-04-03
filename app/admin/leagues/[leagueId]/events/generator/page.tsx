@@ -18,7 +18,6 @@ function GeneratorForm() {
   const [selectedTeams, setSelectedTeams] = useState<number[]>([]);
   
   // --- SCHEDULE CONTROLS ---
-  // Default the date picker to today's date
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]); 
   const [startTime, setStartTime] = useState('09:00'); 
   const [numFields, setNumFields] = useState(1);       
@@ -68,7 +67,9 @@ function GeneratorForm() {
   const generateRoundRobin = () => {
     if (selectedTeams.length < 2) return alert("Select at least 2 teams!");
 
-    let teamsToSchedule = [...teams.filter(t => selectedTeams.includes(t.id))];
+    // 1. RANDOMIZE the initial teams to mix up the schedule every time
+    let teamsToSchedule = [...teams.filter(t => selectedTeams.includes(t.id))]
+      .sort(() => Math.random() - 0.5);
     
     if (teamsToSchedule.length % 2 !== 0) {
       teamsToSchedule.push({ id: 'BYE', name: '* BYE WEEK *' });
@@ -77,6 +78,10 @@ function GeneratorForm() {
     const numRounds = gamesPerTeam; 
     const gamesPerRound = teamsToSchedule.length / 2;
     const schedule: any[] = [];
+
+    // 2. TRACK HOME GAMES to balance Home/Away distribution
+    const homeCounts: Record<string, number> = {};
+    teamsToSchedule.forEach(t => { homeCounts[t.id] = 0; });
 
     // Parse the user's selected date and time properly
     const [year, month, day] = startDate.split('-').map(Number);
@@ -87,10 +92,25 @@ function GeneratorForm() {
       let currentRoundGames: any[] = []; 
 
       for (let i = 0; i < gamesPerRound; i++) {
-        const home = teamsToSchedule[i];
-        const away = teamsToSchedule[teamsToSchedule.length - 1 - i];
+        const t1 = teamsToSchedule[i];
+        const t2 = teamsToSchedule[teamsToSchedule.length - 1 - i];
 
-        if (home.id !== 'BYE' && away.id !== 'BYE') {
+        if (t1.id !== 'BYE' && t2.id !== 'BYE') {
+          
+          // 3. BALANCE LOGIC: Assign Home Team to whoever has played fewer home games
+          let home, away;
+          if (homeCounts[t1.id] < homeCounts[t2.id]) {
+            home = t1; away = t2;
+          } else if (homeCounts[t2.id] < homeCounts[t1.id]) {
+            home = t2; away = t1;
+          } else {
+            // Tie-breaker: Random coin flip
+            if (Math.random() > 0.5) { home = t1; away = t2; } 
+            else { home = t2; away = t1; }
+          }
+
+          homeCounts[home.id]++; // Log the assigned home game
+
           currentRoundGames.push({
             id: Math.random().toString(), 
             round: round + 1,
@@ -123,6 +143,7 @@ function GeneratorForm() {
          currentTime.setMinutes(currentTime.getMinutes() + gameDuration);
       }
 
+      // Standard circle method rotation
       teamsToSchedule.splice(1, 0, teamsToSchedule.pop());
     }
 
@@ -202,7 +223,6 @@ function GeneratorForm() {
               </div>
             </div>
 
-            {/* --- FIX: REBUILT TOURNAMENT SETTINGS (Full Width Rows) --- */}
             <div className="bg-white/5 p-6 border-2 border-white/10">
                <label className="block text-xs font-black uppercase tracking-widest text-[#ffd60a] mb-2">Tournament Date</label>
                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full bg-black/50 border border-white/20 p-3 font-bold text-white outline-none cursor-pointer hover:border-[#ffd60a] transition-colors" />

@@ -34,23 +34,20 @@ export async function GET(
       orderBy: { id: 'asc' }
     });
 
-    // 2. NEW LOGIC: Accurately determine all games up to THIS game to lock in historic stats
+    // 2. FETCH SEASON DATA (Live + Manual) for accurate Season ERA/AVG
     const allSeasonGames = await prisma.game.findMany({
       where: { seasonId: game.seasonId, status: { in: ['COMPLETED', 'ACTIVE'] } },
       orderBy: [ { scheduledAt: 'asc' }, { id: 'asc' } ] // id asc breaks timestamp ties
     });
 
-    // Find where the current game sits in the chronological season timeline
     const currentIndex = allSeasonGames.findIndex(g => g.id === gId);
     
-    // Slice out ONLY the games leading up to and including this one
     const validGames = currentIndex !== -1 
       ? allSeasonGames.slice(0, currentIndex + 1)
       : [...allSeasonGames.filter(g => g.scheduledAt <= game.scheduledAt), game];
 
     const validGameIds = validGames.map(g => g.id);
 
-    // Fetch AtBats and Manual Stats strictly limited to the valid timeline
     const [seasonAtBats, seasonManualStats] = await Promise.all([
       prisma.atBat.findMany({
         where: { gameId: { in: validGameIds } },
@@ -58,7 +55,8 @@ export async function GET(
         orderBy: { id: 'asc' }
       }),
       prisma.manualStatLine.findMany({
-        where: { gameId: { in: validGameIds } }
+        where: { gameId: { in: validGameIds } },
+        include: { player: true } // Need player data for relievers
       })
     ]);
 
@@ -90,13 +88,66 @@ export async function GET(
       }
     });
 
-    // 3. ACCUMULATE SEASON MANUAL STATS (Prevents Season ERA errors)
+    // CRITICAL FIX: Sweep Live Game AtBats to dynamically catch ALL relief pitchers
+    gameAtBats.forEach(ab => {
+      if (!pitchers[ab.pitcherId]) {
+        pitchers[ab.pitcherId] = {
+          id: ab.pitcherId, 
+          name: ab.pitcher?.name || 'Unknown', 
+          teamId: ab.isTopInning ? game.homeTeamId : game.awayTeamId, // Top of inning = Home is pitching
+          outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, 
+          season_outs: 0, season_h: 0, season_bb: 0, season_er: 0,
+          wins: 0, losses: 0, decision: null,
+          totalPitches: 0, totalStrikes: 0, groundOuts: 0, flyOuts: 0, battersFaced: 0
+        };
+      }
+    });
+
+    // CRITICAL FIX: Sweep Manual Stats for this game to dynamically catch relievers
+    seasonManualStats.filter(ms => ms.gameId === gId).forEach(ms => {
+      if (!pitchers[ms.playerId] && (ms.ip > 0 || ms.ph > 0 || ms.pr > 0 || ms.pbb > 0 || ms.pk > 0)) {
+        const teamId = lineups.find(l => l.playerId === ms.playerId)?.teamId || (ms as any).teamId || game.homeTeamId;
+        pitchers[ms.playerId] = {
+          id: ms.playerId, 
+          name: ms.player?.name || 'Unknown', 
+          teamId,
+          outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, 
+          season_outs: 0, season_h: 0, season_bb: 0, season_er: 0,
+          wins: 0, losses: 0, decision: null,
+          totalPitches: 0, totalStrikes: 0, groundOuts: 0, flyOuts: 0, battersFaced: 0
+        };
+      }
+      // Failsafe for manual batters
+      if (!batters[ms.playerId] && (ms.ab > 0 || ms.r > 0 || ms.bb > 0 || ms.h > 0)) {
+        const teamId = lineups.find(l => l.playerId === ms.playerId)?.teamId || (ms as any).teamId || game.homeTeamId;
+        batters[ms.playerId] = {
+          id: ms.playerId, name: ms.player?.name || 'Unknown', teamId, slot: 99,
+          ab: 0, r: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0, k: 0, 
+          season_ab: 0, season_h: 0, season_bb: 0, season_tb: 0 
+        };
+      }
+    });
+
+    // 3. ACCUMULATE SEASON MANUAL STATS
     seasonManualStats.forEach(ms => {
       if (batters[ms.playerId]) {
         batters[ms.playerId].season_ab += ms.ab;
         batters[ms.playerId].season_h += ms.h;
         batters[ms.playerId].season_bb += ms.bb;
         batters[ms.playerId].season_tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
+        
+        // Populate specific game stats if this manual entry belongs to the current box score
+        if (ms.gameId === gId) {
+           batters[ms.playerId].ab += ms.ab;
+           batters[ms.playerId].r += ms.r;
+           batters[ms.playerId].h += ms.h;
+           batters[ms.playerId].d += ms.d2b;
+           batters[ms.playerId].t += ms.d3b;
+           batters[ms.playerId].hr += ms.hr;
+           batters[ms.playerId].rbi += ms.rbi;
+           batters[ms.playerId].bb += ms.bb;
+           batters[ms.playerId].k += ms.k;
+        }
       }
       if (pitchers[ms.playerId]) {
         const mOuts = (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
@@ -104,8 +155,23 @@ export async function GET(
         pitchers[ms.playerId].season_h += ms.ph;
         pitchers[ms.playerId].season_bb += ms.pbb;
         pitchers[ms.playerId].season_er += ms.per;
-        if (ms.winCount) pitchers[ms.playerId].wins += ms.winCount;
-        if (ms.lossCount) pitchers[ms.playerId].losses += ms.lossCount;
+        if ((ms as any).winCount) pitchers[ms.playerId].wins += (ms as any).winCount;
+        if ((ms as any).lossCount) pitchers[ms.playerId].losses += (ms as any).lossCount;
+
+        // Populate specific game pitching stats
+        if (ms.gameId === gId) {
+           pitchers[ms.playerId].outs += mOuts;
+           pitchers[ms.playerId].h += ms.ph;
+           pitchers[ms.playerId].r += ms.pr;
+           pitchers[ms.playerId].er += ms.per;
+           pitchers[ms.playerId].bb += ms.pbb;
+           pitchers[ms.playerId].k += ms.pk;
+           pitchers[ms.playerId].hr += (ms as any).phr || 0;
+           
+           if ((ms as any).winCount > 0) pitchers[ms.playerId].decision = 'W';
+           if ((ms as any).lossCount > 0) pitchers[ms.playerId].decision = 'L';
+           if ((ms as any).saveCount > 0) pitchers[ms.playerId].decision = 'SV';
+        }
       }
     });
 
@@ -193,7 +259,6 @@ export async function GET(
         
         if (isCurrent) {
           if (res.includes('K')) b.k++;
-          // Fallback to runsScored if rbi is null
           b.rbi += (ab.rbi || ab.runsScored || 0);
           if (ab.scorerIds) {
             ab.scorerIds.split(',').forEach(sid => {
@@ -236,7 +301,6 @@ export async function GET(
     });
 
     const formatB = (b: any) => {
-      // Improved OPS calculation logic to prevent NaN issues
       const obp = (b.season_ab + b.season_bb) > 0 ? (b.season_h + b.season_bb) / (b.season_ab + b.season_bb) : 0;
       const slg = b.season_ab > 0 ? b.season_tb / b.season_ab : 0;
       const ops = (obp + slg).toFixed(3).replace(/^0/, '');
