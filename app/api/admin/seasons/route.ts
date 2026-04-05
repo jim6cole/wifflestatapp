@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     const newSeason = await prisma.season.create({
       data: {
         name: body.name,
+        year: parseInt(body.year) || new Date().getFullYear(), // ADDED: Championship Year
         leagueId: targetLeagueId,
         status: body.status || 'UPCOMING',
         

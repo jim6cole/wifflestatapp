@@ -13,9 +13,14 @@ function GeneratorForm() {
   const [seasons, setSeasons] = useState<any[]>([]);
   
   // Form State
-  const [eventName, setEventName] = useState('');
   const [selectedSeason, setSelectedSeason] = useState(urlSeasonId || '');
   const [selectedTeams, setSelectedTeams] = useState<number[]>([]);
+  
+  // --- EVENT SELECTION STATE ---
+  const [creationMode, setCreationMode] = useState<'new' | 'existing'>('existing');
+  const [existingEvents, setExistingEvents] = useState<any[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState('');
+  const [eventName, setEventName] = useState('');
   
   // --- SCHEDULE CONTROLS ---
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]); 
@@ -48,6 +53,7 @@ function GeneratorForm() {
   const durationOptions = Array.from({ length: 24 }, (_, i) => 15 + (i * 5)); 
   const gamesOptions = Array.from({ length: 15 }, (_, i) => i + 1);
 
+  // 1. Initial Load (Teams & Seasons)
   useEffect(() => {
     fetch('/api/teams')
       .then(res => res.json())
@@ -58,6 +64,41 @@ function GeneratorForm() {
       .then(data => setSeasons(data.filter((s: any) => s.leagueId === parseInt(leagueId as string))));
   }, [leagueId]);
 
+  // 2. Fetch Events dynamically when Season is selected
+  useEffect(() => {
+    if (selectedSeason) {
+      fetch(`/api/admin/seasons/${selectedSeason}/events`)
+        .then(res => res.json())
+        .then(data => {
+           setExistingEvents(data);
+           // If there are no existing events, force mode to 'new'
+           if (data.length === 0) setCreationMode('new');
+        })
+        .catch(console.error);
+    } else {
+      setExistingEvents([]);
+    }
+  }, [selectedSeason]);
+
+  // 3. Auto-fill date/time when an existing event is selected
+  useEffect(() => {
+    if (creationMode === 'existing' && selectedEventId) {
+      const targetEvent = existingEvents.find(e => String(e.id) === String(selectedEventId));
+      if (targetEvent && targetEvent.startDate) {
+        const d = new Date(targetEvent.startDate);
+        setStartDate(d.toISOString().split('T')[0]);
+        
+        let h = d.getHours();
+        let m = Math.round(d.getMinutes() / 15) * 15;
+        if (m === 60) {
+          h = (h + 1) % 24;
+          m = 0;
+        }
+        setStartTime(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`);
+      }
+    }
+  }, [selectedEventId, creationMode, existingEvents]);
+
   const toggleTeam = (id: number) => {
     setSelectedTeams(prev => 
       prev.includes(id) ? prev.filter(tId => tId !== id) : [...prev, id]
@@ -67,7 +108,6 @@ function GeneratorForm() {
   const generateRoundRobin = () => {
     if (selectedTeams.length < 2) return alert("Select at least 2 teams!");
 
-    // 1. RANDOMIZE the initial teams to mix up the schedule every time
     let teamsToSchedule = [...teams.filter(t => selectedTeams.includes(t.id))]
       .sort(() => Math.random() - 0.5);
     
@@ -75,20 +115,25 @@ function GeneratorForm() {
       teamsToSchedule.push({ id: 'BYE', name: '* BYE WEEK *' });
     }
 
-    const numRounds = gamesPerTeam; 
     const gamesPerRound = teamsToSchedule.length / 2;
     const schedule: any[] = [];
 
-    // 2. TRACK HOME GAMES to balance Home/Away distribution
     const homeCounts: Record<string, number> = {};
-    teamsToSchedule.forEach(t => { homeCounts[t.id] = 0; });
+    const gamesPlayed: Record<string, number> = {}; // TRACKER: Count games for every real team
 
-    // Parse the user's selected date and time properly
+    teamsToSchedule.filter(t => t.id !== 'BYE').forEach(t => { 
+      homeCounts[t.id] = 0; 
+      gamesPlayed[t.id] = 0;
+    });
+
     const [year, month, day] = startDate.split('-').map(Number);
     const [hour, minute] = startTime.split(':').map(Number);
     let currentTime = new Date(year, month - 1, day, hour, minute);
 
-    for (let round = 0; round < numRounds; round++) {
+    let round = 0;
+
+    // ALGORITHM FIX: Spin the wheel until EVERY team hits the minimum requested games
+    while (Math.min(...Object.values(gamesPlayed)) < gamesPerTeam) {
       let currentRoundGames: any[] = []; 
 
       for (let i = 0; i < gamesPerRound; i++) {
@@ -96,20 +141,19 @@ function GeneratorForm() {
         const t2 = teamsToSchedule[teamsToSchedule.length - 1 - i];
 
         if (t1.id !== 'BYE' && t2.id !== 'BYE') {
-          
-          // 3. BALANCE LOGIC: Assign Home Team to whoever has played fewer home games
           let home, away;
           if (homeCounts[t1.id] < homeCounts[t2.id]) {
             home = t1; away = t2;
           } else if (homeCounts[t2.id] < homeCounts[t1.id]) {
             home = t2; away = t1;
           } else {
-            // Tie-breaker: Random coin flip
             if (Math.random() > 0.5) { home = t1; away = t2; } 
             else { home = t2; away = t1; }
           }
 
-          homeCounts[home.id]++; // Log the assigned home game
+          homeCounts[home.id]++; 
+          gamesPlayed[t1.id]++;
+          gamesPlayed[t2.id]++;
 
           currentRoundGames.push({
             id: Math.random().toString(), 
@@ -125,7 +169,6 @@ function GeneratorForm() {
       let fieldCounter = 1;
       currentRoundGames.forEach(game => {
         game.fieldNumber = fieldCounter;
-        // Save the exact timestamp for the database
         game.scheduledAt = new Date(currentTime).toISOString(); 
         game.timeDisplay = new Date(currentTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -143,22 +186,31 @@ function GeneratorForm() {
          currentTime.setMinutes(currentTime.getMinutes() + gameDuration);
       }
 
-      // Standard circle method rotation
+      // Circle Method Rotation
       teamsToSchedule.splice(1, 0, teamsToSchedule.pop());
+      
+      round++;
+      
+      // Failsafe to prevent browser crashing if user enters a wildly high number
+      if (round > 50) break;
     }
 
     setPreviewSchedule(schedule);
   };
 
   const saveTournament = async () => {
-    if (!eventName || !selectedSeason || !previewSchedule) return alert("Missing required info!");
+    if (!selectedSeason || !previewSchedule) return alert("Missing required info!");
+    if (creationMode === 'new' && !eventName) return alert("Please provide a name for the new event.");
+    if (creationMode === 'existing' && !selectedEventId) return alert("Please select a target event.");
+
     setIsSaving(true);
 
     const res = await fetch('/api/admin/events/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        eventName,
+        eventId: creationMode === 'existing' ? selectedEventId : undefined,
+        eventName: creationMode === 'new' ? eventName : undefined,
         seasonId: selectedSeason,
         schedule: previewSchedule
       })
@@ -193,11 +245,7 @@ function GeneratorForm() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
           
           <div className="lg:col-span-4 space-y-8">
-            <div className="bg-white/5 p-6 border-2 border-white/10">
-              <label className="block text-xs font-black uppercase tracking-widest text-[#ffd60a] mb-2">Tournament Name</label>
-              <input type="text" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g., ADK Summer Shootout" className="w-full bg-black/50 border border-white/20 p-3 font-bold text-white outline-none focus:border-[#ffd60a]" />
-            </div>
-
+            
             <div className="bg-white/5 p-6 border-2 border-white/10">
               <label className="block text-xs font-black uppercase tracking-widest text-[#ffd60a] mb-2">Attached Circuit</label>
               <select 
@@ -209,6 +257,45 @@ function GeneratorForm() {
                 <option value="">-- Select Circuit --</option>
                 {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
+            </div>
+
+            <div className={`bg-white/5 p-6 border-2 border-white/10 transition-opacity ${!selectedSeason ? 'opacity-50 pointer-events-none' : ''}`}>
+              <div className="flex justify-between items-center mb-3">
+                <label className="block text-xs font-black uppercase tracking-widest text-[#ffd60a]">Target Event</label>
+                <div className="flex gap-2 bg-black/50 p-1 border border-white/10">
+                  <button 
+                    onClick={() => setCreationMode('existing')} 
+                    className={`px-3 py-1 text-[10px] font-black uppercase transition-colors ${creationMode === 'existing' ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Existing
+                  </button>
+                  <button 
+                    onClick={() => setCreationMode('new')} 
+                    className={`px-3 py-1 text-[10px] font-black uppercase transition-colors ${creationMode === 'new' ? 'bg-[#ffd60a] text-[#001d3d]' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    New
+                  </button>
+                </div>
+              </div>
+              
+              {creationMode === 'existing' ? (
+                <select 
+                  value={selectedEventId} 
+                  onChange={e => setSelectedEventId(e.target.value)} 
+                  className="w-full bg-black/50 border border-white/20 p-3 font-bold text-white outline-none focus:border-[#ffd60a] cursor-pointer"
+                >
+                  <option value="">-- Select Event to Populate --</option>
+                  {existingEvents.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+              ) : (
+                <input 
+                  type="text" 
+                  value={eventName} 
+                  onChange={e => setEventName(e.target.value)} 
+                  placeholder="e.g., ADK Summer Shootout" 
+                  className="w-full bg-black/50 border border-white/20 p-3 font-bold text-white outline-none focus:border-[#ffd60a]" 
+                />
+              )}
             </div>
 
             <div className="bg-white/5 p-6 border-2 border-white/10">

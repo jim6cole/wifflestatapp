@@ -15,22 +15,22 @@ export async function POST(
       // 1. Clear existing lineups
       await tx.lineupEntry.deleteMany({ where: { gameId: gId } });
 
-      // 2. Prepare Home Team Entries
+      // 2. Prepare Home Team Entries (Respecting payload battingOrder)
       const homeEntries = homeLineup.map((p: any, idx: number) => ({
         gameId: gId,
         playerId: parseInt(p.id),
         teamId: parseInt(p.teamId), 
-        battingOrder: idx + 1,
+        battingOrder: p.battingOrder !== undefined ? parseInt(p.battingOrder) : idx + 1,
         isPitcher: Boolean(p.isPitcher),
         position: p.position || (p.isPitcher ? 'Pitcher' : 'Fielder')
       }));
 
-      // 3. Prepare Away Team Entries
+      // 3. Prepare Away Team Entries (Respecting payload battingOrder)
       const awayEntries = awayLineup.map((p: any, idx: number) => ({
         gameId: gId,
         playerId: parseInt(p.id),
         teamId: parseInt(p.teamId),
-        battingOrder: idx + 1,
+        battingOrder: p.battingOrder !== undefined ? parseInt(p.battingOrder) : idx + 1,
         isPitcher: Boolean(p.isPitcher),
         position: p.position || (p.isPitcher ? 'Pitcher' : 'Fielder')
       }));
@@ -42,11 +42,11 @@ export async function POST(
       const homePitcher = homeLineup.find((p: any) => p.isPitcher);
       const awayPitcher = awayLineup.find((p: any) => p.isPitcher);
 
-      // 4. Update Game status to exactly match what the frontend expects
+      // 4. Update Game status and active pitchers
       return await tx.game.update({
         where: { id: gId },
         data: {
-          status: "IN_PROGRESS", // <-- CHANGED FROM "LIVE"
+          status: "IN_PROGRESS", 
           currentHomePitcherId: homePitcher ? parseInt(homePitcher.id) : null,
           currentAwayPitcherId: awayPitcher ? parseInt(awayPitcher.id) : null,
         }

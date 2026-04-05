@@ -8,13 +8,9 @@ export default function TournamentWizard() {
   const { leagueId } = useParams();
   const [loading, setLoading] = useState(false);
 
-  // Generate an array of years for the dropdown
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 40 }, (_, i) => currentYear + 1 - i);
-
   const [rules, setRules] = useState({
     name: '',
-    year: currentYear, // <-- ADDED YEAR STATE
+    year: new Date().getFullYear(), // ADDED
     leagueId: 0,
     status: 'UPCOMING',
     isTournament: true, 
@@ -98,31 +94,37 @@ export default function TournamentWizard() {
               onChange={(e) => setRules(prev => ({...prev, name: e.target.value.toUpperCase()}))}
             />
 
-            {/* --- NEW YEAR DROPDOWN --- */}
-            <label className="block text-[10px] font-black uppercase text-[#669bbc] mt-6 mb-2 tracking-widest">Tournament Year</label>
-            <select 
-              value={rules.year}
-              onChange={(e) => setRules(prev => ({...prev, year: parseInt(e.target.value)}))}
-              className="w-full bg-white border-4 border-[#001d3d] p-5 text-2xl font-black italic uppercase text-[#001d3d] outline-none focus:border-[#c1121f] cursor-pointer shadow-inner"
-            >
-              {years.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-black uppercase text-[#669bbc] mb-2 tracking-widest">Championship Year</label>
+                <select 
+                  value={rules.year}
+                  onChange={(e) => setRules(prev => ({...prev, year: parseInt(e.target.value)}))}
+                  className="w-full bg-white border-4 border-[#001d3d] p-4 text-xl font-black italic uppercase text-[#001d3d] outline-none focus:border-[#c1121f] cursor-pointer shadow-inner"
+                >
+                  {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
 
-            <div className="mt-6 flex gap-4">
-              <button 
-                type="button"
-                onClick={() => setRules(prev => ({...prev, status: 'UPCOMING'}))} 
-                className={`flex-1 p-4 font-black italic uppercase text-sm border-4 transition-all ${rules.status === 'UPCOMING' ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d] shadow-[4px_4px_0px_#001d3d]' : 'bg-white text-slate-400 border-slate-200 hover:border-[#ffd60a]'}`}
-              >
-                Planning (Draft)
-              </button>
-              <button 
-                type="button"
-                onClick={() => setRules(prev => ({...prev, status: 'ACTIVE'}))} 
-                className={`flex-1 p-4 font-black italic uppercase text-sm border-4 transition-all ${rules.status === 'ACTIVE' ? 'bg-[#22c55e] text-white border-[#001d3d] shadow-[4px_4px_0px_#001d3d]' : 'bg-white text-slate-400 border-slate-200 hover:border-[#22c55e]'}`}
-              >
-                Event Live
-              </button>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-[#669bbc] mb-2 tracking-widest">Status</label>
+                <div className="flex gap-2 h-[68px]">
+                  <button 
+                    type="button"
+                    onClick={() => setRules(prev => ({...prev, status: 'UPCOMING'}))} 
+                    className={`flex-1 font-black italic uppercase text-xs border-4 transition-all ${rules.status === 'UPCOMING' ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d] shadow-[4px_4px_0px_#001d3d]' : 'bg-white text-slate-400 border-slate-200 hover:border-[#ffd60a]'}`}
+                  >
+                    Draft
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setRules(prev => ({...prev, status: 'ACTIVE'}))} 
+                    className={`flex-1 font-black italic uppercase text-xs border-4 transition-all ${rules.status === 'ACTIVE' ? 'bg-[#22c55e] text-white border-[#001d3d] shadow-[4px_4px_0px_#001d3d]' : 'bg-white text-slate-400 border-slate-200 hover:border-[#22c55e]'}`}
+                  >
+                    Live
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
 

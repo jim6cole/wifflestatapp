@@ -9,6 +9,7 @@ export default function TournamentManager({ params }: { params: Promise<{ league
   const [teams, setTeams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [newEventName, setNewEventName] = useState('');
+  const [newEventDate, setNewEventDate] = useState(new Date().toISOString().split('T')[0]); // NEW: Default to today
 
   useEffect(() => {
     fetchData();
@@ -33,20 +34,34 @@ export default function TournamentManager({ params }: { params: Promise<{ league
     e.preventDefault();
     if (!newEventName) return;
 
+    // Check if the selected date is in the future
+    const selectedDate = new Date(newEventDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Normalize today to midnight for fair comparison
+    
+    // Auto-set to UPCOMING if the date is in the future
+    const autoStatus = selectedDate > today ? 'UPCOMING' : 'ACTIVE';
+
     const res = await fetch(`/api/admin/seasons/${seasonId}/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newEventName })
+      body: JSON.stringify({ 
+        name: newEventName, 
+        startDate: new Date(newEventDate).toISOString(), // Send as ISO
+        status: autoStatus 
+      })
     });
 
     if (res.ok) {
       setNewEventName('');
-      fetchData(); // Refresh the list
+      setNewEventDate(new Date().toISOString().split('T')[0]); // Reset to today
+      fetchData(); 
     }
   };
 
   const handleUpdate = async (eventId: number, field: string, value: string) => {
-    const res = await fetch(`/api/admin/events/${eventId}`, {
+    // FIX: Corrected API path to match file structure
+    const res = await fetch(`/api/admin/seasons/${seasonId}/events/${eventId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [field]: value })
@@ -62,7 +77,8 @@ export default function TournamentManager({ params }: { params: Promise<{ league
     }
     if (!confirm(`Are you sure you want to permanently delete the tournament: ${name}?`)) return;
 
-    const res = await fetch(`/api/admin/events/${eventId}`, { method: 'DELETE' });
+    // FIX: Corrected API path to match file structure
+    const res = await fetch(`/api/admin/seasons/${seasonId}/events/${eventId}`, { method: 'DELETE' });
     if (res.ok) setEvents(events.filter(e => e.id !== eventId));
     else alert("Failed to delete tournament.");
   };
@@ -90,7 +106,14 @@ export default function TournamentManager({ params }: { params: Promise<{ league
               placeholder="e.g. 2026 Memorial Day Classic" 
               value={newEventName}
               onChange={(e) => setNewEventName(e.target.value)}
-              className="flex-1 bg-[#fdf0d5] border-4 border-[#001d3d] p-4 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f]"
+              className="flex-[2] bg-[#fdf0d5] border-4 border-[#001d3d] p-4 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f]"
+            />
+            {/* NEW: Date Picker for Creation */}
+            <input 
+              type="date"
+              value={newEventDate}
+              onChange={(e) => setNewEventDate(e.target.value)}
+              className="flex-1 bg-[#fdf0d5] border-4 border-[#001d3d] p-4 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer"
             />
             <button type="submit" className="bg-[#c1121f] text-white px-8 py-4 font-black italic uppercase border-4 border-[#001d3d] hover:bg-[#ffd60a] hover:text-[#001d3d] transition-colors">
               Initialize
@@ -120,8 +143,20 @@ export default function TournamentManager({ params }: { params: Promise<{ league
                 </div>
 
                 {/* Controls */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   
+                  {/* NEW: Date Control */}
+                  <div className="bg-[#fdf0d5] border-2 border-[#001d3d] p-4 shadow-inner">
+                     <label className="block text-[10px] font-black uppercase text-[#001d3d] tracking-widest mb-2">Tournament Date</label>
+                     <input 
+                       type="date"
+                       // Safely format the ISO string for the date picker (YYYY-MM-DD)
+                       value={event.startDate ? new Date(event.startDate).toISOString().split('T')[0] : ''}
+                       onChange={(e) => handleUpdate(event.id, 'startDate', new Date(e.target.value).toISOString())}
+                       className="w-full p-3 font-black uppercase border-2 border-[#001d3d] outline-none cursor-pointer bg-white text-[#001d3d]"
+                     />
+                  </div>
+
                   {/* Status Control */}
                   <div className="bg-[#fdf0d5] border-2 border-[#001d3d] p-4 shadow-inner">
                     <label className="block text-[10px] font-black uppercase text-[#c1121f] tracking-widest mb-2">Live Status</label>

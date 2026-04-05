@@ -21,7 +21,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ seas
 export async function POST(request: Request, { params }: { params: Promise<{ seasonId: string }> }) {
   try {
     const { seasonId } = await params;
-    const { name } = await request.json();
+    const { name, startDate, status } = await request.json(); // NEW: Destructure startDate and status
 
     if (!name) return NextResponse.json({ error: "Tournament name required" }, { status: 400 });
 
@@ -29,7 +29,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ sea
       data: {
         name,
         seasonId: parseInt(seasonId),
-        status: 'UPCOMING'
+        status: status || 'UPCOMING',
+        // If a date was provided, save it. Otherwise, default to now.
+        startDate: startDate ? new Date(startDate) : new Date()
       }
     });
     return NextResponse.json(newEvent);

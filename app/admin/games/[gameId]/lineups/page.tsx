@@ -3,6 +3,17 @@ import { useState, useEffect, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
+// THE UMPIRE'S LOGIC: Keeps names professional and identical to the Roster Page
+const formatName = (name: string) => {
+  if (!name) return "";
+  return name
+    .toLowerCase()
+    .trim()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
 export default function LineupConstructor({ params }: { params: Promise<{ gameId: string }> }) {
   const resolvedParams = use(params);
   const gameId = resolvedParams?.gameId;
@@ -10,11 +21,11 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
   // --- NAVIGATION FIX ---
   const searchParams = useSearchParams();
-  const leagueId = searchParams.get('leagueId');
+  const urlLeagueId = searchParams.get('leagueId');
   const seasonId = searchParams.get('seasonId');
 
-  const backUrl = (leagueId && seasonId) 
-    ? `/admin/leagues/${leagueId}/seasons/${seasonId}/play`
+  const backUrl = (urlLeagueId && seasonId) 
+    ? `/admin/leagues/${urlLeagueId}/seasons/${seasonId}/play`
     : `/admin/games/active`;
 
   const [game, setGame] = useState<any>(null);
@@ -32,11 +43,11 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
   // Lineup & Bench States
   const [homeActive, setHomeActive] = useState<any[]>([]);
-  const [homeFielders, setHomeFielders] = useState<any[]>([]); // NEW: Fielders/Pitchers Only
+  const [homeFielders, setHomeFielders] = useState<any[]>([]); 
   const [homeBench, setHomeBench] = useState<any[]>([]);
   
   const [awayActive, setAwayActive] = useState<any[]>([]);
-  const [awayFielders, setAwayFielders] = useState<any[]>([]); // NEW: Fielders/Pitchers Only
+  const [awayFielders, setAwayFielders] = useState<any[]>([]); 
   const [awayBench, setAwayBench] = useState<any[]>([]);
 
   // Pitcher States
@@ -160,28 +171,31 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
 
   const usedPlayerIds = new Set([...homeActive, ...homeFielders, ...homeBench, ...awayActive, ...awayFielders, ...awayBench].map(p => p.id));
 
-  // --- GLOBAL SEARCH & CREATE LOGIC ---
+  // --- GLOBAL SEARCH & CREATE LOGIC (UPGRADED) ---
   const handleInitiateSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPlayerName.trim()) return;
     
     setIsSearching(true);
-    const nameParts = newPlayerName.trim().split(' ');
+    
+    const cleanedName = formatName(newPlayerName);
+    const nameParts = cleanedName.split(' ');
     const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
 
     try {
-      const res = await fetch(`/api/admin/players/search?lastName=${lastName}`);
+      const res = await fetch(`/api/admin/players/search?lastName=${encodeURIComponent(lastName)}`);
       const matches = await res.json();
-      const availableMatches = matches.filter((m: any) => !usedPlayerIds.has(m.id));
-
-      if (availableMatches.length > 0) {
-        setPotentialMatches(availableMatches);
+      
+      const matchesArray = Array.isArray(matches) ? matches : [];
+      
+      if (matchesArray.length > 0) {
+        setPotentialMatches(matchesArray);
         setShowDuplicateModal(true); 
       } else {
-        executeCreatePlayer(newPlayerName);
+        executeCreatePlayer(cleanedName);
       }
     } catch (error) {
-      executeCreatePlayer(newPlayerName);
+      executeCreatePlayer(formatName(newPlayerName));
     } finally {
       setIsSearching(false);
     }
@@ -191,11 +205,21 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
     setIsCreatingPlayer(true);
     setShowDuplicateModal(false);
     
+    let targetLeagueId = urlLeagueId ? parseInt(urlLeagueId) : null;
+    if (!targetLeagueId && game?.season?.leagueId) targetLeagueId = game.season.leagueId;
+    if (!targetLeagueId && game?.homeTeam?.leagueId) targetLeagueId = game.homeTeam.leagueId;
+
+    if (!targetLeagueId) {
+       alert("Setup Error: Cannot determine League ID to register global player.");
+       setIsCreatingPlayer(false);
+       return;
+    }
+    
     try {
       const res = await fetch('/api/admin/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: nameToCreate.trim(), leagueId: game.season?.leagueId || game.leagueId })
+        body: JSON.stringify({ name: nameToCreate, leagueId: targetLeagueId })
       });
       
       if (res.ok) {
@@ -207,6 +231,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       }
     } catch (err) {
       console.error(err);
+      alert("Network Error: Could not reach the server to create player.");
     } finally {
       setIsCreatingPlayer(false);
     }
@@ -252,11 +277,18 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
       return alert("Please select a starting pitcher for both teams!");
     }
 
-    // Merge active batters and active fielders for the API payload
-    const finalHomeRoster = [...homeActive, ...homeFielders].map(p => ({
+    // THE FIX: Explicitly assign battingOrder 1-9 for batters, and 99 for fielders
+    const finalHomeRoster = [
+      ...homeActive.map((p, idx) => ({ ...p, battingOrder: idx + 1 })),
+      ...homeFielders.map((p) => ({ ...p, battingOrder: 99 }))
+    ].map(p => ({
       ...p, teamId: game.homeTeamId, isPitcher: p.id === Number(homePitcher)
     }));
-    const finalAwayRoster = [...awayActive, ...awayFielders].map(p => ({
+
+    const finalAwayRoster = [
+      ...awayActive.map((p, idx) => ({ ...p, battingOrder: idx + 1 })),
+      ...awayFielders.map((p) => ({ ...p, battingOrder: 99 }))
+    ].map(p => ({
       ...p, teamId: game.awayTeamId, isPitcher: p.id === Number(awayPitcher)
     }));
 
@@ -316,17 +348,31 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
             <h2 className="text-3xl font-black italic uppercase text-white tracking-wide mb-2 text-center drop-shadow-[2px_2px_0px_#c1121f]">
               Wait! Match Found
             </h2>
+            <p className="text-xs font-bold uppercase text-[#669bbc] text-center tracking-widest mb-6">
+              Similar names found in the Global Registry.
+            </p>
             <div className="space-y-3 mb-6 max-h-60 overflow-y-auto pr-2">
-              {potentialMatches.map(match => (
-                <div key={match.id} className="bg-[#003566] border-2 border-[#669bbc] p-4 flex justify-between items-center group">
-                  <span className="font-bold text-lg text-white">{match.name}</span>
-                  <button onClick={() => executeImportPlayer(match)} className="text-[10px] font-black uppercase tracking-widest bg-[#c1121f] text-white px-4 py-2 hover:bg-white hover:text-[#c1121f]">Import to Bench</button>
-                </div>
-              ))}
+              {potentialMatches.map(match => {
+                const isAlreadyInGame = usedPlayerIds.has(match.id);
+                return (
+                  <div key={match.id} className="bg-[#003566] border-2 border-[#669bbc] p-4 flex justify-between items-center group">
+                    <span className="font-bold text-lg text-white">{formatName(match.name)}</span>
+                    {isAlreadyInGame ? (
+                      <span className="text-[10px] font-black uppercase tracking-widest bg-slate-600 text-white px-4 py-2 opacity-50 cursor-not-allowed">
+                        Already in Game
+                      </span>
+                    ) : (
+                      <button onClick={() => executeImportPlayer(match)} className="text-[10px] font-black uppercase tracking-widest bg-[#c1121f] text-white px-4 py-2 hover:bg-white hover:text-[#c1121f]">
+                        Import to Bench
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="border-t-2 border-[#669bbc]/30 pt-4 flex gap-4">
-              <button onClick={() => executeCreatePlayer(newPlayerName)} className="flex-1 bg-transparent border-2 border-white/50 text-white/50 px-4 py-3 font-black uppercase text-[10px]">No, Create New</button>
-              <button onClick={() => setShowDuplicateModal(false)} className="flex-1 text-[#669bbc] px-4 py-3 font-black uppercase text-[10px]">Cancel</button>
+              <button onClick={() => executeCreatePlayer(formatName(newPlayerName))} className="flex-1 bg-transparent border-2 border-white/50 text-white/50 hover:text-white hover:border-white px-4 py-3 font-black uppercase text-[10px] tracking-widest transition-all">Create Brand New</button>
+              <button onClick={() => setShowDuplicateModal(false)} className="flex-1 text-[#669bbc] hover:text-white px-4 py-3 font-black uppercase text-[10px] tracking-widest transition-all">Cancel</button>
             </div>
           </div>
         </div>
@@ -435,7 +481,7 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
                   </div>
                 </div>
 
-                {/* 2. FIELDERS/PITCHERS ONLY (NEW) */}
+                {/* 2. FIELDERS/PITCHERS ONLY */}
                 <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDrop(e, `${side}Fielders`)} className="bg-[#e0e1dd] border-4 border-dashed border-[#001d3d] p-4 min-h-[120px] shadow-inner relative">
                   <h3 className="text-[10px] font-black text-[#001d3d] mb-4 uppercase tracking-widest border-b-2 border-[#001d3d]/10 pb-2">2. Fielders & Pitchers Only (Non-Batters)</h3>
                   <div className="space-y-3 relative z-10">

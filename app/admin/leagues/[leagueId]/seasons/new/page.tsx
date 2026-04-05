@@ -8,13 +8,9 @@ export default function SeasonWizard() {
   const { leagueId } = useParams();
   const [loading, setLoading] = useState(false);
 
-  // Generate an array of years for the dropdown
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 40 }, (_, i) => currentYear + 1 - i);
-
   const [rules, setRules] = useState({
     name: '',
-    year: currentYear, // <-- ADDED YEAR STATE
+    year: new Date().getFullYear(), // ADDED
     status: 'UPCOMING',
     inningsPerGame: 5,
     balls: 4,
@@ -91,29 +87,35 @@ export default function SeasonWizard() {
               onChange={(e) => setRules({...rules, name: e.target.value.toUpperCase()})}
             />
 
-            {/* --- NEW YEAR DROPDOWN --- */}
-            <label className="block text-[10px] font-black uppercase text-[#669bbc] mt-6 mb-2 tracking-widest">Season Year</label>
-            <select 
-              value={rules.year}
-              onChange={(e) => setRules({...rules, year: parseInt(e.target.value)})}
-              className="w-full bg-[#001d3d] border-2 border-[#fdf0d5] p-5 text-2xl font-black italic uppercase text-white outline-none focus:border-[#c1121f] cursor-pointer"
-            >
-              {years.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-black uppercase text-[#669bbc] mb-2 tracking-widest">Championship Year</label>
+                <select 
+                  value={rules.year}
+                  onChange={(e) => setRules({...rules, year: parseInt(e.target.value)})}
+                  className="w-full bg-[#001d3d] border-2 border-[#fdf0d5] p-4 text-xl font-black italic uppercase text-white outline-none focus:border-[#c1121f] cursor-pointer"
+                >
+                  {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
 
-            <div className="mt-6 flex gap-4">
-              <button 
-                onClick={() => setRules({...rules, status: 'UPCOMING'})} 
-                className={`flex-1 p-4 font-black italic uppercase text-sm border-2 transition-all ${rules.status === 'UPCOMING' ? 'bg-[#ffd60a] text-[#001d3d] border-[#ffd60a] shadow-[4px_4px_0px_#001d3d]' : 'bg-[#001d3d] text-white border-white/20 hover:border-[#ffd60a]'}`}
-              >
-                Upcoming (Draft Mode)
-              </button>
-              <button 
-                onClick={() => setRules({...rules, status: 'ACTIVE'})} 
-                className={`flex-1 p-4 font-black italic uppercase text-sm border-2 transition-all ${rules.status === 'ACTIVE' ? 'bg-green-600 text-white border-green-400 shadow-[4px_4px_0px_#001d3d]' : 'bg-[#001d3d] text-white border-white/20 hover:border-green-400'}`}
-              >
-                Active Now (Live)
-              </button>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-[#669bbc] mb-2 tracking-widest">Status</label>
+                <div className="flex gap-2 h-[64px]">
+                  <button 
+                    onClick={() => setRules({...rules, status: 'UPCOMING'})} 
+                    className={`flex-1 font-black italic uppercase text-xs border-2 transition-all ${rules.status === 'UPCOMING' ? 'bg-[#ffd60a] text-[#001d3d] border-[#ffd60a] shadow-[4px_4px_0px_#001d3d]' : 'bg-[#001d3d] text-white border-white/20 hover:border-[#ffd60a]'}`}
+                  >
+                    Upcoming
+                  </button>
+                  <button 
+                    onClick={() => setRules({...rules, status: 'ACTIVE'})} 
+                    className={`flex-1 font-black italic uppercase text-xs border-2 transition-all ${rules.status === 'ACTIVE' ? 'bg-green-600 text-white border-green-400 shadow-[4px_4px_0px_#001d3d]' : 'bg-[#001d3d] text-white border-white/20 hover:border-green-400'}`}
+                  >
+                    Active
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
 

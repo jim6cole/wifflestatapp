@@ -15,10 +15,9 @@ export async function GET(request: Request) {
       where: {
         name: {
           contains: lastName,
-          // Removed the 'mode' line because SQLite handles this natively
         }
       },
-      take: 10 // Limit to 10 so the popup doesn't get massive
+      take: 50 // INCREASED: Limit raised to 50 so common last names don't get cut off
     });
 
     return NextResponse.json(matches);

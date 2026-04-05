@@ -6,29 +6,37 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { eventName, seasonId, schedule } = body;
+    const { eventId, eventName, seasonId, schedule } = body;
 
-    if (!eventName || !seasonId || !schedule || schedule.length === 0) {
+    if (!seasonId || !schedule || schedule.length === 0) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
+    if (!eventId && !eventName) {
+      return NextResponse.json({ error: "Must provide either an existing event ID or a new event name" }, { status: 400 });
+    }
+
     // We use a Prisma Transaction to ensure the Event AND the Games are created together.
-    // If one fails, the whole thing rolls back so you don't get corrupted half-tournaments.
     const result = await prisma.$transaction(async (tx) => {
       
-      // 1. Create the Event Container
-      const event = await tx.event.create({
-        data: {
-          name: eventName,
-          status: 'UPCOMING',
-          seasonId: parseInt(seasonId)
-        }
-      });
+      let targetEventId = eventId ? parseInt(eventId) : null;
+      
+      // 1. Create the Event Container if we are NOT using an existing one
+      if (!targetEventId) {
+        const event = await tx.event.create({
+          data: {
+            name: eventName,
+            status: 'UPCOMING',
+            seasonId: parseInt(seasonId),
+            startDate: new Date(schedule[0].scheduledAt) // Auto-set date to the first pitch
+          }
+        });
+        targetEventId = event.id;
+      }
 
-      // 2. Format the games to link to the new Event
-      // 2. Format the games to link to the new Event
+      // 2. Format the games to link to the Target Event
       const gamesData = schedule.map((game: any) => ({
-        eventId: event.id,
+        eventId: targetEventId,
         seasonId: parseInt(seasonId),
         homeTeamId: game.homeTeamId,
         awayTeamId: game.awayTeamId,
@@ -44,7 +52,7 @@ export async function POST(request: Request) {
         data: gamesData
       });
 
-      return event;
+      return { id: targetEventId };
     });
 
     return NextResponse.json({ success: true, eventId: result.id });

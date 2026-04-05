@@ -7,23 +7,37 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
   const [games, setGames] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // --- ADDED: Auto-refresh polling to pull live updates (balls/strikes/bases)
   useEffect(() => {
-    fetch(`/api/public/seasons/${seasonId}/games`)
-      .then(res => res.json())
-      .then(data => {
-        const gameList = Array.isArray(data) ? data : (data.games || []);
-        
-        // SMART SORT: Forces any IN_PROGRESS games to the absolute top of the list
-        const sortedGames = [...gameList].sort((a, b) => {
-          if (a.status === 'IN_PROGRESS' && b.status !== 'IN_PROGRESS') return -1;
-          if (b.status === 'IN_PROGRESS' && a.status !== 'IN_PROGRESS') return 1;
-          return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+    const fetchGames = () => {
+      // Add a timestamp to prevent aggressive browser caching
+      fetch(`/api/public/seasons/${seasonId}/games?t=${new Date().getTime()}`)
+        .then(res => res.json())
+        .then(data => {
+          const gameList = Array.isArray(data) ? data : (data.games || []);
+          
+          // SMART SORT: Forces any IN_PROGRESS games to the absolute top of the list
+          const sortedGames = [...gameList].sort((a, b) => {
+            if (a.status === 'IN_PROGRESS' && b.status !== 'IN_PROGRESS') return -1;
+            if (b.status === 'IN_PROGRESS' && a.status !== 'IN_PROGRESS') return 1;
+            return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+          });
+          
+          setGames(sortedGames);
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error("Failed to fetch schedule updates", err);
+          setLoading(false);
         });
-        
-        setGames(sortedGames);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    };
+
+    // Initial fetch
+    fetchGames();
+
+    // Poll every 5 seconds for live state updates
+    const interval = setInterval(fetchGames, 5000);
+    return () => clearInterval(interval);
   }, [seasonId]);
 
   if (loading) return (
@@ -61,69 +75,87 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
             games.map((game) => {
               
               // ==========================================
-              // THE LIVE SCOREBUG CARD
+              // COMPACT LIVE SCOREBUG
               // ==========================================
               if (game.status === 'IN_PROGRESS') {
-                // Parse the latest state from the API
-                const latestAtBat = game.atBats?.[0];
-                const inning = latestAtBat?.inning || 1;
-                const isTop = latestAtBat ? latestAtBat.isTopInning : true;
-                const outs = latestAtBat?.outs || 0;
-                const runnersOn = latestAtBat?.runnersOn || 0;
+                const liveState = game.liveState ? JSON.parse(game.liveState) : null;
+
+                const isTopInning = liveState?.isTopInning ?? true;
+                const inning = liveState?.inning ?? 1;
+                const outs = liveState?.outs ?? 0;
+                const balls = liveState?.balls ?? 0;
+                const strikes = liveState?.strikes ?? 0;
+                const baseRunners = liveState?.baseRunners ?? [null, null, null];
+                const homeScore = game?.homeScore ?? liveState?.homeScore ?? 0;
+                const awayScore = game?.awayScore ?? liveState?.awayScore ?? 0;
 
                 return (
-                  <div key={game.id} className="col-span-full border-4 border-[#22c55e] bg-[#001d3d] shadow-[8px_8px_0px_#22c55e] mb-4 overflow-hidden relative group">
-                    <div className="absolute top-0 right-0 bg-[#22c55e] text-[#001d3d] px-4 py-1 font-black italic uppercase tracking-[0.3em] text-[10px] animate-pulse z-10 border-b-4 border-l-4 border-[#001d3d]">
-                      Live Action
-                    </div>
-                    
-                    <div className="flex flex-col xl:flex-row">
-                      {/* TV Broadcast Style Score Lines */}
-                      <div className="flex-1 flex flex-col justify-center bg-[#000]">
-                        <div className="flex justify-between items-center border-b-4 border-[#001d3d] px-6 md:px-12 py-6">
-                          <span className="text-4xl md:text-6xl font-black italic uppercase text-white truncate pr-4">{game.awayTeam?.name}</span>
-                          <span className="text-5xl md:text-7xl font-black text-[#ffd60a] leading-none">{game.awayScore}</span>
-                        </div>
-                        <div className="flex justify-between items-center px-6 md:px-12 py-6 bg-white/5">
-                          <span className="text-4xl md:text-6xl font-black italic uppercase text-white truncate pr-4">{game.homeTeam?.name}</span>
-                          <span className="text-5xl md:text-7xl font-black text-[#ffd60a] leading-none">{game.homeScore}</span>
-                        </div>
+                  <Link 
+                    key={game.id} 
+                    href={`/games/${game.id}/feed`} 
+                    className="group bg-[#001d3d] border-4 border-[#22c55e] shadow-[6px_6px_0px_#22c55e] hover:-translate-y-1 hover:shadow-[8px_8px_0px_#22c55e] transition-all flex flex-col h-full relative overflow-hidden"
+                  >
+                    {/* Header */}
+                    <div className="bg-[#22c55e] text-[#001d3d] px-3 py-2 flex justify-between items-center border-b-4 border-[#001d3d]">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-[#001d3d] animate-pulse"></span>
+                        <span className="font-black italic uppercase text-[10px] tracking-widest leading-none">On Air</span>
                       </div>
-                      
-                      {/* Live Data Bug (Inning, Outs, Bases) */}
-                      <div className="xl:w-96 bg-[#001d3d] border-t-4 xl:border-t-0 xl:border-l-4 border-[#22c55e] p-6 flex flex-row xl:flex-col justify-between items-center xl:items-start gap-6">
-                        
-                        <div className="flex gap-8 md:gap-12 xl:gap-6 justify-center w-full">
-                          {/* Inning Indicator */}
-                          <div className="text-center xl:text-left">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] block mb-2">Inning</span>
-                            <span className="text-4xl md:text-5xl font-black italic text-white leading-none">
-                              {isTop ? '▲' : '▼'} {inning}
-                            </span>
-                          </div>
+                      <span className="font-black uppercase text-[10px] tracking-widest leading-none">Field {game.fieldNumber || '1'}</span>
+                    </div>
 
-                          {/* Outs Indicator */}
-                          <div className="text-center xl:text-left">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] block mb-2">Outs</span>
-                            <div className="flex gap-2 h-[40px] md:h-[48px] items-center">
-                              <div className={`w-6 h-6 rounded-full border-4 border-white transition-colors ${outs > 0 ? 'bg-[#c1121f] border-[#c1121f]' : 'bg-transparent'}`}></div>
-                              <div className={`w-6 h-6 rounded-full border-4 border-white transition-colors ${outs > 1 ? 'bg-[#c1121f] border-[#c1121f]' : 'bg-transparent'}`}></div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Bases Indicator */}
-                        <div className="w-full text-center xl:text-left pt-4 xl:border-t-4 border-[#001d3d]/50 hidden md:block">
-                           <span className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] block mb-2">Runners On</span>
-                           <span className="text-3xl font-black italic text-white">{runnersOn > 0 ? runnersOn : 'EMPTY'}</span>
-                        </div>
+                    {/* Teams & Scores */}
+                    <div className="flex flex-col flex-1">
+                      <div className={`flex justify-between items-center px-4 py-4 border-b-4 border-[#001d3d]/20 flex-1 ${isTopInning ? 'bg-[#ffd60a]/10' : ''}`}>
+                         <div className="flex items-center gap-3 min-w-0 pr-2">
+                           <span className="w-8 h-8 bg-[#c1121f] text-white flex items-center justify-center font-black italic border-2 border-[#001d3d] shadow-[2px_2px_0px_#000] shrink-0 text-sm">
+                             {game.awayTeam?.name?.substring(0,1)}
+                           </span>
+                           <span className="text-xl font-black italic uppercase text-white truncate">{game.awayTeam?.name}</span>
+                         </div>
+                         <span className="text-4xl font-black text-[#ffd60a] italic">{awayScore}</span>
+                      </div>
+                      <div className={`flex justify-between items-center px-4 py-4 flex-1 ${!isTopInning ? 'bg-[#ffd60a]/10' : ''}`}>
+                         <div className="flex items-center gap-3 min-w-0 pr-2">
+                           <span className="w-8 h-8 bg-[#001d3d] text-white flex items-center justify-center font-black italic border-2 border-white shadow-[2px_2px_0px_#c1121f] shrink-0 text-sm">
+                             {game.homeTeam?.name?.substring(0,1)}
+                           </span>
+                           <span className="text-xl font-black italic uppercase text-white truncate">{game.homeTeam?.name}</span>
+                         </div>
+                         <span className="text-4xl font-black text-[#ffd60a] italic">{homeScore}</span>
                       </div>
                     </div>
-                    
-                    <Link href={`/games/${game.id}/feed`} className="block w-full bg-[#22c55e] text-center text-[#001d3d] py-4 font-black italic uppercase tracking-widest hover:bg-white transition-colors border-t-4 border-[#001d3d]">
+
+                    {/* Game State Bar (Bases, Count, Outs, Inning) */}
+                    <div className="bg-[#001d3d] border-t-4 border-[#22c55e] p-3 flex justify-between items-center mt-auto shadow-inner">
+                      {/* Bases */}
+                      <div className="relative w-10 h-10 shrink-0 mx-2">
+                          {[1, 2, 0].map(idx => (
+                            <div key={idx} className={`absolute ${idx===1?'top-0 left-1/2 -translate-x-1/2':idx===2?'top-1/2 left-0 -translate-y-1/2':'top-1/2 right-0 -translate-y-1/2'} w-3.5 h-3.5 rotate-45 border-2 border-white/30 ${baseRunners[idx] ? 'bg-[#ffd60a] border-white shadow-[0_0_5px_#ffd60a]' : ''}`}></div>
+                          ))}
+                      </div>
+
+                      {/* Count & Outs */}
+                      <div className="flex flex-col items-center justify-center">
+                         <div className="text-xl font-black text-[#ffd60a] italic leading-none">{balls}-{strikes}</div>
+                         <div className="flex gap-1.5 mt-1.5">
+                           <div className={`w-2.5 h-2.5 rounded-full border-2 border-white ${outs > 0 ? 'bg-[#c1121f]' : ''}`}></div>
+                           <div className={`w-2.5 h-2.5 rounded-full border-2 border-white ${outs > 1 ? 'bg-[#c1121f]' : ''}`}></div>
+                         </div>
+                      </div>
+
+                      {/* Inning */}
+                      <div className="text-right">
+                        <span className="text-[9px] font-black uppercase text-[#669bbc] tracking-widest block leading-none mb-1">Inning</span>
+                        <span className="text-3xl font-black italic text-white leading-none">{isTopInning ? '▲' : '▼'}{inning}</span>
+                      </div>
+                    </div>
+
+                    {/* Footer Link */}
+                    <div className="bg-[#22c55e] text-[#001d3d] text-center py-2.5 font-black italic uppercase tracking-widest text-[10px] border-t-4 border-[#001d3d] group-hover:bg-white transition-colors">
                       Open Live Feed →
-                    </Link>
-                  </div>
+                    </div>
+                  </Link>
                 );
               }
 

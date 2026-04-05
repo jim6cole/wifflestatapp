@@ -128,6 +128,7 @@ model Event {
   id        Int      @id @default(autoincrement())
   name      String
   status    String   @default("UPCOMING")
+  startDate DateTime?
   seasonId  Int
   season    Season   @relation(fields: [seasonId], references: [id])
   games     Game[]

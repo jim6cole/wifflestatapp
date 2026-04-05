@@ -12,7 +12,15 @@ export default function PlayBallDashboard({ params }: { params: Promise<{ league
       .then(res => res.json())
       .then(data => {
         const gamesArray = Array.isArray(data) ? data : [];
-        const sortedGames = [...gamesArray].sort((a, b) => (a.fieldNumber || 0) - (b.fieldNumber || 0));
+        
+        // SORTING UPGRADE: Sort by Date/Time first, then by Field Number
+        const sortedGames = [...gamesArray].sort((a, b) => {
+          const dateA = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
+          const dateB = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
+          if (dateA !== dateB) return dateA - dateB;
+          return (a.fieldNumber || 0) - (b.fieldNumber || 0);
+        });
+        
         setGames(sortedGames);
         setLoading(false);
       })
@@ -116,13 +124,12 @@ function GameCard({
   seasonId: string, 
   isUpcoming?: boolean 
 }) {
-  // THE FIX: Appended ?leagueId and ?seasonId to the lineup route
   const targetUrl = isUpcoming 
     ? `/admin/games/${game.id}/lineups?leagueId=${leagueId}&seasonId=${seasonId}` 
     : `/games/${game.id}/live?source=admin`; 
 
   return (
-    <Link href={targetUrl} className="group block">
+    <Link href={targetUrl} className="group block h-full">
       <div className={`bg-black/40 border-4 transition-all duration-300 relative h-full flex flex-col ${
         isUpcoming 
           ? 'border-[#ffd60a] hover:bg-[#ffd60a] hover:text-[#001d3d] shadow-[8px_8px_0px_#ffd60a]' 
@@ -133,11 +140,22 @@ function GameCard({
         }`}>
           Field {game.fieldNumber || '?'}
         </div>
-        <div className="p-6 flex-1">
-          <div className="text-[10px] font-black uppercase tracking-widest mb-4 opacity-70">
-            {game.status || 'SCHEDULED'}
+        <div className="p-6 flex-1 flex flex-col">
+          
+          {/* NEW: Date & Time Header */}
+          <div className="flex justify-between items-start mb-6 opacity-80 border-b-2 border-current/20 pb-4">
+            <div className="text-[10px] font-black uppercase tracking-widest bg-current text-white/20 px-2 py-1 self-start mix-blend-difference">
+              {game.status || 'SCHEDULED'}
+            </div>
+            {game.scheduledAt && (
+              <div className="text-[10px] font-black uppercase tracking-widest text-right">
+                {new Date(game.scheduledAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}<br/>
+                {new Date(game.scheduledAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+              </div>
+            )}
           </div>
-          <div className="flex flex-col gap-2">
+
+          <div className="flex flex-col gap-2 mt-auto">
             <div className="flex justify-between items-center">
               <span className="text-2xl font-black italic uppercase truncate pr-4">{game.awayTeam?.name || 'Away Team'}</span>
               {!isUpcoming && <span className="text-xl font-bold">{game.awayScore ?? 0}</span>}
