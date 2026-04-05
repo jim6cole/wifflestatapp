@@ -50,7 +50,6 @@ export async function GET(request: Request) {
         }
       }),
       prisma.league.findMany({ select: { id: true, name: true, shortName: true } }),
-      // FETCH FILTER OPTIONS: Metadata for the specific league if requested
       leagueIdFilter ? prisma.league.findUnique({
         where: { id: parseInt(leagueIdFilter) },
         include: {
@@ -69,15 +68,28 @@ export async function GET(request: Request) {
     const pitcherMap: Record<number, any> = {};
     const gamesWithLiveAtBats = new Set(atBats.map(ab => ab.gameId));
 
+    // --- 2. UPDATED ADD TO MAP WITH SPEED LIMIT LOGIC ---
     const addToMap = (map: any, id: number, name: string, game: any) => {
+      const leagueLabel = game?.season?.league?.shortName || game?.season?.league?.name || 'AWAA';
+      const isMed = game?.season?.isSpeedRestricted;
+      const speedLimit = game?.season?.speedLimit;
+      
+      // FIX: Store "MED {mph}" or "FAST"
+      const speedLabel = isMed ? (speedLimit ? `MED ${speedLimit}` : 'MED') : 'FAST';
+
       if (!map[id]) {
         map[id] = { 
           id, name, ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, r: 0, bb: 0, k: 0, tb: 0, 
           ipOuts: 0, ph: 0, pr: 0, per: 0, pbb: 0, pk: 0, phr: 0, w: 0, l: 0, sv: 0,
           weighted_per: 0, 
-          gameIds: new Set<number>(), // Used for counting unique Games Played
-          manualGP: 0
+          gameIds: new Set<number>(),
+          manualGP: 0,
+          leaguesPlayed: new Set<string>([leagueLabel]),
+          stylesPlayed: new Set<string>([speedLabel])
         };
+      } else {
+        map[id].leaguesPlayed.add(leagueLabel);
+        map[id].stylesPlayed.add(speedLabel);
       }
       return map[id];
     };
@@ -125,15 +137,7 @@ export async function GET(request: Request) {
         : (ab.game?.season?.eraStandard || 4);
 
       if (ab.runsScored > 0) {
-        if (ab.runAttribution) {
-          ab.runAttribution.split(',').forEach(sid => {
-            const pId = parseInt(sid.trim());
-            const attributedP = pitcherMap[pId] || addToMap(pitcherMap, pId, "Unknown", ab.game);
-            attributedP.pr += 1; attributedP.per += 1; attributedP.weighted_per += (1 * standard);
-          });
-        } else {
-          p.pr += ab.runsScored; p.per += ab.runsScored; p.weighted_per += (ab.runsScored * standard);
-        }
+        p.pr += ab.runsScored; p.per += ab.runsScored; p.weighted_per += (ab.runsScored * standard);
       }
     });
 
@@ -157,15 +161,36 @@ export async function GET(request: Request) {
       }
     });
 
+    // --- 3. UPDATED DISPLAY HELPER ---
+    const getDisplays = (item: any) => {
+      const styles = Array.from(item.stylesPlayed) as string[];
+      const hasFast = styles.includes('FAST');
+      const hasMed = styles.some(s => s.startsWith('MED'));
+
+      let speedDisplay = "";
+      if (hasFast && hasMed) {
+        speedDisplay = "BOTH";
+      } else {
+        // Sorts styles so 'FAST' usually comes first or alphabetically
+        speedDisplay = styles.sort().join(' / ');
+      }
+
+      return {
+        leagueDisplay: Array.from(item.leaguesPlayed).join(' / '),
+        speedDisplay
+      };
+    };
+
     const finalBatters = Object.values(batterMap).map((b: any) => {
       const pa = b.ab + b.bb;
-      // FIX: Use Set size here on the server before JSON serialization
-      const totalGP = b.gameIds.size + b.manualGP;
+      const displays = getDisplays(b);
       return { 
         ...b, 
-        gp: totalGP, 
+        gp: b.gameIds.size + b.manualGP, 
         pa,
-        gameIds: Array.from(b.gameIds), // Convert Set to Array for JSON safety
+        gameIds: Array.from(b.gameIds), 
+        leagueDisplay: displays.leagueDisplay,
+        speedDisplay: displays.speedDisplay,
         avg: b.ab > 0 ? (b.h / b.ab).toFixed(3).replace(/^0/, '') : '.000', 
         obp: pa > 0 ? ((b.h + b.bb) / pa).toFixed(3).replace(/^0/, '') : '.000', 
         ops: b.ab > 0 ? (((b.h + b.bb) / pa) + (b.tb / b.ab)).toFixed(3).replace(/^0/, '') : '.000' 
@@ -174,8 +199,11 @@ export async function GET(request: Request) {
 
     const finalPitchers = Object.values(pitcherMap).map((p: any) => {
       const mathIP = p.ipOuts / 3;
+      const displays = getDisplays(p);
       return { 
         id: p.id, name: p.name, w: p.w, l: p.l, sv: p.sv, gp: p.gameIds.size,
+        leagueDisplay: displays.leagueDisplay,
+        speedDisplay: displays.speedDisplay,
         ip: `${Math.floor(p.ipOuts / 3)}.${p.ipOuts % 3}`, 
         h: p.ph, r: p.pr, er: p.per, bb: p.pbb, k: p.pk, hr: p.phr,
         era: mathIP > 0 ? (p.weighted_per / mathIP).toFixed(2) : "0.00", 
@@ -200,13 +228,9 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ 
-      leagues, 
-      batters: finalBatters, 
-      pitchers: finalPitchers, 
+      leagues, batters: finalBatters, pitchers: finalPitchers, 
       leagueName: leagueIdFilter ? meta?.name : "Global Stats",
-      years,
-      seasons,
-      events
+      years, seasons, events
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
