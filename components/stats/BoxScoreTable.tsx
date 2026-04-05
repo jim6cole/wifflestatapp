@@ -16,9 +16,13 @@ export default function BoxScoreTable({ stats, teamName, hrDetails = [] }: any) 
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   };
 
-  const formatLastName = (fullName: string) => {
+  // Helper to format: Cole, J.
+  const formatNameWithInitial = (fullName: string) => {
     const parts = fullName.trim().split(' ');
-    return parts.length > 0 ? parts[parts.length - 1] : fullName;
+    if (parts.length <= 1) return fullName;
+    const lastName = parts[parts.length - 1];
+    const firstInitial = parts[0].charAt(0);
+    return `${lastName}, ${firstInitial}.`;
   };
 
   const formatList = (players: any[], statKey: string) => {
@@ -26,7 +30,7 @@ export default function BoxScoreTable({ stats, teamName, hrDetails = [] }: any) 
       .filter(p => Number(p[statKey]) > 0)
       .map(p => {
         const val = Number(p[statKey]);
-        return val > 1 ? `${formatLastName(p.name)} ${val}` : formatLastName(p.name);
+        return val > 1 ? `${formatNameWithInitial(p.name)} ${val}` : formatNameWithInitial(p.name);
       })
       .join('; ');
   };
@@ -37,20 +41,18 @@ export default function BoxScoreTable({ stats, teamName, hrDetails = [] }: any) 
   const hrString = hrPlayers.map((p: any) => {
     const playerHRs = hrDetails
       .filter((hr: HRDetail) => hr.batterName === p.name)
-      .sort((a: any, b: any) => a.inning - b.inning); // Ensure they list chronologically
+      .sort((a: any, b: any) => a.inning - b.inning);
 
-    const lastName = formatLastName(p.name);
+    const formattedBatter = formatNameWithInitial(p.name);
     const gameTotal = Number(p.hr);
     
-    // Get the season total after the final HR of this game
     const seasonTotal = playerHRs.length > 0 ? playerHRs[playerHRs.length - 1].seasonTotal : 0;
     
-    // Format individual instances: 1st inning off Gausman 0 on 0 out
     const instances = playerHRs.map((hr: HRDetail) => 
-      `${getOrdinal(hr.inning)} inning off ${formatLastName(hr.pitcherName)} ${hr.runnersOn} on ${hr.outs} out`
+      `${getOrdinal(hr.inning)} inning off ${formatNameWithInitial(hr.pitcherName)} ${hr.runnersOn} on ${hr.outs} out`
     ).join(',');
 
-    return `${lastName} ${gameTotal} (${seasonTotal},${instances})`;
+    return `${formattedBatter} ${gameTotal} (${seasonTotal},${instances})`;
   }).join('; ');
 
   const doubles = formatList(stats, 'd');

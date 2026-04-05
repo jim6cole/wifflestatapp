@@ -150,9 +150,14 @@ export default function LiveScorer() {
     }
     if (type === 'batter') {
       const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
+      // THE FIX: Must sub within the filtered hitting lineup context
+      const hittingLineup = game.lineups
+        .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
+        .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+        
       const currentIdx = isTopInning ? batterIndices.away : batterIndices.home;
-      const teamLineup = game.lineups.filter((l: any) => l.teamId === battingTeamId);
-      const slotToReplace = teamLineup[currentIdx];
+      const slotToReplace = hittingLineup[currentIdx];
+      
       const newLineups = game.lineups.map((l: any) => 
         l.id === slotToReplace.id ? { ...l, playerId: newPlayer.id, player: newPlayer } : l
       );
@@ -201,7 +206,7 @@ export default function LiveScorer() {
         return;
     }
 
-    // 2. 🚨 NEW: HOME TEAM ALREADY WINNING CHECK 🚨
+    // 2. HOME TEAM ALREADY WINNING CHECK
     if (isTopInning && inning >= targetInnings && homeScore > awayScore) {
         setGameOverMessage(`GAME OVER! ${game.homeTeam.name} Wins!`);
         setShowEndGameModal(true);
@@ -252,9 +257,14 @@ export default function LiveScorer() {
     
     const targetOuts = game.season?.outs || 3;
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
-    const lineup = game.lineups.filter((l: any) => l.teamId === battingTeamId);
+    
+    // THE FIX: Filter lineup for rotation logic
+    const hittingLineup = game.lineups
+      .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
+      .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
-    const batter = lineup[activeBatterIdx]?.player;
+    const batter = hittingLineup[activeBatterIdx]?.player;
 
     const runner1Id = baseRunners[0]?.id || null;
     const runner2Id = baseRunners[1]?.id || null;
@@ -291,7 +301,7 @@ export default function LiveScorer() {
 
     setBatterIndices(prev => ({
       ...prev,
-      [isTopInning ? 'away' : 'home']: (prev[isTopInning ? 'away' : 'home'] + 1) % lineup.length
+      [isTopInning ? 'away' : 'home']: (prev[isTopInning ? 'away' : 'home'] + 1) % hittingLineup.length
     }));
 
     const homeJustTookLead = !isTopInning && inning >= (game.season?.inningsPerGame || 5) && newHomeScore > newAwayScore;
@@ -318,8 +328,14 @@ export default function LiveScorer() {
   const advanceRunnersAuto = useCallback((basesToMove: number, type: string) => {
     if (!game) return;
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
+    
+    // THE FIX: Filter lineup for logic
+    const hittingLineup = game.lineups
+      .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
+      .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
-    const batter = game.lineups.filter((l: any) => l.teamId === battingTeamId)[activeBatterIdx]?.player;
+    const batter = hittingLineup[activeBatterIdx]?.player;
 
     let curB = [...baseRunners];
     let curP = [...baseRunnerPitchers];
@@ -365,9 +381,15 @@ export default function LiveScorer() {
     if (baseRunners[2]) active.push({ player: baseRunners[2], from: '3rd', end: '3rd', internalId: 'b2' });
     if (baseRunners[1]) active.push({ player: baseRunners[1], from: '2nd', end: '2nd', internalId: 'b1' });
     if (baseRunners[0]) active.push({ player: baseRunners[0], from: '1st', end: '1st', internalId: 'b0' });
+    
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
+    const hittingLineup = game.lineups
+      .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
+      .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+    
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
-    const btr = game.lineups.filter((l: any) => l.teamId === battingTeamId)[activeBatterIdx]?.player;
+    const btr = hittingLineup[activeBatterIdx]?.player;
+    
     setDpPlacements([...active, { player: btr, from: 'Batter', end: 'Out', internalId: 'bat' }]);
     setShowDPModal(true);
   };
@@ -391,9 +413,15 @@ export default function LiveScorer() {
     if (baseRunners[2]) active.push({ player: baseRunners[2], from: '3rd', end: '3rd', internalId: 'b2' });
     if (baseRunners[1]) active.push({ player: baseRunners[1], from: '2nd', end: '2nd', internalId: 'b1' });
     if (baseRunners[0]) active.push({ player: baseRunners[0], from: '1st', end: '1st', internalId: 'b0' });
+    
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
+    const hittingLineup = game.lineups
+      .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
+      .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+      
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
-    const btr = game.lineups.filter((l: any) => l.teamId === battingTeamId)[activeBatterIdx]?.player;
+    const btr = hittingLineup[activeBatterIdx]?.player;
+
     if (actionType === 'Error') {
       setPlacementDetails([...active, { player: btr, from: 'Batter', end: '1st', internalId: 'bat' }]);
     } else if (['Single', 'Double', 'Triple', 'Clean Single', 'Clean Double'].includes(actionType)) {
@@ -411,8 +439,13 @@ export default function LiveScorer() {
     let scoringP: number[] = [];
     let scoringR: number[] = [];
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
+    
+    const hittingLineup = game.lineups
+      .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
+      .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
-    const batter = game.lineups.filter((l: any) => l.teamId === battingTeamId)[activeBatterIdx]?.player;
+    const batter = hittingLineup[activeBatterIdx]?.player;
     const move = isClean ? bases + 1 : bases;
     for (let i = 0; i < move; i++) { 
         if (curB[2] !== null) { scoringR.push(curB[2].id); scoringP.push(curP[2]!); }
@@ -434,7 +467,13 @@ export default function LiveScorer() {
       case 'Hit By Pitch': {
           let curB = [...baseRunners]; let curP = [...baseRunnerPitchers]; let scoringP: number[] = []; let scoringR: number[] = [];
           const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
-          const btr = game.lineups.filter((l: any) => l.teamId === battingTeamId)[isTopInning ? batterIndices.away : batterIndices.home]?.player;
+          
+          const hittingLineup = game.lineups
+            .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
+            .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+
+          const btr = hittingLineup[isTopInning ? batterIndices.away : batterIndices.home]?.player;
+          
           if (curB[2] && curB[1] && curB[0]) { scoringR.push(curB[2].id); scoringP.push(curP[2]!); }
           if (curB[1] && curB[0]) { curB[2] = curB[1]; curP[2] = curP[1]; }
           if (curB[0]) { curB[1] = curB[0]; curP[1] = curP[0]; }
@@ -462,7 +501,12 @@ export default function LiveScorer() {
         if (baseRunners[1]) active.push({ player: baseRunners[1], from: '2nd', end: '2nd', internalId: 'b1' });
         if (baseRunners[0]) active.push({ player: baseRunners[0], from: '1st', end: '1st', internalId: 'b0' });
         const btTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
-        const btr = game.lineups.filter((l: any) => l.teamId === btTeamId)[isTopInning ? batterIndices.away : batterIndices.home].player;
+        
+        const hittingLineup = game.lineups
+          .filter((l: any) => l.teamId === btTeamId && l.battingOrder !== 99)
+          .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+
+        const btr = hittingLineup[isTopInning ? batterIndices.away : batterIndices.home].player;
         setHitErrorData({ hitType: 'Single', fielderId: '', placements: [...active, { player: btr, from: 'Batter', end: '2nd', internalId: 'bat' }] });
         break;
       case 'Add Ghost Runner': setShowGhostModal(true); break;
@@ -486,7 +530,12 @@ export default function LiveScorer() {
         if (balls >= (game.season?.balls || 4) - 1) {
            let curB = [...baseRunners]; let curP = [...baseRunnerPitchers]; let scoringP: number[] = []; let scoringR: number[] = [];
            const btTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
-           const btr = game.lineups.filter((l: any) => l.teamId === btTeamId)[isTopInning ? batterIndices.away : batterIndices.home].player;
+           
+           const hittingLineup = game.lineups
+            .filter((l: any) => l.teamId === btTeamId && l.battingOrder !== 99)
+            .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+
+           const btr = hittingLineup[isTopInning ? batterIndices.away : batterIndices.home].player;
            if (curB[2] && curB[1] && curB[0]) { scoringR.push(curB[2].id); scoringP.push(curP[2]!); }
            if (curB[1] && curB[0]) { curB[2] = curB[1]; curP[2] = curP[1]; }
            if (curB[0]) { curB[1] = curB[0]; curP[1] = curP[0]; }
@@ -503,7 +552,12 @@ export default function LiveScorer() {
     if (type === 'BB') {
       let curB = [...baseRunners]; let curP = [...baseRunnerPitchers]; let scoringR: number[] = []; let scoringP: number[] = [];
       const btTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
-      const btr = game.lineups.filter((l: any) => l.teamId === btTeamId)[isTopInning ? batterIndices.away : batterIndices.home].player;
+      
+      const hittingLineup = game.lineups
+        .filter((l: any) => l.teamId === btTeamId && l.battingOrder !== 99)
+        .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+
+      const btr = hittingLineup[isTopInning ? batterIndices.away : batterIndices.home].player;
       if (curB[2] && curB[1] && curB[0]) { scoringR.push(curB[2].id); scoringP.push(curP[2]!); }
       if (curB[1] && curB[0]) { curB[2] = curB[1]; curP[2] = curP[1]; }
       if (curB[0]) { curB[1] = curB[0]; curP[1] = curP[0]; }
@@ -564,8 +618,14 @@ export default function LiveScorer() {
   if (!game) return <div className="bg-slate-950 min-h-screen flex items-center justify-center font-black italic text-white animate-pulse">WARMING UP...</div>;
 
   const btrTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
+  
+  // THE FIX: Define hittingLineup for UI displays
+  const activeHittingLineup = game.lineups
+    .filter((l: any) => l.teamId === btrTeamId && l.battingOrder !== 99)
+    .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+
   const currentBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
-  const currentBatter = game.lineups.filter((l: any) => l.teamId === btrTeamId)[currentBatterIdx]?.player;
+  const currentBatter = activeHittingLineup[currentBatterIdx]?.player;
   const currentBatterPosition = game.lineups.find((l: any) => l.playerId === currentBatter?.id)?.position || 'Fielder';
   const currentPitcher = game.lineups.find((l: any) => l.playerId === activePitcherId)?.player;
 
@@ -837,9 +897,9 @@ export default function LiveScorer() {
                 <span className="text-[#002D62]">AVG: {currentStats.avg}</span>
              </div>
           </div>
-          {/* ON DECK INDICATOR */}
+          {/* THE FIX: Define hittingLineup for the ON DECK indicator */}
           <div className="text-[8px] uppercase text-[#669bbc] border-t border-black/5 pt-1">
-            ON DECK: {game.lineups.filter((l: any) => l.teamId === btrTeamId)[(currentBatterIdx + 1) % game.lineups.filter((l: any) => l.teamId === btrTeamId).length]?.player.name}
+            ON DECK: {activeHittingLineup[(currentBatterIdx + 1) % activeHittingLineup.length]?.player.name}
           </div>
         </div>
       </div>
@@ -887,7 +947,6 @@ export default function LiveScorer() {
                 <div className="flex items-center gap-3 font-black uppercase"><span className="text-[9px] font-bold text-slate-500 w-8">{log.logDisplayInning}</span>{log.batter}</div>
                 <div className="flex items-center gap-4"><span className={`font-black italic uppercase ${log.runs > 0 ? 'text-blue-400' : 'text-slate-400'}`}>{log.result}</span>{log.runs > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black">+{log.runs}</span>}</div>
               </div>
-              {/* ADDED: WHO SCORED DATA */}
               {log.runs > 0 && log.scorerIds && (
                 <div className="text-[8px] text-blue-300/80 font-bold uppercase mt-1 pl-11">
                    Scored: {log.scorerIds.split(',').map((id: string) => game?.lineups?.find((l:any) => String(l.playerId) === String(id))?.player.name || 'Ghost Runner').join(', ')}

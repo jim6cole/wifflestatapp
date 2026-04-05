@@ -10,31 +10,44 @@ export async function GET(
   try {
     const { seasonId } = await params;
     const sId = parseInt(seasonId);
+    
+    // NEW: Get eventId from search params
+    const { searchParams } = new URL(request.url);
+    const eventId = searchParams.get('eventId');
 
-    // Fetch all completed games chronologically to accurately calculate streaks
-    const games = await prisma.game.findMany({
-      where: { seasonId: sId, status: 'COMPLETED' },
-      orderBy: { scheduledAt: 'asc' },
-      include: {
-        awayTeam: { select: { id: true, name: true } },
-        homeTeam: { select: { id: true, name: true } }
-      }
-    });
+    // Build Game Filter: Only completed games in this season
+    const gameWhere: any = { seasonId: sId, status: 'COMPLETED' };
+    // If an event is selected, only look at games from that event
+    if (eventId) {
+      gameWhere.eventId = parseInt(eventId);
+    }
 
-    const season = await prisma.season.findUnique({
-      where: { id: sId },
-      select: { name: true, leagueId: true }
-    });
+    const [games, season, events] = await Promise.all([
+      prisma.game.findMany({
+        where: gameWhere,
+        orderBy: { scheduledAt: 'asc' },
+        include: {
+          awayTeam: { select: { id: true, name: true } },
+          homeTeam: { select: { id: true, name: true } }
+        }
+      }),
+      prisma.season.findUnique({
+        where: { id: sId },
+        select: { name: true, leagueId: true }
+      }),
+      // Fetch ALL events for the season to populate the UI dropdown
+      prisma.event.findMany({
+        where: { seasonId: sId },
+        orderBy: { id: 'asc' },
+        select: { id: true, name: true, status: true, winnerId: true }
+      })
+    ]);
 
-    // NEW: Fetch all completed tournaments for this season to see who won them
-    const events = await prisma.event.findMany({
-      where: { seasonId: sId, status: 'COMPLETED', winnerId: { not: null } },
-      select: { winnerId: true }
-    });
-
-    // Count up the tournament wins per team ID
+    // Count up the tournament wins (stars)
+    // If we are filtered by event, we only show winners for that specific event
     const tournamentWinsCount: Record<number, number> = {};
-    events.forEach(event => {
+    events.filter(e => e.status === 'COMPLETED' && e.winnerId).forEach(event => {
+      if (eventId && event.id !== parseInt(eventId)) return; // Skip if filtered
       if (event.winnerId) {
         tournamentWinsCount[event.winnerId] = (tournamentWinsCount[event.winnerId] || 0) + 1;
       }
@@ -42,34 +55,25 @@ export async function GET(
 
     const teams: Record<number, any> = {};
 
-    // Helper to setup a team profile
     const initTeam = (id: number, name: string) => {
       if (!teams[id]) {
-        // NEW: Inject the tournamentWins into the initial team object
         teams[id] = { id, name, w: 0, l: 0, t: 0, rf: 0, ra: 0, streakList: [], tournamentWins: tournamentWinsCount[id] || 0 };
       }
     };
 
-    // Crunch the game data
     games.forEach(g => {
       if (!g.awayTeam || !g.homeTeam) return;
-
       initTeam(g.awayTeamId, g.awayTeam.name);
       initTeam(g.homeTeamId, g.homeTeam.name);
 
       const away = teams[g.awayTeamId];
       const home = teams[g.homeTeamId];
-
       const awayScore = g.awayScore || 0;
       const homeScore = g.homeScore || 0;
 
-      // Add runs to totals
-      away.rf += awayScore;
-      away.ra += homeScore;
-      home.rf += homeScore;
-      home.ra += awayScore;
+      away.rf += awayScore; away.ra += homeScore;
+      home.rf += homeScore; home.ra += awayScore;
 
-      // Determine Winner/Loser
       if (awayScore > homeScore) {
         away.w += 1; away.streakList.push('W');
         home.l += 1; home.streakList.push('L');
@@ -82,13 +86,10 @@ export async function GET(
       }
     });
 
-    // Format the final standings array
     const standings = Object.values(teams).map((t: any) => {
       const gp = t.w + t.l + t.t;
-      // Wiffleball standard: Ties count as a half-win for percentage
       const pct = gp > 0 ? (t.w + (t.t * 0.5)) / gp : 0;
       
-      // Calculate Current Streak
       let currentStreak = '-';
       if (t.streakList.length > 0) {
         let count = 0;
@@ -101,23 +102,13 @@ export async function GET(
       }
 
       return {
-        id: t.id,
-        name: t.name,
-        gp,
-        w: t.w,
-        l: t.l,
-        t: t.t,
+        id: t.id, name: t.name, gp, w: t.w, l: t.l, t: t.t,
         pct: pct === 1 ? '1.000' : pct.toFixed(3).replace(/^0/, ''),
-        pctValue: pct,
-        rf: t.rf,
-        ra: t.ra,
-        rd: t.rf - t.ra,
-        streak: currentStreak,
-        tournamentWins: t.tournamentWins // NEW: Pass the count to the frontend
+        pctValue: pct, rf: t.rf, ra: t.ra, rd: t.rf - t.ra,
+        streak: currentStreak, tournamentWins: t.tournamentWins
       };
     });
 
-    // Final Sort: Wins -> PCT -> Run Diff
     standings.sort((a, b) => {
       if (b.w !== a.w) return b.w - a.w;
       if (b.pctValue !== a.pctValue) return b.pctValue - a.pctValue;
@@ -127,10 +118,10 @@ export async function GET(
     return NextResponse.json({ 
       seasonName: season?.name || 'Season Standings', 
       leagueId: season?.leagueId, 
-      standings 
+      standings,
+      events // Pass the events list back to the frontend
     });
   } catch (error: any) {
-    console.error("Standings API Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

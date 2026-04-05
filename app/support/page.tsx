@@ -67,6 +67,38 @@ export default function PublicSupportHub() {
             </div>
           </Link>
         </div>
+
+        {/* --- NEW DISCORD BUTTON --- */}
+        <div className="mt-12">
+          <a 
+            href="https://discord.gg/nXRcmjyczS" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="group block"
+          >
+            <div className="p-8 md:p-10 border-4 bg-[#5865F2] border-white shadow-[12px_12px_0px_#ffd60a] transition-all duration-300 transform group-hover:-translate-y-2 flex flex-col md:flex-row justify-between items-center gap-6">
+              <div className="flex items-center gap-6">
+                <span className="text-5xl md:text-6xl">💬</span>
+                <div className="text-left">
+                  <h2 className="text-3xl md:text-5xl font-black italic uppercase text-white leading-tight">
+                    Join Our Discord
+                  </h2>
+                  <p className="text-[10px] font-bold uppercase tracking-widest mt-2 text-white/80">
+                    Real-time help & community hub
+                  </p>
+                </div>
+              </div>
+              <span className="text-xl md:text-2xl font-black italic uppercase text-white border-2 border-white px-6 py-2 group-hover:bg-white group-hover:text-[#5865F2] transition-colors hidden sm:block">
+                JOIN NOW ↗
+              </span>
+            </div>
+          </a>
+        </div>
+        
+        <footer className="mt-16 text-center opacity-40">
+           <p className="text-[9px] font-black uppercase tracking-[0.5em] italic">WiffPlus Global Operations</p>
+        </footer>
+
       </div>
     </div>
   );

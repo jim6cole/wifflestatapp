@@ -14,7 +14,7 @@ export default function SeasonStatsPage() {
   const [seasonName, setSeasonName] = useState('Season');
   const [loading, setLoading] = useState(true);
   
-  // NEW: Tournament Filter State
+  // TOURNAMENT FILTER STATE
   const [events, setEvents] = useState<any[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>('');
 
@@ -22,7 +22,7 @@ export default function SeasonStatsPage() {
     if (!seasonId) return;
     setLoading(true);
     
-    // NEW: Add eventId to the fetch URL if a tournament is selected
+    // Add eventId to the fetch URL if a specific event is selected
     const url = `/api/public/stats/global?seasonId=${seasonId}${selectedEventId ? `&eventId=${selectedEventId}` : ''}`;
     
     fetch(url)
@@ -31,14 +31,15 @@ export default function SeasonStatsPage() {
         setPitchers(data.pitchers || []);
         setBatters(data.batters || []);
         setSeasonName(data.seasonName || 'Season Stats');
-        if (data.events) setEvents(data.events); // Store the tournaments for the dropdown
+        // Store events for the dropdown
+        if (data.events) setEvents(data.events); 
         setLoading(false);
       })
       .catch(err => {
         console.error("Failed to load season stats", err);
         setLoading(false);
       });
-  }, [seasonId, selectedEventId]); // Re-run when the dropdown changes
+  }, [seasonId, selectedEventId]); 
 
   return (
     <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-12 border-[16px] border-[#001d3d]">
@@ -55,22 +56,20 @@ export default function SeasonStatsPage() {
             </h1>
           </div>
 
-          {/* NEW: TOURNAMENT FILTER DROPDOWN */}
-          {events.length > 0 && (
-            <div className="shrink-0 w-full md:w-auto">
-              <label className="block text-[10px] font-black uppercase text-[#c1121f] tracking-widest mb-2">Filter By Event</label>
-              <select 
-                value={selectedEventId}
-                onChange={(e) => setSelectedEventId(e.target.value)}
-                className="w-full bg-white border-4 border-[#001d3d] p-3 md:p-4 text-[#001d3d] font-black italic uppercase tracking-tight outline-none focus:border-[#c1121f] cursor-pointer shadow-[6px_6px_0px_#001d3d]"
-              >
-                <option value="">-- FULL SEASON STATS --</option>
-                {events.map(ev => (
-                  <option key={ev.id} value={ev.id}>🏆 {ev.name} STATS</option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* TOURNAMENT FILTER DROPDOWN */}
+          <div className="shrink-0 w-full md:w-auto">
+            <label className="block text-[10px] font-black uppercase text-[#c1121f] tracking-widest mb-2 italic">Filter By Event</label>
+            <select 
+              value={selectedEventId}
+              onChange={(e) => setSelectedEventId(e.target.value)}
+              className="w-full bg-white border-4 border-[#001d3d] p-3 md:p-4 text-[#001d3d] font-black italic uppercase tracking-tight outline-none focus:border-[#c1121f] cursor-pointer shadow-[6px_6px_0px_#001d3d] hover:bg-[#fdf0d5] transition-colors"
+            >
+              <option value="">-- ALL CIRCUIT STATS --</option>
+              {events.map(ev => (
+                <option key={ev.id} value={ev.id}>🏆 {ev.name}</option>
+              ))}
+            </select>
+          </div>
         </header>
 
         {/* --- TAB TOGGLES --- */}
@@ -93,7 +92,7 @@ export default function SeasonStatsPage() {
         <div className="bg-white border-4 border-[#001d3d] shadow-[12px_12px_0px_#000] overflow-hidden min-h-[400px]">
           {loading ? (
              <div className="flex items-center justify-center h-full py-20 font-black italic text-4xl text-[#001d3d] animate-pulse uppercase tracking-tighter">
-               Pulling Files...
+               Pulling Records...
              </div>
           ) : (
             <div className="overflow-x-auto">
@@ -105,7 +104,6 @@ export default function SeasonStatsPage() {
             </div>
           )}
         </div>
-
       </div>
     </div>
   );
@@ -125,18 +123,13 @@ const sortArray = (data: any[], sortConfig: { key: string, direction: 'asc' | 'd
 };
 
 function PitchingTable({ data }: { data: any[] }) {
-  const activePitchers = data.filter(p => 
-    parseFloat(p.ip) > 0 || p.w > 0 || p.l > 0 || p.sv > 0
-  );
-
+  const activePitchers = data.filter(p => parseFloat(p.ip) > 0 || p.w > 0 || p.l > 0 || p.sv > 0);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'era', direction: 'asc' });
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'desc'; 
     if (['era', 'whip', 'h', 'r', 'er', 'bb', 'hr'].includes(key)) direction = 'asc'; 
-    if (sortConfig.key === key) {
-      direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
-    }
+    if (sortConfig.key === key) direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
     setSortConfig({ key, direction });
   };
 

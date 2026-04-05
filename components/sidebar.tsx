@@ -10,12 +10,11 @@ export default function Sidebar() {
   const user = session?.user as any;
   const isLoading = status === "loading";
 
-  // If session is still loading, we can show a neutral state
+  // If session is still loading, we show a neutral state
   if (isLoading) return null; 
 
-  // New Multi-League Permission Checks
+  // Multi-League Permission Checks
   const isGlobalAdmin = user?.isGlobalAdmin;
-  const isCommishAnywhere = isGlobalAdmin || user?.memberships?.some((m: any) => m.roleLevel >= 2 && m.isApproved);
 
   return (
     <>
@@ -43,7 +42,6 @@ export default function Sidebar() {
           </div>
 
           <div className="space-y-6 flex-1">
-            {/* NEW: Home Button */}
             <Link 
               href="/" 
               onClick={() => setIsOpen(false)} 
@@ -52,7 +50,6 @@ export default function Sidebar() {
               Home
             </Link>
 
-            {/* Existing: Dashboard Button */}
             <Link 
               href="/admin/dashboard" 
               onClick={() => setIsOpen(false)} 
@@ -61,16 +58,15 @@ export default function Sidebar() {
               Dashboard
             </Link>
 
-            {/* NEW: Conditional Support Button */}
+            {/* UPDATED: Unfiltered Support Link */}
             <Link 
-              href={session ? "/admin/support" : "/support"} 
+              href="/support" 
               onClick={() => setIsOpen(false)} 
               className="block text-2xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors border-b-4 border-transparent hover:border-[#ffd60a] w-fit pb-1"
             >
               Support
             </Link>
 
-            {/* MOVED: About Button */}
             <Link 
               href="/about" 
               onClick={() => setIsOpen(false)} 
@@ -78,17 +74,6 @@ export default function Sidebar() {
             >
               About
             </Link>
-            
-            {/* If they are a commissioner anywhere, let them access the live scoreboard master list */}
-            {isCommishAnywhere && (
-               <Link 
-                 href="/admin/games/active" 
-                 onClick={() => setIsOpen(false)} 
-                 className="block text-2xl font-black uppercase italic text-[#001d3d] hover:text-[#c1121f] transition-colors border-b-4 border-transparent hover:border-[#ffd60a] w-fit pb-1"
-               >
-                 Live Action
-               </Link>
-            )}
 
             {/* GLOBAL ADMIN ONLY */}
             {isGlobalAdmin && (
