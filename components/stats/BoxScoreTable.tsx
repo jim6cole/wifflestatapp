@@ -5,8 +5,7 @@ interface HRDetail {
   pitcherName: string;
   inning: number;
   seasonTotal: number;
-  runnersOn: number;
-  outs: number;
+  runsScored: number;
 }
 
 export default function BoxScoreTable({ stats, teamName, hrDetails = [] }: any) {
@@ -16,7 +15,6 @@ export default function BoxScoreTable({ stats, teamName, hrDetails = [] }: any) 
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   };
 
-  // Helper to format: Cole, J.
   const formatNameWithInitial = (fullName: string) => {
     const parts = fullName.trim().split(' ');
     if (parts.length <= 1) return fullName;
@@ -45,14 +43,16 @@ export default function BoxScoreTable({ stats, teamName, hrDetails = [] }: any) 
 
     const formattedBatter = formatNameWithInitial(p.name);
     const gameTotal = Number(p.hr);
-    
     const seasonTotal = playerHRs.length > 0 ? playerHRs[playerHRs.length - 1].seasonTotal : 0;
     
-    const instances = playerHRs.map((hr: HRDetail) => 
-      `${getOrdinal(hr.inning)} inning off ${formatNameWithInitial(hr.pitcherName)} ${hr.runnersOn} on ${hr.outs} out`
-    ).join(',');
+    const instances = playerHRs.map((hr: HRDetail) => {
+      // Use runsScored for flawless type designation
+      const runs = hr.runsScored || 1;
+      const hrType = runs === 4 ? 'Grand Slam' : runs === 1 ? 'Solo' : `${runs}-Run`;
+      return `${hrType} in the ${getOrdinal(hr.inning)} off ${formatNameWithInitial(hr.pitcherName)}`;
+    }).join(', ');
 
-    return `${formattedBatter} ${gameTotal} (${seasonTotal},${instances})`;
+    return `${formattedBatter} ${gameTotal} (${seasonTotal}, ${instances})`;
   }).join('; ');
 
   const doubles = formatList(stats, 'd');

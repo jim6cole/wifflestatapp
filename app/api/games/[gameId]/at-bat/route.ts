@@ -23,6 +23,12 @@ export async function POST(
     const result = body.result ? String(body.result) : null;
     
     const runAttribution = body.runAttribution ? String(body.runAttribution) : null;
+    
+    // ⚡ CRITICAL FIX: Extract baserunner data from the live scorekeeper
+    const scorerIds = body.scorerIds ? String(body.scorerIds) : null;
+    const runnersOn = parseInt(body.runnersOn) || 0;
+    const outsAtStart = parseInt(body.outsAtStart) || 0;
+
     const slot = parseInt(body.slot) || 1;
 
     const result_data = await prisma.$transaction(async (tx) => {
@@ -34,8 +40,11 @@ export async function POST(
            slot,
            result,
            runsScored,
-           rbi, // <-- NOW SAVING TO THE DATABASE
+           rbi,
            runAttribution,
+           scorerIds,    // <-- NOW OFFICIALLY SAVED
+           runnersOn,    // <-- NOW OFFICIALLY SAVED
+           outsAtStart,  // <-- NOW OFFICIALLY SAVED
            outs,
            inning,
            isTopInning

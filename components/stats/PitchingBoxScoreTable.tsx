@@ -40,7 +40,7 @@ export default function PitchingBoxScoreTable({ stats, teamName }: any) {
               <tr key={p.id} className="hover:bg-white/10 transition-colors">
                 <td className="px-4 py-3 font-black italic uppercase text-white">
                   {p.name}
-                  {p.decision && <span className="ml-2 text-slate-400 font-bold lowercase italic text-xs">({p.decision}, {p.record})</span>}
+                  {p.decision && <span className="ml-2 text-slate-400 font-bold uppercase italic text-xs">({p.decision}, {p.record})</span>}
                 </td>
                 <td className="px-2 py-3 text-center tabular-nums">{p.ip}</td>
                 <td className="px-2 py-3 text-center tabular-nums">{p.h}</td>

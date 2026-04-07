@@ -1,7 +1,15 @@
 'use client';
-import { useState, useEffect, useCallback, useRef, use } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+
+// --- BASERUNNING UTILITIES ---
+const baseToInt = (b: string) => b === '1st' ? 1 : b === '2nd' ? 2 : b === '3rd' ? 3 : b === 'Home' ? 4 : b === 'Batter' ? 0 : -1;
+const intToBase = (i: number) => i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : i >= 4 ? 'Home' : 'Out';
+const isBaseDisabled = (from: string, target: string) => {
+    if (target === 'Out' || target === 'Home') return false;
+    return baseToInt(from) > baseToInt(target);
+};
 
 export default function LiveScorer() {
   const { id } = useParams();
@@ -150,7 +158,6 @@ export default function LiveScorer() {
     }
     if (type === 'batter') {
       const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
-      // THE FIX: Must sub within the filtered hitting lineup context
       const hittingLineup = game.lineups
         .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
         .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
@@ -199,21 +206,18 @@ export default function LiveScorer() {
 
     const scoreDiff = Math.abs(homeScore - awayScore);
     
-    // 1. MERCY RULE CHECK
     if (mercyLimit > 0 && scoreDiff >= mercyLimit) {
         setGameOverMessage(`MERCY RULE! ${homeScore > awayScore ? 'Home' : 'Away'} Team wins.`);
         setShowEndGameModal(true);
         return;
     }
 
-    // 2. HOME TEAM ALREADY WINNING CHECK
     if (isTopInning && inning >= targetInnings && homeScore > awayScore) {
         setGameOverMessage(`GAME OVER! ${game.homeTeam.name} Wins!`);
         setShowEndGameModal(true);
         return;
     }
 
-    // 3. FULL INNING COMPLETE CHECK
     if (!isTopInning && inning >= targetInnings && homeScore !== awayScore) {
         setGameOverMessage(`GAME OVER! ${homeScore > awayScore ? 'Home' : 'Away'} Team Wins!`);
         setShowEndGameModal(true);
@@ -258,7 +262,6 @@ export default function LiveScorer() {
     const targetOuts = game.season?.outs || 3;
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
     
-    // THE FIX: Filter lineup for rotation logic
     const hittingLineup = game.lineups
       .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
       .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
@@ -272,7 +275,7 @@ export default function LiveScorer() {
     const scorerIdsString = (scoringRunnerIds || []).join(',');
     const runAttributionString = (scoringPitcherIds || []).filter(id => id !== null).join(',');
 
-    fetch(`/api/at-bats`, {
+    fetch(`/api/games/${id}/at-bat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -329,7 +332,6 @@ export default function LiveScorer() {
     if (!game) return;
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
     
-    // THE FIX: Filter lineup for logic
     const hittingLineup = game.lineups
       .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
       .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
@@ -358,11 +360,38 @@ export default function LiveScorer() {
     recordPlay(type, curB, scoringR.length, 0, curP, scoringP, scoringR);
   }, [game, isTopInning, batterIndices, baseRunners, baseRunnerPitchers, activePitcherId, recordPlay]);
 
+  // --- SMART BASERUNNING VALIDATION ---
   const validatePlacements = (placements: any[]) => {
     const counts: any = { '1st': 0, '2nd': 0, '3rd': 0 };
     for (const p of placements) { if (counts[p.end] !== undefined) counts[p.end]++; }
     const dupes = Object.keys(counts).filter(k => counts[k] > 1);
-    if (dupes.length > 0) { alert(`Multiple runners on ${dupes.join(' & ')}!`); return false; }
+    if (dupes.length > 0) { triggerJackass(`Multiple runners on ${dupes.join(' & ')}!`); return false; }
+
+    const activeRunners = placements.filter(p => p.end !== 'Out' && p.end !== 'Home');
+    
+    // Prevent Passing the Preexisting Runner
+    for (let i = 0; i < activeRunners.length; i++) {
+       for (let j = 0; j < activeRunners.length; j++) {
+          if (i === j) continue;
+          const rA = activeRunners[i];
+          const rB = activeRunners[j];
+          if (baseToInt(rA.from) < baseToInt(rB.from) && baseToInt(rA.end) >= baseToInt(rB.end)) {
+             triggerJackass(`${rA.player.name} cannot pass ${rB.player.name} on the basepaths!`);
+             return false;
+          }
+       }
+    }
+
+    // Prevent Backwards Running
+    for (const p of placements) {
+       if (p.end !== 'Out' && p.end !== 'Home') {
+           if (baseToInt(p.from) > baseToInt(p.end)) {
+              triggerJackass(`${p.player.name} cannot move backwards from ${p.from} to ${p.end}!`);
+              return false;
+           }
+       }
+    }
+
     return true;
   };
 
@@ -376,6 +405,7 @@ export default function LiveScorer() {
     if (runnersOn.length === 0 && rules?.dpWithoutRunners) { recordPlay('Double Play', [null, null, null], 0, 2); return; }
     if (rules?.dpKeepsRunners) { recordPlay('Double Play', [...baseRunners], 0, 2); return; }
     if (runnersOn.length === 1) { recordPlay('Double Play', [null, null, null], 0, 2); return; }
+    
     setDpStep(1);
     const active = [];
     if (baseRunners[2]) active.push({ player: baseRunners[2], from: '3rd', end: '3rd', internalId: 'b2' });
@@ -409,10 +439,14 @@ export default function LiveScorer() {
   const startPlacementFlow = (actionType: string) => {
     const runnersOn = baseRunners.filter(b => b !== null);
     if (actionType === 'Tag' && runnersOn.length === 0) return triggerJackass("Can't tag somebody who ain't there cheater");
+    
+    // Calculate Default Base Endings Automatically Based on Hit
+    const hitVal = actionType.includes('Triple') ? 3 : actionType.includes('Double') ? 2 : actionType.includes('Single') || actionType === 'Error' || actionType === 'Fielder\'s Choice' ? 1 : 0;
+    
     const active = [];
-    if (baseRunners[2]) active.push({ player: baseRunners[2], from: '3rd', end: '3rd', internalId: 'b2' });
-    if (baseRunners[1]) active.push({ player: baseRunners[1], from: '2nd', end: '2nd', internalId: 'b1' });
-    if (baseRunners[0]) active.push({ player: baseRunners[0], from: '1st', end: '1st', internalId: 'b0' });
+    if (baseRunners[2]) active.push({ player: baseRunners[2], from: '3rd', end: intToBase(3 + hitVal), internalId: 'b2' });
+    if (baseRunners[1]) active.push({ player: baseRunners[1], from: '2nd', end: intToBase(2 + hitVal), internalId: 'b1' });
+    if (baseRunners[0]) active.push({ player: baseRunners[0], from: '1st', end: intToBase(1 + hitVal), internalId: 'b0' });
     
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
     const hittingLineup = game.lineups
@@ -422,13 +456,12 @@ export default function LiveScorer() {
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
     const btr = hittingLineup[activeBatterIdx]?.player;
 
-    if (actionType === 'Error') {
-      setPlacementDetails([...active, { player: btr, from: 'Batter', end: '1st', internalId: 'bat' }]);
-    } else if (['Single', 'Double', 'Triple', 'Clean Single', 'Clean Double'].includes(actionType)) {
-      let defaultEnd = actionType.includes('Double') ? '2nd' : actionType.includes('Triple') ? '3rd' : '1st';
-      setPlacementDetails([...active, { player: btr, from: 'Batter', end: defaultEnd, internalId: 'bat' }]);
+    if (actionType === 'Tag') {
+      setPlacementDetails([...active]); 
     } else {
-      setPlacementDetails(active);
+      let batterEnd = intToBase(hitVal);
+      if(actionType === 'Error' || actionType === 'Fielder\'s Choice') batterEnd = '1st';
+      setPlacementDetails([...active, { player: btr, from: 'Batter', end: batterEnd, internalId: 'bat' }]);
     }
     setPlacementAction(actionType);
   };
@@ -496,18 +529,19 @@ export default function LiveScorer() {
       case 'Clean Single': if (game.season?.isBaserunning && baseRunners.some(b => b !== null)) startPlacementFlow('Clean Single'); else handleHit(1, true); break;
       case 'Clean Double': if (game.season?.isBaserunning && baseRunners.some(b => b !== null)) startPlacementFlow('Clean Double'); else handleHit(2, true); break;
       case 'Hit with Error':
-        const active = [];
-        if (baseRunners[2]) active.push({ player: baseRunners[2], from: '3rd', end: '3rd', internalId: 'b2' });
-        if (baseRunners[1]) active.push({ player: baseRunners[1], from: '2nd', end: '2nd', internalId: 'b1' });
-        if (baseRunners[0]) active.push({ player: baseRunners[0], from: '1st', end: '1st', internalId: 'b0' });
+        const hitValE = 1;
+        const activeE = [];
+        if (baseRunners[2]) activeE.push({ player: baseRunners[2], from: '3rd', end: intToBase(3 + hitValE), internalId: 'b2' });
+        if (baseRunners[1]) activeE.push({ player: baseRunners[1], from: '2nd', end: intToBase(2 + hitValE), internalId: 'b1' });
+        if (baseRunners[0]) activeE.push({ player: baseRunners[0], from: '1st', end: intToBase(1 + hitValE), internalId: 'b0' });
         const btTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
         
-        const hittingLineup = game.lineups
+        const hittingLineupE = game.lineups
           .filter((l: any) => l.teamId === btTeamId && l.battingOrder !== 99)
           .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
 
-        const btr = hittingLineup[isTopInning ? batterIndices.away : batterIndices.home].player;
-        setHitErrorData({ hitType: 'Single', fielderId: '', placements: [...active, { player: btr, from: 'Batter', end: '2nd', internalId: 'bat' }] });
+        const btrE = hittingLineupE[isTopInning ? batterIndices.away : batterIndices.home].player;
+        setHitErrorData({ hitType: 'Single', fielderId: '', placements: [...activeE, { player: btrE, from: 'Batter', end: '2nd', internalId: 'bat' }] });
         break;
       case 'Add Ghost Runner': setShowGhostModal(true); break;
     }
@@ -594,7 +628,7 @@ export default function LiveScorer() {
     const [next, ...remaining] = redoStack;
     const entry = next.logEntry;
     if (entry.type === 'play') {
-      try { await fetch('/api/at-bats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ 
+      try { await fetch('/api/games/${id}/at-bat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ 
         gameId: Number(id), batterId: entry.batterId, pitcherId: entry.pitcherId, inning: entry.inning, isTopInning: entry.isTopInning, 
         result: entry.result, runsScored: entry.runsScored || 0, outs: entry.outs || 0, slot: entry.slot || 0, 
         runAttribution: entry.runAttribution || null, runner1Id: entry.runner1Id, runner2Id: entry.runner2Id, runner3Id: entry.runner3Id, scorerIds: entry.scorerIds 
@@ -619,7 +653,6 @@ export default function LiveScorer() {
 
   const btrTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
   
-  // THE FIX: Define hittingLineup for UI displays
   const activeHittingLineup = game.lineups
     .filter((l: any) => l.teamId === btrTeamId && l.battingOrder !== 99)
     .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
@@ -712,18 +745,41 @@ export default function LiveScorer() {
                     <div key={rp.internalId} className="bg-white/5 p-3 rounded-xl border border-white/10 shrink-0">
                       <div className="flex justify-between text-[10px] font-black uppercase text-blue-400 mb-2"><span>From: {rp.from}</span><span>{rp.player.name}</span></div>
                       <div className="grid grid-cols-5 gap-1">
-                        {['Out', '1st', '2nd', '3rd', 'Home'].map(base => (
-                          <button key={base} onClick={() => setDpPlacements(dpPlacements.map(p => p.internalId === rp.internalId ? {...p, end: base} : p))} className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? 'bg-red-600 border-white' : 'border-white/10 text-slate-500'}`}>{base}</button>
-                        ))}
+                        {['Out', '1st', '2nd', '3rd', 'Home'].map(base => {
+                          const disabled = isBaseDisabled(rp.from, base);
+                          return (
+                          <button 
+                            key={base} 
+                            disabled={disabled}
+                            onClick={() => setDpPlacements(dpPlacements.map(p => p.internalId === rp.internalId ? {...p, end: base} : p))} 
+                            className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? 'bg-red-600 border-white text-white' : disabled ? 'border-white/5 text-slate-700 opacity-50 cursor-not-allowed' : 'border-white/10 text-slate-500 hover:text-white hover:border-red-600'}`}>{base}</button>
+                          )
+                        })}
                       </div>
                     </div>
                   ))}
                 </div>
                 <button onClick={() => {
                   if (!validatePlacements(dpPlacements)) return;
-                  let nB = [null, null, null] as (any|null)[]; let r = 0;
-                  dpPlacements.forEach(rp => { if (rp.end === '1st') nB[0] = rp.player; else if (rp.end === '2nd') nB[1] = rp.player; else if (rp.end === '3rd') nB[2] = rp.player; else if (rp.end === 'Home') r++; });
-                  recordPlay('Double Play', nB, r, 2); setShowDPModal(false);
+                  let nB = [null, null, null] as (any|null)[]; 
+                  let nP = [null, null, null] as (number|null)[]; 
+                  let r = 0; 
+                  let scoringR: number[] = [];
+                  let scoringP: number[] = [];
+                  
+                  dpPlacements.forEach(rp => { 
+                    let pId = rp.internalId === 'b0' ? baseRunnerPitchers[0] : rp.internalId === 'b1' ? baseRunnerPitchers[1] : rp.internalId === 'b2' ? baseRunnerPitchers[2] : activePitcherId;
+                    if (rp.end === '1st') { nB[0] = rp.player; nP[0] = pId; }
+                    else if (rp.end === '2nd') { nB[1] = rp.player; nP[1] = pId; }
+                    else if (rp.end === '3rd') { nB[2] = rp.player; nP[2] = pId; }
+                    else if (rp.end === 'Home') {
+                       r++; 
+                       if(rp.player?.id) scoringR.push(rp.player.id);
+                       if(pId) scoringP.push(pId);
+                    }
+                  });
+                  recordPlay('Double Play', nB, r, 2, nP, scoringP, scoringR); 
+                  setShowDPModal(false);
                 }} className="w-full bg-red-600 p-4 rounded-xl font-black uppercase tracking-widest shadow-lg">Confirm DP</button>
               </div>
             )}
@@ -742,18 +798,41 @@ export default function LiveScorer() {
                   <div key={rp.internalId} className="bg-white/5 p-3 rounded-xl border border-white/10 shrink-0">
                     <div className="flex justify-between text-[10px] font-black uppercase text-blue-400 mb-2"><span>From: {rp.from}</span><span>{rp.player.name}</span></div>
                     <div className="grid grid-cols-5 gap-1">
-                      {['Out', '1st', '2nd', '3rd', 'Home'].map(base => (
-                        <button key={base} onClick={() => setPlacementDetails(placementDetails.map(p => p.internalId === rp.internalId ? {...p, end: base} : p))} className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? (placementAction === 'Error' ? 'bg-yellow-600' : (placementAction === 'Tag' ? 'bg-orange-600' : 'bg-green-500')) + ' border-white' : 'border-white/10 text-slate-500'}`}>{base}</button>
-                      ))}
+                      {['Out', '1st', '2nd', '3rd', 'Home'].map(base => {
+                        const disabled = isBaseDisabled(rp.from, base);
+                        return (
+                        <button 
+                          key={base} 
+                          disabled={disabled}
+                          onClick={() => setPlacementDetails(placementDetails.map(p => p.internalId === rp.internalId ? {...p, end: base} : p))} 
+                          className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? (placementAction === 'Error' ? 'bg-yellow-600' : (placementAction === 'Tag' ? 'bg-orange-600' : 'bg-green-500')) + ' border-white text-white' : disabled ? 'border-white/5 text-slate-700 opacity-50 cursor-not-allowed' : 'border-white/10 text-slate-500 hover:text-white'}`}>{base}</button>
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
               </div>
               <button onClick={() => {
                 if (!validatePlacements(placementDetails)) return;
-                let nB = [null, null, null] as (any|null)[]; let r = 0; let oX = placementAction === 'Tag' ? 1 : 0; 
-                placementDetails.forEach(rp => { if (rp.end === '1st') nB[0] = rp.player; else if (rp.end === '2nd') nB[1] = rp.player; else if (rp.end === '3rd') nB[2] = rp.player; else if (rp.end === 'Home') r++; else if (rp.end === 'Out') oX++; });
-                recordPlay(placementAction === 'Tag' ? 'Tag Up' : placementAction, nB, r, oX); 
+                let nB = [null, null, null] as (any|null)[]; 
+                let nP = [null, null, null] as (number|null)[]; 
+                let r = 0; let oX = placementAction === 'Tag' ? 1 : 0; 
+                let scoringR: number[] = [];
+                let scoringP: number[] = [];
+                
+                placementDetails.forEach(rp => { 
+                  let pId = rp.internalId === 'b0' ? baseRunnerPitchers[0] : rp.internalId === 'b1' ? baseRunnerPitchers[1] : rp.internalId === 'b2' ? baseRunnerPitchers[2] : activePitcherId;
+                  if (rp.end === '1st') { nB[0] = rp.player; nP[0] = pId; }
+                  else if (rp.end === '2nd') { nB[1] = rp.player; nP[1] = pId; }
+                  else if (rp.end === '3rd') { nB[2] = rp.player; nP[2] = pId; }
+                  else if (rp.end === 'Home') {
+                     r++; 
+                     if(rp.player?.id) scoringR.push(rp.player.id);
+                     if(pId) scoringP.push(pId);
+                  }
+                  else if (rp.end === 'Out') oX++; 
+                });
+                recordPlay(placementAction === 'Tag' ? 'Tag Up' : placementAction, nB, r, oX, nP, scoringP, scoringR); 
                 setPlacementAction(null);
               }} className={`w-full p-4 rounded-xl font-black uppercase tracking-widest shadow-lg ${placementAction === 'Error' ? 'bg-yellow-600' : placementAction === 'Tag' ? 'bg-orange-600' : 'bg-green-500'}`}>Confirm Play</button>
             </div>
@@ -770,7 +849,14 @@ export default function LiveScorer() {
                 <label className="text-[10px] font-black uppercase text-pink-300 block mb-2">Credited Hit</label>
                 <div className="grid grid-cols-3 gap-2">
                    {['Single', 'Double', 'Triple'].map(ht => (
-                      <button key={ht} onClick={() => setHitErrorData({...hitErrorData, hitType: ht})} className={`py-2 rounded-xl font-black text-xs uppercase border ${hitErrorData.hitType === ht ? 'bg-pink-600 border-white text-white shadow-inner' : 'border-white/20 text-slate-400'}`}>{ht}</button>
+                      <button key={ht} onClick={() => {
+                        const hV = ht === 'Triple' ? 3 : ht === 'Double' ? 2 : 1;
+                        const newPlacements = hitErrorData.placements.map((p: any) => ({
+                            ...p,
+                            end: intToBase(baseToInt(p.from) + hV + (p.from === 'Batter' ? 1 : 0))
+                        }));
+                        setHitErrorData({...hitErrorData, hitType: ht, placements: newPlacements});
+                      }} className={`py-2 rounded-xl font-black text-xs uppercase border ${hitErrorData.hitType === ht ? 'bg-pink-600 border-white text-white shadow-inner' : 'border-white/20 text-slate-400'}`}>{ht}</button>
                    ))}
                 </div>
              </div>
@@ -788,9 +874,16 @@ export default function LiveScorer() {
                    <div key={rp.internalId} className="bg-white/5 p-2 rounded-xl border border-white/10">
                      <div className="flex justify-between text-[10px] font-black uppercase text-pink-200 mb-2"><span>From: {rp.from}</span><span>{rp.player.name}</span></div>
                      <div className="grid grid-cols-5 gap-1">
-                       {['Out', '1st', '2nd', '3rd', 'Home'].map(base => (
-                         <button key={base} onClick={() => setHitErrorData({...hitErrorData, placements: hitErrorData.placements.map((p: any) => p.internalId === rp.internalId ? {...p, end: base} : p)})} className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? 'bg-pink-600 border-white text-white' : 'border-white/10 text-slate-500 hover:border-pink-500/50'}`}>{base}</button>
-                       ))}
+                       {['Out', '1st', '2nd', '3rd', 'Home'].map(base => {
+                         const disabled = isBaseDisabled(rp.from, base);
+                         return (
+                         <button 
+                            key={base} 
+                            disabled={disabled}
+                            onClick={() => setHitErrorData({...hitErrorData, placements: hitErrorData.placements.map((p: any) => p.internalId === rp.internalId ? {...p, end: base} : p)})} 
+                            className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? 'bg-pink-600 border-white text-white' : disabled ? 'border-white/5 text-slate-700 opacity-50 cursor-not-allowed' : 'border-white/10 text-slate-500 hover:border-pink-500/50 hover:text-white'}`}>{base}</button>
+                         )
+                       })}
                      </div>
                    </div>
                 ))}
@@ -798,10 +891,27 @@ export default function LiveScorer() {
              <button onClick={() => {
                 if (!hitErrorData.fielderId) return triggerJackass("Select the fielder who made the error.");
                 if (!validatePlacements(hitErrorData.placements)) return;
-                let nB = [null, null, null] as (any|null)[]; let r = 0; let oX = 0; 
-                hitErrorData.placements.forEach((rp: any) => { if (rp.end === '1st') nB[0] = rp.player; else if (rp.end === '2nd') nB[1] = rp.player; else if (rp.end === '3rd') nB[2] = rp.player; else if (rp.end === 'Home') r++; else if (rp.end === 'Out') oX++; });
+                let nB = [null, null, null] as (any|null)[]; 
+                let nP = [null, null, null] as (number|null)[]; 
+                let r = 0; let oX = 0; 
+                let scoringR: number[] = [];
+                let scoringP: number[] = [];
+                
+                hitErrorData.placements.forEach((rp: any) => { 
+                   let pId = rp.internalId === 'b0' ? baseRunnerPitchers[0] : rp.internalId === 'b1' ? baseRunnerPitchers[1] : rp.internalId === 'b2' ? baseRunnerPitchers[2] : activePitcherId;
+                   if (rp.end === '1st') { nB[0] = rp.player; nP[0] = pId; }
+                   else if (rp.end === '2nd') { nB[1] = rp.player; nP[1] = pId; }
+                   else if (rp.end === '3rd') { nB[2] = rp.player; nP[2] = pId; }
+                   else if (rp.end === 'Home') {
+                      r++; 
+                      if(rp.player?.id) scoringR.push(rp.player.id);
+                      if(pId) scoringP.push(pId);
+                   }
+                   else if (rp.end === 'Out') oX++; 
+                });
+                
                 const fielderName = fieldingLineup.find((l: any) => String(l.player.id) === String(hitErrorData.fielderId))?.player.name;
-                recordPlay(`${hitErrorData.hitType} + E (${fielderName})`, nB, r, oX); 
+                recordPlay(`${hitErrorData.hitType} + E (${fielderName})`, nB, r, oX, nP, scoringP, scoringR); 
                 setHitErrorData(null);
              }} className="w-full p-4 rounded-xl font-black uppercase shadow-lg bg-pink-600 text-white">Confirm Play</button>
              <button onClick={() => setHitErrorData(null)} className="w-full mt-4 py-2 text-white/30 font-black uppercase text-[10px]">Cancel</button>
@@ -897,7 +1007,6 @@ export default function LiveScorer() {
                 <span className="text-[#002D62]">AVG: {currentStats.avg}</span>
              </div>
           </div>
-          {/* THE FIX: Define hittingLineup for the ON DECK indicator */}
           <div className="text-[8px] uppercase text-[#669bbc] border-t border-black/5 pt-1">
             ON DECK: {activeHittingLineup[(currentBatterIdx + 1) % activeHittingLineup.length]?.player.name}
           </div>

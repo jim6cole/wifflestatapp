@@ -120,7 +120,7 @@ export default function PublicLiveFeed() {
               ← Exit Live Feed
             </Link>
             <h1 className="text-5xl md:text-8xl font-black italic uppercase tracking-tighter text-white drop-shadow-[4px_4px_0px_#c1121f] leading-none">
-              AWAA <span className="text-[#ffd60a]">Live</span>
+              Wiff+ <span className="text-[#ffd60a]">Live</span>
             </h1>
           </div>
           <div className="bg-[#22c55e] text-[#001d3d] px-6 py-2 border-4 border-[#001d3d] font-black italic uppercase tracking-[0.4em] text-xs animate-pulse shadow-[6px_6px_0px_#000]">

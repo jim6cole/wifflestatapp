@@ -33,7 +33,8 @@ export async function GET(request: Request) {
       }
     }
 
-    const [atBats, manualLines, leagues, metadata] = await Promise.all([
+    // Replace the Promise.all with this:
+    const [atBats, manualLines, leagues, metadata, lineups] = await Promise.all([
       prisma.atBat.findMany({
         where: { game: whereClause },
         include: {
@@ -61,7 +62,15 @@ export async function GET(request: Request) {
       }) : (seasonIdFilter ? prisma.season.findUnique({ 
           where: { id: parseInt(seasonIdFilter) },
           include: { events: { orderBy: { id: 'desc' } } }
-        }) : null)
+        }) : null),
+      // ⚡ FETCH LINEUPS TO SECURE GP FOR FIELDERS
+      prisma.lineupEntry.findMany({
+        where: { game: whereClause },
+        include: {
+          player: { select: { name: true } },
+          game: { include: { season: { include: { league: true } } } }
+        }
+      })
     ]);
 
     const batterMap: Record<number, any> = {};
@@ -73,8 +82,6 @@ export async function GET(request: Request) {
       const leagueLabel = game?.season?.league?.shortName || game?.season?.league?.name || 'AWAA';
       const isMed = game?.season?.isSpeedRestricted;
       const speedLimit = game?.season?.speedLimit;
-      
-      // FIX: Store "MED {mph}" or "FAST"
       const speedLabel = isMed ? (speedLimit ? `MED ${speedLimit}` : 'MED') : 'FAST';
 
       if (!map[id]) {
@@ -93,6 +100,14 @@ export async function GET(request: Request) {
       }
       return map[id];
     };
+
+    // ⚡ SEED FIELDERS WITH GP CREDITS
+    lineups.forEach(l => {
+       const b = addToMap(batterMap, l.playerId, l.player.name, l.game);
+       b.gameIds.add(l.gameId);
+    });
+
+    // ... continue to Process At-Bats
 
     // Process At-Bats
     atBats.forEach(ab => {

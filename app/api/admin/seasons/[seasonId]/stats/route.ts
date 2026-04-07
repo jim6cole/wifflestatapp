@@ -17,10 +17,14 @@ export async function GET(
     });
     const eraStandard = season?.eraStandard || 4;
 
-    // FIX: Explicitly include the nested batter/pitcher names inside the atBats
+    // ⚡ FIX: Explicitly include the nested batter/pitcher names inside the atBats
+    // AND include the lineups to properly credit GP to fielders
     const games = await prisma.game.findMany({
       where: { seasonId: sId, status: 'COMPLETED' },
       include: { 
+        lineups: { 
+          include: { player: { select: { name: true } } } 
+        },
         atBats: {
           include: {
             batter: { select: { name: true } },
@@ -34,13 +38,14 @@ export async function GET(
     const pitcherMap: Record<number, any> = {};
 
     const initBatter = (id: number, name: string) => {
-  if (!batterMap[id]) {
-    batterMap[id] = { 
-      id, name, g: 0, gamesSet: new Set(), pa: 0, ab: 0, h: 0, 
-      double: 0, triple: 0, hr: 0, rbi: 0, bb: 0, k: 0, tb: 0 
+      if (!batterMap[id]) {
+        batterMap[id] = { 
+          id, name, g: 0, gamesSet: new Set(), pa: 0, ab: 0, h: 0, 
+          double: 0, triple: 0, hr: 0, rbi: 0, bb: 0, k: 0, tb: 0 
+        };
+      }
     };
-  }
-};
+
     const initPitcher = (id: number, name: string) => {
       if (!pitcherMap[id]) {
         pitcherMap[id] = { id, name, g: 0, gamesSet: new Set(), w: 0, l: 0, sho: 0, sv: 0, outs: 0, h: 0, r: 0, er: 0, hr: 0, bb: 0, k: 0 };
@@ -54,6 +59,13 @@ export async function GET(
       let awayRuns = 0;
       let lastAwayPitcher = 0;
       let lastHomePitcher = 0;
+
+      // ⚡ FIX: SEED GP CREDIT BEFORE AT-BATS ARE CALCULATED
+      // This guarantees fielders get credit for the game even if they don't hit
+      game.lineups.forEach(l => {
+         initBatter(l.playerId, l.player?.name || "Unknown");
+         batterMap[l.playerId].gamesSet.add(game.id);
+      });
 
       game.atBats.forEach(ab => {
         const res = ab.result;
@@ -80,7 +92,7 @@ export async function GET(
           // FIX: Pass the actual player name from the database
           initBatter(ab.batterId, ab.batter?.name || "Unknown"); 
           const b = batterMap[ab.batterId];
-          b.gamesSet.add(game.id);
+          b.gamesSet.add(game.id); // Safe redundancy, already added by lineup loop
           b.rbi += (ab.rbi || ab.runsScored || 0);
           b.pa++;
           if (isH) { b.h++; b.ab++; }

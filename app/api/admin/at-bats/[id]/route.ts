@@ -25,6 +25,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.rbi !== undefined) dataToUpdate.rbi = parseInt(body.rbi) || 0;
     if (body.outs !== undefined) dataToUpdate.outs = parseInt(body.outs) || 0;
 
+    // ⚡ CRITICAL FIX: Allow baserunner and attribution data to save for individual stats
+    if (body.scorerIds !== undefined) dataToUpdate.scorerIds = body.scorerIds;
+    if (body.runAttribution !== undefined) dataToUpdate.runAttribution = body.runAttribution;
+    
+    // Optional state trackers for accurate Box Score generation
+    if (body.runnersOn !== undefined) dataToUpdate.runnersOn = parseInt(body.runnersOn) || 0;
+    if (body.outsAtStart !== undefined) dataToUpdate.outsAtStart = parseInt(body.outsAtStart) || 0;
+    if (body.runner1Id !== undefined) dataToUpdate.runner1Id = body.runner1Id ? parseInt(body.runner1Id) : null;
+    if (body.runner2Id !== undefined) dataToUpdate.runner2Id = body.runner2Id ? parseInt(body.runner2Id) : null;
+    if (body.runner3Id !== undefined) dataToUpdate.runner3Id = body.runner3Id ? parseInt(body.runner3Id) : null;
+
     // 1. Update the individual play
     const updatedPlay = await prisma.atBat.update({
       where: { id: atBatId },

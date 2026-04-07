@@ -30,7 +30,8 @@ export async function GET(
     }
 
     // --- 2. FETCH CORE DATA ---
-    const [team, games, atBats, manualLines] = await Promise.all([
+    // Replace the Promise.all with this:
+    const [team, games, atBats, manualLines, lineups] = await Promise.all([
       prisma.team.findUnique({ 
         where: { id: tId },
         include: { 
@@ -59,6 +60,11 @@ export async function GET(
             player: { select: { name: true } }, 
             game: { include: { season: true } } 
         }
+      }),
+      // ⚡ FETCH LINEUPS TO SECURE GP FOR FIELDERS
+      prisma.lineupEntry.findMany({
+         where: { teamId: tId, game: gameWhere },
+         include: { player: { select: { name: true } }, game: { include: { season: true } } }
       })
     ]);
 
@@ -87,6 +93,14 @@ export async function GET(
       }
       return map[id];
     };
+
+    // ⚡ SEED FIELDERS WITH GP CREDITS
+    lineups.forEach(l => {
+        const b = initPlayer(batterMap, l.playerId, l.player.name);
+        b.gp.add(l.gameId);
+    });
+
+    // ... continue to Process Live Data
 
     // --- 4. PROCESS LIVE DATA (Filtered by Team Membership) ---
     atBats.forEach(ab => {

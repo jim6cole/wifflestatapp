@@ -120,14 +120,18 @@ export async function PATCH(
           if (existing) {
             await prisma.manualStatLine.update({
               where: { id: existing.id },
-              data: { win: w || existing.win, loss: l || existing.loss, save: s || existing.save }
+              data: { 
+                winCount: w ? 1 : existing.winCount, 
+                lossCount: l ? 1 : existing.lossCount, 
+                saveCount: s ? 1 : existing.saveCount 
+              }
             });
           } else {
             // Create a shell record just for the decision (stats will pull from Live AtBats)
             await prisma.manualStatLine.create({
               data: {
                 gameId: gId, playerId: pId, teamId: tId, position: 'P',
-                win: w, loss: l, save: s
+                winCount: w ? 1 : 0, lossCount: l ? 1 : 0, saveCount: s ? 1 : 0
               }
             });
           }

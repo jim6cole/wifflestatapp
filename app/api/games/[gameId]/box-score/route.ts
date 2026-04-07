@@ -1,3 +1,4 @@
+// Replace the entire GET function in app/api/games/[gameId]/box-score/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
@@ -16,7 +17,6 @@ export async function GET(
 
     if (!game) return NextResponse.json({ error: "Game not found" }, { status: 404 });
     
-    // 1. DYNAMIC ERA MULTIPLIER (Wizard Priority)
     let multiplier = game.season?.eraStandard || 4;
     if (multiplier === 4 && game.season?.inningsPerGame && game.season.inningsPerGame !== 4) {
       multiplier = game.season.inningsPerGame;
@@ -34,10 +34,9 @@ export async function GET(
       orderBy: { id: 'asc' }
     });
 
-    // 2. FETCH SEASON DATA (Live + Manual) for accurate Season ERA/AVG
     const allSeasonGames = await prisma.game.findMany({
       where: { seasonId: game.seasonId, status: { in: ['COMPLETED', 'ACTIVE'] } },
-      orderBy: [ { scheduledAt: 'asc' }, { id: 'asc' } ] // id asc breaks timestamp ties
+      orderBy: [ { scheduledAt: 'asc' }, { id: 'asc' } ]
     });
 
     const currentIndex = allSeasonGames.findIndex(g => g.id === gId);
@@ -56,11 +55,10 @@ export async function GET(
       }),
       prisma.manualStatLine.findMany({
         where: { gameId: { in: validGameIds } },
-        include: { player: true } // Need player data for relievers
+        include: { player: true } 
       })
     ]);
 
-    // --- INITIALIZE DATA STRUCTURES ---
     const maxInning = Math.max(game.season?.inningsPerGame || 5, ...gameAtBats.map(ab => ab.inning));
     const lineScore: Record<number, { away: number, home: number }> = {};
     for (let i = 1; i <= maxInning; i++) { lineScore[i] = { away: 0, home: 0 }; }
@@ -88,13 +86,12 @@ export async function GET(
       }
     });
 
-    // CRITICAL FIX: Sweep Live Game AtBats to dynamically catch ALL relief pitchers
     gameAtBats.forEach(ab => {
       if (!pitchers[ab.pitcherId]) {
         pitchers[ab.pitcherId] = {
           id: ab.pitcherId, 
           name: ab.pitcher?.name || 'Unknown', 
-          teamId: ab.isTopInning ? game.homeTeamId : game.awayTeamId, // Top of inning = Home is pitching
+          teamId: ab.isTopInning ? game.homeTeamId : game.awayTeamId,
           outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, 
           season_outs: 0, season_h: 0, season_bb: 0, season_er: 0,
           wins: 0, losses: 0, decision: null,
@@ -103,7 +100,6 @@ export async function GET(
       }
     });
 
-    // CRITICAL FIX: Sweep Manual Stats for this game to dynamically catch relievers
     seasonManualStats.filter(ms => ms.gameId === gId).forEach(ms => {
       if (!pitchers[ms.playerId] && (ms.ip > 0 || ms.ph > 0 || ms.pr > 0 || ms.pbb > 0 || ms.pk > 0)) {
         const teamId = lineups.find(l => l.playerId === ms.playerId)?.teamId || (ms as any).teamId || game.homeTeamId;
@@ -117,7 +113,6 @@ export async function GET(
           totalPitches: 0, totalStrikes: 0, groundOuts: 0, flyOuts: 0, battersFaced: 0
         };
       }
-      // Failsafe for manual batters
       if (!batters[ms.playerId] && (ms.ab > 0 || ms.r > 0 || ms.bb > 0 || ms.h > 0)) {
         const teamId = lineups.find(l => l.playerId === ms.playerId)?.teamId || (ms as any).teamId || game.homeTeamId;
         batters[ms.playerId] = {
@@ -128,7 +123,6 @@ export async function GET(
       }
     });
 
-    // 3. ACCUMULATE SEASON MANUAL STATS
     seasonManualStats.forEach(ms => {
       if (batters[ms.playerId]) {
         batters[ms.playerId].season_ab += ms.ab;
@@ -136,7 +130,6 @@ export async function GET(
         batters[ms.playerId].season_bb += ms.bb;
         batters[ms.playerId].season_tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
         
-        // Populate specific game stats if this manual entry belongs to the current box score
         if (ms.gameId === gId) {
            batters[ms.playerId].ab += ms.ab;
            batters[ms.playerId].r += ms.r;
@@ -158,7 +151,6 @@ export async function GET(
         if ((ms as any).winCount) pitchers[ms.playerId].wins += (ms as any).winCount;
         if ((ms as any).lossCount) pitchers[ms.playerId].losses += (ms as any).lossCount;
 
-        // Populate specific game pitching stats
         if (ms.gameId === gId) {
            pitchers[ms.playerId].outs += mOuts;
            pitchers[ms.playerId].h += ms.ph;
@@ -175,45 +167,12 @@ export async function GET(
       }
     });
 
-    // --- PITCHER DECISION TRACKER (Strictly up to current game) ---
-    validGames.filter(g => g.status === 'COMPLETED').forEach(sg => {
-      const sgAbs = seasonAtBats.filter(ab => ab.gameId === sg.id);
-      const sgHomeWon = sg.homeScore > sg.awayScore;
-      const winTeamId = sgHomeWon ? sg.homeTeamId : sg.awayTeamId;
-      const lossTeamId = sgHomeWon ? sg.awayTeamId : sg.homeTeamId;
-      const pSummary: Record<number, { outs: number, er: number, teamId: number }> = {};
-      
-      sgAbs.forEach(ab => {
-        if (!pSummary[ab.pitcherId]) {
-           const pTeamId = ab.isTopInning ? sg.homeTeamId : sg.awayTeamId;
-           pSummary[ab.pitcherId] = { outs: 0, er: 0, teamId: pTeamId };
-        }
-        pSummary[ab.pitcherId].outs += ab.outs;
-        if (ab.runsScored > 0) {
-          if (ab.runAttribution) {
-            ab.runAttribution.split(',').forEach(id => {
-              const pId = parseInt(id.trim());
-              if (pSummary[pId]) pSummary[pId].er++;
-            });
-          } else {
-            pSummary[ab.pitcherId].er += ab.runsScored;
-          }
-        }
-      });
-
-      const pArray = Object.entries(pSummary).map(([id, s]) => ({ id: Number(id), ...s }));
-      const winner = pArray.filter(p => p.teamId === winTeamId).sort((a,b) => b.outs - a.outs)[0];
-      const loser = pArray.filter(p => p.teamId === lossTeamId).sort((a,b) => b.er - a.er)[0];
-
-      if (winner && pitchers[winner.id]) pitchers[winner.id].wins++;
-      if (loser && pitchers[loser.id]) pitchers[loser.id].losses++;
-      if (sg.id === gId) {
-        if (winner && pitchers[winner.id]) pitchers[winner.id].decision = 'W';
-        if (loser && pitchers[loser.id]) pitchers[loser.id].decision = 'L';
-      }
+    // CRITICAL FIX: Pre-load HR Tracker with manual HRs from PREVIOUS games
+    // This ensures legacy imports are counted in the season totals properly
+    seasonManualStats.filter(ms => ms.gameId !== gId).forEach(ms => {
+      seasonHRTracker[ms.playerId] = (seasonHRTracker[ms.playerId] || 0) + ms.hr;
     });
 
-    // --- MAIN LIVE STAT ACCUMULATION ---
     seasonAtBats.forEach(ab => {
       const isCurrent = ab.gameId === gId;
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
@@ -240,15 +199,18 @@ export async function GET(
         if (isWalk) { b.season_bb++; if (isCurrent) b.bb++; }
         if (isHit) {
           let bases = (res.includes('HR') || res.includes('4B')) ? 4 : (res.includes('TRIPLE') || res.includes('3B')) ? 3 : (res.includes('DOUBLE') || res.includes('2B')) ? 2 : 1;
+          
           if (bases === 4) {
             seasonHRTracker[ab.batterId] = (seasonHRTracker[ab.batterId] || 0) + 1;
             if (isCurrent) {
               hrEvents.push({
-                batterName: ab.batter.name, pitcherName: ab.pitcher.name,
-                inning: ab.inning, side: ab.isTopInning ? 'TOP' : 'BOT',
+                batterName: ab.batter.name, 
+                pitcherName: ab.pitcher.name,
+                inning: ab.inning, 
+                side: ab.isTopInning ? 'TOP' : 'BOT',
                 teamId: ab.isTopInning ? game.awayTeamId : game.homeTeamId,
                 seasonTotal: seasonHRTracker[ab.batterId],
-                runnersOn: ab.runnersOn || 0, outs: ab.outsAtStart || 0
+                runsScored: ab.runsScored || 1 // <-- Exposes exact runs for UI processing
               });
               b.hr++;
             }
@@ -323,15 +285,25 @@ export async function GET(
       };
     };
 
+    // --- ⚡ CRITICAL FIX: Hide Fielders and Sort Lineup ---
+    const filterBatters = (battersMap: Record<number, any>, teamId: number) => {
+        return Object.values(battersMap)
+            .filter((b: any) => b.teamId === teamId)
+            // Hide Fielder-Only (Slot 99) UNLESS they scored a run or recorded a manual stat
+            .filter((b: any) => b.slot !== 99 || b.ab > 0 || b.bb > 0 || b.r > 0 || b.rbi > 0 || b.h > 0 || b.k > 0)
+            .sort((a: any, b: any) => a.slot - b.slot)
+            .map(formatB);
+    };
+
     return NextResponse.json({
       lineScore: Object.entries(lineScore).map(([inn, runs]) => ({ inning: Number(inn), ...runs })),
       totals,
       away: {
-        batters: Object.values(batters).filter((b:any) => b.teamId === game.awayTeamId).map(formatB),
+        batters: filterBatters(batters, game.awayTeamId),
         pitchers: Object.values(pitchers).filter((p:any) => p.teamId === game.awayTeamId).map(formatP)
       },
       home: {
-        batters: Object.values(batters).filter((b:any) => b.teamId === game.homeTeamId).map(formatB),
+        batters: filterBatters(batters, game.homeTeamId),
         pitchers: Object.values(pitchers).filter((p:any) => p.teamId === game.homeTeamId).map(formatP)
       },
       hrEvents

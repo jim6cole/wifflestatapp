@@ -47,6 +47,7 @@ export async function POST(
           playerId: parseInt(s.playerId),
           teamId: s.teamId,
           position: s.position || 'F',
+          gp: 1, // ⚡ Ensures fielders get GP credit on manual entry
           pa: (parseInt(s.ab) || 0) + (parseInt(s.bb) || 0),
           ab: parseInt(s.ab) || 0,
           h: parseInt(s.h) || 0,
@@ -64,9 +65,10 @@ export async function POST(
           pbb: parseInt(s.pbb) || 0,
           pk: parseInt(s.pk) || 0,
           phr: parseInt(s.phr) || 0,
-          win: Boolean(s.win),
-          loss: Boolean(s.loss),
-          save: Boolean(s.save),
+          // ⚡ CRITICAL FIX: Match the schema's integer fields
+          winCount: s.win ? 1 : 0,    
+          lossCount: s.loss ? 1 : 0,  
+          saveCount: s.save ? 1 : 0,  
         })),
       }),
 
@@ -75,8 +77,8 @@ export async function POST(
         where: { id: gId },
         data: { 
           status: 'COMPLETED',
-          awayScore: awayTotalRuns, // NEW: Injecting the summed scores
-          homeScore: homeTotalRuns  // NEW: Injecting the summed scores
+          awayScore: awayTotalRuns, 
+          homeScore: homeTotalRuns  
         },
       }),
     ]);
