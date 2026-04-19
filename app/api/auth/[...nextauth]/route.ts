@@ -5,10 +5,19 @@ import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
-  // ⚡ FIX: Removed trustHost (v5 only). v4 trusts proxies via NEXTAUTH_URL.
-  
-  // ⚡ Ensure cookies work over HTTPS for mobile
-  useSecureCookies: process.env.NODE_ENV === "production",
+  // ⚡ THE MOBILE FIX: Manually define cookies to handle the Cloudflare Proxy correctly
+  useSecureCookies: process.env.NEXTAUTH_URL?.startsWith('https://') ?? false,
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === 'production' ? `__Secure-next-auth.session-token` : `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax', // Use 'lax' for better mobile compatibility
+        path: '/',
+        secure: process.env.NEXTAUTH_URL?.startsWith('https://') ?? false
+      }
+    }
+  },
 
   providers: [
     CredentialsProvider({
@@ -19,7 +28,6 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-
         const normalizedEmail = credentials.email.toLowerCase().trim();
         
         const user = await prisma.user.findUnique({
@@ -27,18 +35,12 @@ export const authOptions: NextAuthOptions = {
           include: { memberships: true }
         });
 
-        if (!user) {
-          throw new Error("Invalid Clearance Credentials.");
-        }
-
-        if (!user.emailVerified) {
-          throw new Error("Clearance Pending. Please verify your email address.");
+        if (!user || !user.emailVerified) {
+          throw new Error("Invalid Credentials or Unverified Account.");
         }
 
         const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
-        if (!isPasswordValid) {
-          throw new Error("Invalid Clearance Credentials.");
-        }
+        if (!isPasswordValid) throw new Error("Invalid Credentials.");
 
         return { 
           id: user.id.toString(), 
@@ -56,15 +58,11 @@ export const authOptions: NextAuthOptions = {
         token.isGlobalAdmin = (user as any).isGlobalAdmin;
         token.memberships = (user as any).memberships;
       }
-      
       if (trigger === "update" && token.email) {
         const freshUser = await prisma.user.findUnique({
-          where: { email: token.email },
-          include: { memberships: true }
+          where: { email: token.email }, include: { memberships: true }
         });
-        if (freshUser) {
-           token.memberships = freshUser.memberships;
-        }
+        if (freshUser) token.memberships = freshUser.memberships;
       }
       return token;
     },
@@ -77,9 +75,7 @@ export const authOptions: NextAuthOptions = {
       return session;
     }
   },
-  pages: {
-    signIn: '/login', 
-  },
+  pages: { signIn: '/login' },
   secret: process.env.NEXTAUTH_SECRET,
 };
 
