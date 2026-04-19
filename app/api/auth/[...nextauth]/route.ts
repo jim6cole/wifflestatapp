@@ -5,6 +5,11 @@ import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
+  // ⚡ FIX: Removed trustHost (v5 only). v4 trusts proxies via NEXTAUTH_URL.
+  
+  // ⚡ Ensure cookies work over HTTPS for mobile
+  useSecureCookies: process.env.NODE_ENV === "production",
+
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -17,7 +22,6 @@ export const authOptions: NextAuthOptions = {
 
         const normalizedEmail = credentials.email.toLowerCase().trim();
         
-        // Fetch the user AND all of their league memberships
         const user = await prisma.user.findUnique({
           where: { email: normalizedEmail },
           include: { memberships: true }
@@ -27,9 +31,6 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid Clearance Credentials.");
         }
 
-        // ===================================================
-        // NEW: BLOCK UNVERIFIED ACCOUNTS
-        // ===================================================
         if (!user.emailVerified) {
           throw new Error("Clearance Pending. Please verify your email address.");
         }
@@ -44,7 +45,7 @@ export const authOptions: NextAuthOptions = {
           email: user.email, 
           name: user.name, 
           isGlobalAdmin: user.isGlobalAdmin,
-          memberships: user.memberships // Attach the array of leagues they belong to!
+          memberships: user.memberships 
         };
       }
     })
@@ -56,7 +57,6 @@ export const authOptions: NextAuthOptions = {
         token.memberships = (user as any).memberships;
       }
       
-      // ⚡ THE FIX: When the client calls update(), fetch fresh roles from the database!
       if (trigger === "update" && token.email) {
         const freshUser = await prisma.user.findUnique({
           where: { email: token.email },
