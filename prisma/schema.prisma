@@ -93,7 +93,7 @@ model Season {
   id                   Int          @id @default(autoincrement())
   events               Event[]
   name                 String
-  year                 Int          
+  year                 Int                    
   leagueId             Int
   league               League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   status               String       @default("ACTIVE")

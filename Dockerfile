@@ -18,6 +18,7 @@ COPY . .
 # This prevents the Resend "Missing API key" crash
 ENV RESEND_API_KEY="re_dummy_key_for_build"
 ENV NEXT_PUBLIC_SITE_URL="https://wiffplus.com"
+ENV NEXT_PUBLIC_APP_URL="https://wiffplus.com"
 
 RUN npx prisma generate
 RUN npm run build
