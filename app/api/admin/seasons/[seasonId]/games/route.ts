@@ -32,8 +32,19 @@ export async function POST(
     const resolvedParams = await params;
     const seasonId = parseInt(resolvedParams.seasonId);
     
-    // Extract the fieldNumber AND eventId from the request
-    const { homeTeamId, awayTeamId, scheduledAt, isPlayoff, fieldNumber, eventId } = await request.json();
+    // ⚡ FIX: Extract ALL fields sent from the frontend, including speed and location
+    const { 
+      homeTeamId, 
+      awayTeamId, 
+      scheduledAt, 
+      isPlayoff, 
+      fieldNumber, 
+      eventId,
+      status,
+      location,
+      isSpeedRestricted,
+      speedLimit
+    } = await request.json();
 
     if (!homeTeamId || !awayTeamId || !scheduledAt) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -49,12 +60,15 @@ export async function POST(
         homeTeamId: parseInt(homeTeamId),
         awayTeamId: parseInt(awayTeamId),
         scheduledAt: new Date(scheduledAt),
-        status: "UPCOMING",
+        // ⚡ FIX: Use the status from the frontend (SCHEDULED) instead of hardcoding UPCOMING
+        status: status || "SCHEDULED",
         isPlayoff: isPlayoff || false,
         fieldNumber: fieldNumber ? Number(fieldNumber) : null,
-        
-        // NEW: Link the game to the Tournament if one was selected
-        eventId: eventId ? parseInt(eventId) : null
+        eventId: eventId ? parseInt(eventId) : null,
+        // ⚡ FIX: Map the newly added fields to the database
+        location: location || null,
+        isSpeedRestricted: isSpeedRestricted !== undefined ? isSpeedRestricted : null,
+        speedLimit: speedLimit ? Number(speedLimit) : null
       },
       include: {
         homeTeam: { select: { name: true } },
@@ -64,6 +78,7 @@ export async function POST(
 
     return NextResponse.json(newGame);
   } catch (error) {
+    console.error(error); // Helpful for terminal debugging
     return NextResponse.json({ error: "Failed to schedule game" }, { status: 500 });
   }
 }

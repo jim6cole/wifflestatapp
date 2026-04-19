@@ -371,12 +371,24 @@ export default function LineupConstructor({ params }: { params: Promise<{ gameId
                         <div key={p.id} className={`bg-white p-2 flex flex-col border-2 ${isSelected ? 'border-[#ffd60a] bg-[#fffde7]' : 'border-[#001d3d]'} shadow-[2px_2px_0px_#c1121f] transition-colors`}>
                           
                           <div className="flex justify-between items-center w-full gap-2">
-                            <div className="flex items-center gap-2 overflow-hidden w-full">
-                              <div className="flex flex-col gap-0.5 shrink-0">
-                                <button onClick={() => reorderLineup(side as 'home'|'away', i, 'up')} disabled={i === 0} className="bg-[#e0e1dd] hover:bg-[#669bbc] hover:text-white px-1.5 py-0.5 text-[8px] sm:text-[10px] font-black disabled:opacity-20 transition-colors leading-none">↑</button>
-                                <button onClick={() => reorderLineup(side as 'home'|'away', i, 'down')} disabled={i === active.length - 1} className="bg-[#e0e1dd] hover:bg-[#669bbc] hover:text-white px-1.5 py-0.5 text-[8px] sm:text-[10px] font-black disabled:opacity-20 transition-colors leading-none">↓</button>
+                            <div className="flex items-center gap-3 overflow-hidden w-full">
+                              <div className="flex flex-col gap-1 shrink-0">
+                                <button 
+                                  onClick={() => reorderLineup(side as 'home'|'away', i, 'up')} 
+                                  disabled={i === 0} 
+                                  className="bg-[#001d3d] text-[#ffd60a] hover:bg-[#c1121f] hover:text-white border-2 border-transparent px-2.5 py-1 text-[10px] sm:text-xs font-black disabled:opacity-20 transition-all leading-none shadow-[2px_2px_0px_#000] active:translate-y-[1px] active:shadow-none"
+                                >
+                                  ▲
+                                </button>
+                                <button 
+                                  onClick={() => reorderLineup(side as 'home'|'away', i, 'down')} 
+                                  disabled={i === active.length - 1} 
+                                  className="bg-[#001d3d] text-[#ffd60a] hover:bg-[#c1121f] hover:text-white border-2 border-transparent px-2.5 py-1 text-[10px] sm:text-xs font-black disabled:opacity-20 transition-all leading-none shadow-[2px_2px_0px_#000] active:translate-y-[1px] active:shadow-none"
+                                >
+                                  ▼
+                                </button>
                               </div>
-                              <span className="text-[#669bbc] font-black italic text-sm sm:text-lg w-5 text-center shrink-0">#{i + 1}</span>
+                              <span className="text-[#669bbc] font-black italic text-lg sm:text-xl w-6 text-center shrink-0">#{i + 1}</span>
                               <button 
                                 onClick={() => setSelectedPlayer(isSelected ? null : { id: p.id, side: side as 'home' | 'away', list: 'Active' })}
                                 className="font-black uppercase text-xs sm:text-sm text-[#001d3d] truncate hover:text-[#c1121f] text-left w-full"

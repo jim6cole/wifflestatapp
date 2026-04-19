@@ -29,9 +29,15 @@ export default function StaffManager({ params }: { params: Promise<{ leagueId: s
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ membershipId, isApproved: !currentStatus })
       });
-      if (res.ok) fetchStaff(); // Refresh the list
+      if (res.ok) {
+        fetchStaff(); 
+      } else {
+        // ⚡ FIX: Catch the forbidden error and display it to the scorekeeper
+        const errData = await res.json();
+        alert(`ACCESS DENIED: ${errData.error}`);
+      }
     } catch (error) {
-      alert("Failed to update status.");
+      alert("Network error: Failed to update status.");
     }
   };
 
@@ -42,9 +48,16 @@ export default function StaffManager({ params }: { params: Promise<{ leagueId: s
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ membershipId, roleLevel: newRole })
       });
-      if (res.ok) fetchStaff();
+      if (res.ok) {
+        fetchStaff();
+      } else {
+        // ⚡ FIX: Catch the forbidden error and display it to the scorekeeper
+        const errData = await res.json();
+        alert(`ACCESS DENIED: ${errData.error}`);
+        fetchStaff(); // Refresh to snap the dropdown back to its original state
+      }
     } catch (error) {
-      alert("Failed to update role.");
+      alert("Network error: Failed to update role.");
     }
   };
 

@@ -31,22 +31,6 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
     fetchSeasons();
   }, [leagueId]);
 
-  const deleteSeason = async (seasonId: number, name: string) => {
-    if (!confirm(`⚠️ ARE YOU SURE? This will permanently delete "${name}" and all its stats. This cannot be undone.`)) return;
-
-    try {
-      const res = await fetch(`/api/admin/seasons/${seasonId}`, { method: 'DELETE' });
-      if (res.ok) {
-        setSeasons(seasons.filter(s => s.id !== seasonId));
-      } else {
-        const err = await res.json();
-        alert(err.error || "Failed to delete season.");
-      }
-    } catch (error) {
-      alert("An error occurred while deleting.");
-    }
-  };
-
   if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black uppercase text-white animate-pulse italic text-2xl">Loading Archive...</div>;
 
   const activeSeasons = seasons.filter(s => s.status === 'ACTIVE');
@@ -54,43 +38,88 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
   const endedSeasons = seasons.filter(s => s.status === 'COMPLETED');
   const historicSeasons = seasons.filter(s => s.status === 'HISTORIC');
 
-  const SeasonRow = ({ season }: { season: any }) => (
-    <div className="bg-[#003566] border-2 border-[#669bbc] p-8 shadow-xl flex flex-col lg:flex-row justify-between items-center group hover:border-white transition-all">
-      <div className="flex-1 text-center lg:text-left">
-        <Link href={`/admin/leagues/${leagueId}/seasons/${season.id}`}>
-          <h2 className="text-4xl md:text-5xl font-black italic uppercase text-white hover:text-[#ffd60a] transition-colors cursor-pointer">
-            {season.name} <span className="text-xl not-italic ml-2 opacity-0 group-hover:opacity-100 transition-opacity">↗</span>
-          </h2>
-        </Link>
-        <div className="flex flex-wrap justify-center lg:justify-start gap-2 mt-4">
-          <span className="bg-[#001d3d] border border-white/20 px-3 py-1 text-[10px] font-black uppercase text-[#669bbc]">Year: {season.year}</span>
-          <span className="bg-[#001d3d] border border-white/20 px-3 py-1 text-[10px] font-black uppercase text-[#669bbc]">Innings: {season.inningsPerGame}</span>
-          <span className="bg-[#001d3d] border border-white/20 px-3 py-1 text-[10px] font-black uppercase text-[#669bbc]">Mercy: {season.mercyRule > 0 ? `${season.mercyRule} Runs` : 'OFF'}</span>
-        </div>
-      </div>
-      
-      <div className="mt-6 lg:mt-0 lg:ml-8 flex items-center gap-4">
-        <div className={`px-8 py-4 font-black italic uppercase tracking-widest text-xl border-2 transition-all ${
-          season.status === 'ACTIVE' ? 'bg-green-600 text-white border-green-400 shadow-[6px_6px_0px_#001d3d]' :
-          season.status === 'UPCOMING' ? 'bg-[#ffd60a] text-[#001d3d] border-white shadow-[6px_6px_0px_#001d3d]' :
-          season.status === 'HISTORIC' ? 'bg-[#c1121f] text-white border-white shadow-[6px_6px_0px_#001d3d]' :
-          'bg-slate-800 text-slate-400 border-slate-600 shadow-[6px_6px_0px_#001d3d]'
-        }`}>
-          {season.status}
+  // ⚡ Inline SeasonRow component handles its own confirmation state now!
+  const SeasonRow = ({ season }: { season: any }) => {
+    const [isConfirming, setIsConfirming] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const executeDelete = async () => {
+      setIsDeleting(true);
+      try {
+        const res = await fetch(`/api/admin/seasons/${season.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          setSeasons(prev => prev.filter(s => s.id !== season.id));
+        } else {
+          const err = await res.json();
+          alert(err.error || "Failed to delete season.");
+          setIsDeleting(false);
+          setIsConfirming(false);
+        }
+      } catch (error) {
+        alert("An error occurred while deleting.");
+        setIsDeleting(false);
+        setIsConfirming(false);
+      }
+    };
+
+    return (
+      <div className="bg-[#003566] border-2 border-[#669bbc] p-8 shadow-xl flex flex-col lg:flex-row justify-between items-center group hover:border-white transition-all">
+        <div className="flex-1 text-center lg:text-left w-full">
+          <Link href={`/admin/leagues/${leagueId}/seasons/${season.id}`}>
+            <h2 className="text-4xl md:text-5xl font-black italic uppercase text-white hover:text-[#ffd60a] transition-colors cursor-pointer">
+              {season.name} <span className="text-xl not-italic ml-2 opacity-0 group-hover:opacity-100 transition-opacity">↗</span>
+            </h2>
+          </Link>
+          <div className="flex flex-wrap justify-center lg:justify-start gap-2 mt-4">
+            <span className="bg-[#001d3d] border border-white/20 px-3 py-1 text-[10px] font-black uppercase text-[#669bbc]">Year: {season.year}</span>
+            <span className="bg-[#001d3d] border border-white/20 px-3 py-1 text-[10px] font-black uppercase text-[#669bbc]">Innings: {season.inningsPerGame}</span>
+            <span className="bg-[#001d3d] border border-white/20 px-3 py-1 text-[10px] font-black uppercase text-[#669bbc]">Mercy: {season.mercyRule > 0 ? `${season.mercyRule} Runs` : 'OFF'}</span>
+          </div>
         </div>
         
-        {isCommish && (
-          <button 
-            onClick={() => deleteSeason(season.id, season.name)}
-            className="p-4 bg-black border-2 border-white/20 text-[#c1121f] hover:bg-[#c1121f] hover:text-white transition-all shadow-lg"
-            title="Delete Season"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-          </button>
-        )}
+        <div className="mt-6 lg:mt-0 lg:ml-8 flex flex-col sm:flex-row items-center gap-4 w-full lg:w-auto">
+          <div className={`px-8 py-4 font-black italic uppercase tracking-widest text-xl border-2 transition-all text-center w-full sm:w-auto ${
+            season.status === 'ACTIVE' ? 'bg-green-600 text-white border-green-400 shadow-[6px_6px_0px_#001d3d]' :
+            season.status === 'UPCOMING' ? 'bg-[#ffd60a] text-[#001d3d] border-white shadow-[6px_6px_0px_#001d3d]' :
+            season.status === 'HISTORIC' ? 'bg-[#c1121f] text-white border-white shadow-[6px_6px_0px_#001d3d]' :
+            'bg-slate-800 text-slate-400 border-slate-600 shadow-[6px_6px_0px_#001d3d]'
+          }`}>
+            {season.status}
+          </div>
+          
+          {isCommish && (
+            isConfirming ? (
+              <div className="flex gap-2 w-full sm:w-auto mt-4 sm:mt-0">
+                <button 
+                  onClick={executeDelete}
+                  disabled={isDeleting}
+                  className="flex-1 sm:flex-none p-4 bg-[#c1121f] text-white font-black uppercase tracking-widest text-xs border-2 border-white shadow-lg hover:bg-white hover:text-[#c1121f] transition-colors"
+                >
+                  {isDeleting ? "DELETING..." : "YES, DELETE"}
+                </button>
+                <button 
+                  onClick={() => setIsConfirming(false)}
+                  disabled={isDeleting}
+                  className="flex-1 sm:flex-none p-4 bg-slate-800 text-white font-black uppercase tracking-widest text-xs border-2 border-slate-500 hover:bg-slate-600 transition-colors"
+                >
+                  CANCEL
+                </button>
+              </div>
+            ) : (
+              <button 
+                type="button"
+                onClick={() => setIsConfirming(true)}
+                className="p-4 bg-black border-2 border-white/20 text-[#c1121f] hover:bg-[#c1121f] hover:text-white transition-all shadow-lg w-full sm:w-auto mt-4 sm:mt-0 flex justify-center"
+                title="Delete Season"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              </button>
+            )
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] font-sans p-8 md:p-16 border-[12px] border-[#c1121f]">
@@ -107,10 +136,10 @@ export default function SeasonArchive({ params }: { params: Promise<{ leagueId: 
           </div>
           {isCommish && (
             <div className="flex gap-4">
-              <Link href={`/admin/leagues/${leagueId}/import`} className="bg-[#ffd60a] border-2 border-[#001d3d] px-8 py-4 font-black uppercase italic text-[#001d3d] hover:bg-white transition-all shadow-xl">
+              <Link href={`/admin/leagues/${leagueId}/import`} className="bg-[#ffd60a] border-2 border-[#001d3d] px-8 py-4 font-black uppercase italic text-[#001d3d] hover:bg-white transition-all shadow-xl text-center">
                 Import Legacy
               </Link>
-              <Link href={`/admin/leagues/${leagueId}/seasons/new`} className="bg-[#c1121f] border-2 border-[#fdf0d5] px-8 py-4 font-black uppercase italic text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-xl">
+              <Link href={`/admin/leagues/${leagueId}/seasons/new`} className="bg-[#c1121f] border-2 border-[#fdf0d5] px-8 py-4 font-black uppercase italic text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-xl text-center">
                 + New Season
               </Link>
             </div>

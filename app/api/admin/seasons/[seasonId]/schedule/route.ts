@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
+// ⚡ FIX: Tell Next.js NEVER to cache this API route
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ seasonId: string }> }
@@ -15,7 +18,8 @@ export async function GET(
         homeTeam: { select: { name: true } },
         awayTeam: { select: { name: true } }
       },
-      orderBy: { scheduledAt: 'desc' } // Newest games at the top
+      // ⚡ FIX: Changed 'desc' to 'asc' so the soonest games show up first!
+      orderBy: { scheduledAt: 'asc' } 
     });
 
     return NextResponse.json(games);

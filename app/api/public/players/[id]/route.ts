@@ -11,11 +11,11 @@ export async function GET(
     const { id } = await params;
     const playerId = parseInt(id);
 
-    // 1. Fetch Player + Manual Stats + Lineups
+    // 1. Fetch Player + Manual Stats + Lineups (⚡ FIX: Included game data for lineups)
     const player = await prisma.player.findUnique({
       where: { id: playerId },
       include: {
-        lineups: { include: { team: true } },
+        lineups: { include: { team: true, game: { include: { season: { include: { league: true } } } } } },
         manualStats: {
           include: { game: { include: { season: { include: { league: true } } } } }
         }
@@ -34,15 +34,15 @@ export async function GET(
     const teams = new Set(player.lineups.map(l => l.team.name));
 
     // Helper to initialize or get a split bucket
-    // Helper to initialize or get a split bucket
     const getSplit = (game: any) => {
-      const year = new Date(game.scheduledAt).getFullYear().toString();
-      let lName = game.season.league.shortName || game.season.league.name;
+      // ⚡ FIX: Use the Official Season Year, NOT the exact date the dummy game was scheduled/imported
+      const year = game?.season?.year?.toString() || new Date(game.scheduledAt).getFullYear().toString();
+      
+      let lName = game?.season?.league?.shortName || game?.season?.league?.name || 'AWAA';
       if (lName.toUpperCase() === 'MID ATLANTIC WIFFLE') lName = 'MAW';
       
-      // ⚡ FIX: Check the Game override first, fallback to Season default
-      const isRestricted = game.isSpeedRestricted ?? game.season.isSpeedRestricted;
-      const speedLim = game.speedLimit ?? game.season.speedLimit ?? 60;
+      const isRestricted = game.isSpeedRestricted ?? game.season?.isSpeedRestricted;
+      const speedLim = game.speedLimit ?? game.season?.speedLimit ?? 60;
 
       const style = isRestricted ? `MED (${speedLim}mph)` : 'FAST';
       const splitKey = `${year}-${lName}-${style}`;
@@ -54,16 +54,30 @@ export async function GET(
           pitching: { w: 0, l: 0, sv: 0, outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, faced: 0, weighted_er: 0 },
           liveGameIds: new Set<number>(),
           manualGameIds: new Set<number>(),
-          importedGp: 0 // ⚡ NEW: Separate counter for imported bulk games
+          importedGp: 0
         };
       }
       return yearlySplits[splitKey];
     };
 
-    // 3. Process Live Data
+    // ⚡ NEW: Build a quick list of games where this player has a manual override
+    const overriddenGameIds = new Set(player.manualStats.map(ms => ms.gameId));
+
+    // 3. Seed GP from Lineups (Ensures fielders with 0 ABs get a Game Played)
+    player.lineups.forEach(l => {
+      if (!l.game) return;
+      const split = getSplit(l.game);
+      split.liveGameIds.add(l.gameId);
+    });
+
+    // 4. Process Live Data
     atBats.forEach(ab => {
+      // ⚡ FIX: Prevent double-counting! If this game has a manual override, ignore the live at-bats entirely.
+      if (overriddenGameIds.has(ab.gameId)) return;
+
       const split = getSplit(ab.game);
       split.liveGameIds.add(ab.gameId);
+      
       const res = ab.result?.toUpperCase() || '';
       const isHit = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
       const isOut = ['K', 'OUT', 'FLY', 'GROUND', 'DP', 'STRIKEOUT'].some(o => res.includes(o));
@@ -82,7 +96,6 @@ export async function GET(
             else split.batting.tb += 1;
           }
         }
-        // THE RBI FIX: Fallback to runsScored if ab.rbi is null or 0
         split.batting.rbi += (ab.rbi || ab.runsScored || 0);
       }
 
@@ -113,12 +126,13 @@ export async function GET(
       }
     });
 
-    // 4. Process Manual Data
+    // 5. Process Manual Data
     player.manualStats.forEach(ms => {
       const split = getSplit(ms.game);
       
-      // ⚡ FIX: Add to importedGp if it's a bulk upload, otherwise log the single gameId
-      if (ms.gp && ms.gp > 0) {
+      // ⚡ FIX: Only use raw addition if GP > 1 (Bulk Legacy Import). 
+      // If it's a single game override, add the ID to the Set to prevent overlap.
+      if (ms.gp && ms.gp > 1) {
         split.importedGp += ms.gp;
       } else {
         split.manualGameIds.add(ms.gameId);
@@ -148,14 +162,13 @@ export async function GET(
 
     const rawSplits = Object.values(yearlySplits);
 
-    // 5. Final Formatting for Splits
+    // 6. Final Formatting for Splits
     const formattedSplits = rawSplits.map((s: any) => {
       const pa = s.batting.ab + s.batting.bb;
       const obp = pa > 0 ? (s.batting.h + s.batting.bb) / pa : 0;
       const slg = s.batting.ab > 0 ? s.batting.tb / s.batting.ab : 0;
       const mathIP = s.pitching.outs / 3;
 
-      // ⚡ FIX: Calculate total GP by unioning single game IDs, plus the imported bulk GP.
       const uniqueSingleGames = new Set([...s.liveGameIds, ...s.manualGameIds]).size;
       const totalGp = uniqueSingleGames + s.importedGp;
 
@@ -176,7 +189,7 @@ export async function GET(
       };
     }).sort((a, b) => parseInt(b.year) - parseInt(a.year));
 
-    // 6. Career Totals (Top Boxes)
+    // 7. Career Totals (Top Boxes)
     const careerTotals = rawSplits.reduce((acc, s) => ({
       ab: acc.ab + s.batting.ab, h: acc.h + s.batting.h, hr: acc.hr + s.batting.hr, 
       rbi: acc.rbi + s.batting.rbi, bb: acc.bb + s.batting.bb, tb: acc.tb + s.batting.tb,

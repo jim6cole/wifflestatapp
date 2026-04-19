@@ -260,8 +260,19 @@ export default function LiveScorer() {
     if (!game) return;
     
     const targetOuts = game.season?.outs || 3;
+
+    // ⚡ SAFETY: Prevent recording an out if the inning is technically already over
+    if (outs >= targetOuts && extraOuts > 0) {
+       triggerJackass(`Inning is already over! (Current Outs: ${outs})`);
+       return;
+    }
+
+    // ⚡ PITCH COUNTER: Increment for every completed at-bat (Hit, Out, BB, K, DP, HBP, etc)
+    if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
+
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
     
+    // Identify the hitting lineup to move the batter index
     const hittingLineup = game.lineups
       .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
       .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
@@ -275,6 +286,7 @@ export default function LiveScorer() {
     const scorerIdsString = (scoringRunnerIds || []).join(',');
     const runAttributionString = (scoringPitcherIds || []).filter(id => id !== null).join(',');
 
+    // ⚡ API SYNC: Save the record to the database
     fetch(`/api/games/${id}/at-bat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -287,11 +299,10 @@ export default function LiveScorer() {
       })
     });
 
-    const newAwayScore = isTopInning ? awayScore + runs : awayScore;
-    const newHomeScore = !isTopInning ? homeScore + runs : homeScore;
-
+    // Update Local Score State
     if (isTopInning) setAwayScore(prev => prev + runs); else setHomeScore(prev => prev + runs);
 
+    // ⚡ PLAY LOG: Save metadata so the Undo/Redo system can accurately step backwards
     setPlayLog(prev => [{
       type: 'play', batter: batter?.name || 'Unknown', batterId: batter?.id, pitcherId: activePitcherId, result, runsScored: runs, runs,
       inning: inning, isTopInning: isTopInning, slot: activeBatterIdx + 1, runAttribution: runAttributionString,
@@ -299,14 +310,20 @@ export default function LiveScorer() {
       logDisplayInning: `${isTopInning ? 'TOP' : 'BOT'} ${inning}`,
       prevBaseRunners: [...baseRunners], prevBaseRunnerPitchers: [...baseRunnerPitchers], 
       prevOuts: outs, prevBalls: balls, prevStrikes: strikes,
-      prevBatterIndices: { ...batterIndices }
+      prevBatterIndices: { ...batterIndices },
+      extraOuts 
     }, ...prev]);
 
+    // ⚡ FIX: BATTER ADVANCEMENT - Increment the index for the hitting team to cycle the lineup
     setBatterIndices(prev => ({
       ...prev,
       [isTopInning ? 'away' : 'home']: (prev[isTopInning ? 'away' : 'home'] + 1) % hittingLineup.length
     }));
 
+    const newAwayScore = isTopInning ? awayScore + runs : awayScore;
+    const newHomeScore = !isTopInning ? homeScore + runs : homeScore;
+
+    // Check for Walk-Offs (Bottom of last inning or later, home team takes the lead)
     const homeJustTookLead = !isTopInning && inning >= (game.season?.inningsPerGame || 5) && newHomeScore > newAwayScore;
     const wasHomeAlreadyLeading = !isTopInning && homeScore > awayScore;
 
@@ -317,16 +334,19 @@ export default function LiveScorer() {
         return;
     }
 
+    // SITUATIONAL ADVANCEMENT
     if (outs + extraOuts >= targetOuts) {
+      // Clear bases/count and flip side
       toggleInning();
     } else {
+      // Update runners and count for the next batter
       setBaseRunners(newBases); 
       setBaseRunnerPitchers(nextPitchers || [null, null, null]);
       setOuts(outs + extraOuts); 
       setBalls(0); 
       setStrikes(0);
     }
-  }, [game, id, isTopInning, batterIndices, outs, inning, baseRunners, baseRunnerPitchers, activePitcherId, homeScore, awayScore, toggleInning]);
+  }, [game, id, isTopInning, batterIndices, outs, inning, baseRunners, baseRunnerPitchers, activePitcherId, homeScore, awayScore, toggleInning, clearRedo, setHomePitches, setAwayPitches, triggerJackass, setAwayScore, setHomeScore, setPlayLog, balls, strikes, setBatterIndices, setBaseRunners, setBaseRunnerPitchers, setOuts, setBalls, setStrikes]);
 
   const advanceRunnersAuto = useCallback((basesToMove: number, type: string) => {
     if (!game) return;
@@ -399,7 +419,6 @@ export default function LiveScorer() {
     const rules = game?.season;
     const targetOuts = rules?.outs || 3;
     if (outs >= targetOuts - 1) return triggerJackass(`Can't get ${targetOuts + 1} outs jackass.`);
-    if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
     const runnersOn = baseRunners.filter(b => b !== null);
     if (runnersOn.length === 0 && !rules?.dpWithoutRunners) return alert("No runners on base!");
     if (runnersOn.length === 0 && rules?.dpWithoutRunners) { recordPlay('Double Play', [null, null, null], 0, 2); return; }
@@ -493,7 +512,7 @@ export default function LiveScorer() {
 
   const handleOtherAction = (actionType: string) => {
     setShowOtherModal(false);
-    if (actionType !== 'Add Ghost Runner') {
+    if (actionType === 'Wild Pitch') {
        if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
     }
     switch (actionType) {
@@ -549,39 +568,49 @@ export default function LiveScorer() {
 
   const handleAction = (type: string) => {
     if (!game) return;
-    if (['Single', 'Double', 'Triple', 'HR', 'Fly Out', 'Ground Out', 'K', 'BB'].includes(type)) {
-      if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
-    }
+
+    // ⚡ REMOVED the old pitch increment list here as recordPlay now handles it
+
     if (['Single', 'Double', 'Triple'].includes(type)) {
       if (game.season?.isBaserunning && baseRunners.some(b => b !== null)) startPlacementFlow(type);
       else advanceRunnersAuto(type === 'Triple' ? 3 : type === 'Double' ? 2 : 1, type);
       return;
     }
+    
     if (type === 'Ball' || type === 'Strike') {
       clearRedo();
       setPlayLog(prev => [{ type: 'pitch', result: type, prevBalls: balls, prevStrikes: strikes, prevBaseRunners: [...baseRunners], prevBaseRunnerPitchers: [...baseRunnerPitchers], prevOuts: outs, prevBatterIndices: { ...batterIndices } }, ...prev]);
+      
       if (type === 'Ball') {
         if (balls >= (game.season?.balls || 4) - 1) {
+           // recordPlay handles the pitch increment for a Walk
            let curB = [...baseRunners]; let curP = [...baseRunnerPitchers]; let scoringP: number[] = []; let scoringR: number[] = [];
            const btTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
-           
-           const hittingLineup = game.lineups
-            .filter((l: any) => l.teamId === btTeamId && l.battingOrder !== 99)
-            .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
-
+           const hittingLineup = game.lineups.filter((l: any) => l.teamId === btTeamId && l.battingOrder !== 99).sort((a: any, b: any) => a.battingOrder - b.battingOrder);
            const btr = hittingLineup[isTopInning ? batterIndices.away : batterIndices.home].player;
            if (curB[2] && curB[1] && curB[0]) { scoringR.push(curB[2].id); scoringP.push(curP[2]!); }
            if (curB[1] && curB[0]) { curB[2] = curB[1]; curP[2] = curP[1]; }
            if (curB[0]) { curB[1] = curB[0]; curP[1] = curP[0]; }
            curB[0] = btr; curP[0] = activePitcherId;
            recordPlay('Walk', curB, scoringR.length, 0, curP, scoringP, scoringR);
-        } else setBalls(b => b + 1);
+        } else {
+           setBalls(b => b + 1);
+           // ⚡ FIX: Increment pitches for Ball count changes
+           if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
+        }
       } else {
-        if (strikes >= (game.season?.strikes || 3) - 1) recordPlay('K', [...baseRunners], 0, 1, [...baseRunnerPitchers]);
-        else setStrikes(s => s + 1);
+        if (strikes >= (game.season?.strikes || 3) - 1) {
+           // recordPlay handles the pitch increment for a Strikeout
+           recordPlay('K', [...baseRunners], 0, 1, [...baseRunnerPitchers]);
+        } else {
+           setStrikes(s => s + 1);
+           // ⚡ FIX: Increment pitches for Strike count changes
+           if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
+        }
       }
       return;
     }
+    // ... (rest of handleAction)
     if (type === 'K') { recordPlay('K', [...baseRunners], 0, 1, [...baseRunnerPitchers]); return; }
     if (type === 'BB') {
       let curB = [...baseRunners]; let curP = [...baseRunnerPitchers]; let scoringR: number[] = []; let scoringP: number[] = [];
@@ -605,37 +634,123 @@ export default function LiveScorer() {
 
   const undoLastPlay = async () => {
     if (playLog.length === 0) return;
-    const last = playLog[0];
-    if (last.type === 'play') { try { await fetch(`/api/games/${id}/undo`, { method: 'DELETE' }); } catch (err) {} }
-    const snapshot = { type: last.type, batterIndices: { ...batterIndices }, isTopInning, inning, outs, balls, strikes, baseRunners: [...baseRunners], baseRunnerPitchers: [...baseRunnerPitchers], homeScore, awayScore, homePitches, awayPitches, logEntry: last };
+    
+    const itemsToUndo = [playLog[0]];
+    
+    // ⚡ FIX 3: If we just toggled the inning, we MUST also undo the play that triggered it!
+    if (playLog[0].type === 'divider' && playLog.length > 1 && playLog[1].type === 'play') {
+       itemsToUndo.push(playLog[1]);
+    }
+    
+    // Create a multi-item snapshot to perfectly preserve the state we are leaving
+    const snapshot = {
+       state: {
+         baseRunners: [...baseRunners], baseRunnerPitchers: [...baseRunnerPitchers], outs, balls, strikes, 
+         homeScore, awayScore, homePitches, awayPitches, 
+         batterIndices: { ...batterIndices }, isTopInning, inning
+       },
+       entries: itemsToUndo
+    };
+    
     setRedoStack(prev => [snapshot, ...prev]);
-    setBaseRunners(last.prevBaseRunners); setBaseRunnerPitchers(last.prevBaseRunnerPitchers || [null, null, null]); setOuts(last.prevOuts); setBalls(last.prevBalls); setStrikes(last.prevStrikes);
-    if (last.type === 'play' || last.type === 'event' || last.type === 'ghost') {
-      if (last.runs > 0) { if (isTopInning) setAwayScore(p => p - last.runs); else setHomeScore(p => p - last.runs); }
+    
+    const lastItem = itemsToUndo[itemsToUndo.length - 1];
+    
+    // Erase the plays from the database
+    for (const item of itemsToUndo) {
+       if (item.type === 'play') {
+          try { await fetch(`/api/games/${id}/undo`, { method: 'DELETE' }); } catch (err) {}
+       }
     }
-    if (last.type === 'play') setBatterIndices(last.prevBatterIndices);
-    if (last.type === 'pitch' || last.type === 'play') {
-        if (isTopInning) setHomePitches(p => Math.max(0, p-1)); else setAwayPitches(p => Math.max(0, p-1));
+    
+    // Revert the Pitch Counts and Scores
+    let newHomeScore = homeScore;
+    let newAwayScore = awayScore;
+    let newHomePitches = homePitches;
+    let newAwayPitches = awayPitches;
+    
+    for (const item of itemsToUndo) {
+       if (item.type === 'play' || item.type === 'event' || item.type === 'ghost') {
+          if (item.runs > 0) {
+             const isTop = item.isTopInning !== undefined ? item.isTopInning : isTopInning;
+             if (isTop) newAwayScore -= item.runs;
+             else newHomeScore -= item.runs;
+          }
+       }
+       if (item.type === 'pitch' || item.type === 'play') {
+          const isTop = item.isTopInning !== undefined ? item.isTopInning : isTopInning;
+          if (isTop) newHomePitches = Math.max(0, newHomePitches - 1);
+          else newAwayPitches = Math.max(0, newAwayPitches - 1);
+       }
     }
-    if (last.type === 'divider') {
-      setIsTopInning(!isTopInning); if (isTopInning) setInning(i => i-1); setBatterIndices(last.prevBatterIndices);
+    
+    setHomeScore(newHomeScore);
+    setAwayScore(newAwayScore);
+    setHomePitches(newHomePitches);
+    setAwayPitches(newAwayPitches);
+    
+    // Snap the gameboard back perfectly
+    setBaseRunners(lastItem.prevBaseRunners);
+    setBaseRunnerPitchers(lastItem.prevBaseRunnerPitchers || [null, null, null]);
+    setOuts(lastItem.prevOuts);
+    setBalls(lastItem.prevBalls);
+    setStrikes(lastItem.prevStrikes);
+    
+    if (itemsToUndo.some(i => i.type === 'divider')) {
+       setIsTopInning(!isTopInning);
+       if (isTopInning) setInning(i => i - 1);
     }
-    setPlayLog(prev => prev.slice(1));
+    
+    setBatterIndices(lastItem.prevBatterIndices);
+    setPlayLog(prev => prev.slice(itemsToUndo.length));
   };
 
   const redoLastPlay = async () => {
     if (redoStack.length === 0) return;
-    const [next, ...remaining] = redoStack;
-    const entry = next.logEntry;
-    if (entry.type === 'play') {
-      try { await fetch('/api/games/${id}/at-bat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ 
-        gameId: Number(id), batterId: entry.batterId, pitcherId: entry.pitcherId, inning: entry.inning, isTopInning: entry.isTopInning, 
-        result: entry.result, runsScored: entry.runsScored || 0, outs: entry.outs || 0, slot: entry.slot || 0, 
-        runAttribution: entry.runAttribution || null, runner1Id: entry.runner1Id, runner2Id: entry.runner2Id, runner3Id: entry.runner3Id, scorerIds: entry.scorerIds 
-      }) }); } catch (err) {}
+    const [snapshot, ...remaining] = redoStack;
+    
+    // Reverse the entries so they are processed in chronological order (Play, then Divider)
+    const chronologicalEntries = [...snapshot.entries].reverse();
+    
+    for (const entry of chronologicalEntries) {
+       if (entry.type === 'play') {
+          try { 
+             // ⚡ FIX 4: Corrected broken API string and properly passed outs data
+             await fetch(`/api/games/${id}/at-bat`, { 
+               method: 'POST', 
+               headers: { 'Content-Type': 'application/json' }, 
+               body: JSON.stringify({ 
+                 gameId: Number(id), batterId: entry.batterId, pitcherId: entry.pitcherId, 
+                 inning: entry.inning, isTopInning: entry.isTopInning, 
+                 result: entry.result, runsScored: entry.runsScored || 0, 
+                 outs: entry.extraOuts || 0, slot: entry.slot || 0, 
+                 runAttribution: entry.runAttribution || null, runner1Id: entry.runner1Id || null, 
+                 runner2Id: entry.runner2Id || null, runner3Id: entry.runner3Id || null, 
+                 scorerIds: entry.scorerIds || null, 
+                 runnersOn: (entry.prevBaseRunners || []).filter((b: any) => b !== null).length, 
+                 outsAtStart: entry.prevOuts || 0 
+               }) 
+             }); 
+          } catch (err) {}
+       }
     }
-    setBaseRunners(next.baseRunners); setBaseRunnerPitchers(next.baseRunnerPitchers || [null, null, null]); setInning(next.inning); setIsTopInning(next.isTopInning); setOuts(next.outs); setBalls(next.balls); setStrikes(next.strikes); setHomeScore(next.homeScore); setAwayScore(next.awayScore); setHomePitches(next.homePitches); setAwayPitches(next.awayPitches); setBatterIndices(next.batterIndices);
-    setPlayLog(prev => [entry, ...prev]); setRedoStack(remaining);
+    
+    // Jump forward instantly
+    setBaseRunners(snapshot.state.baseRunners);
+    setBaseRunnerPitchers(snapshot.state.baseRunnerPitchers);
+    setOuts(snapshot.state.outs);
+    setBalls(snapshot.state.balls);
+    setStrikes(snapshot.state.strikes);
+    setHomeScore(snapshot.state.homeScore);
+    setAwayScore(snapshot.state.awayScore);
+    setHomePitches(snapshot.state.homePitches);
+    setAwayPitches(snapshot.state.awayPitches);
+    setBatterIndices(snapshot.state.batterIndices);
+    setIsTopInning(snapshot.state.isTopInning);
+    setInning(snapshot.state.inning);
+    
+    setPlayLog(prev => [...snapshot.entries, ...prev]);
+    setRedoStack(remaining);
   };
 
   const finalizeGame = async () => {

@@ -27,7 +27,26 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
     const currentUser = session?.user as any;
     
     // Security: Must be logged in
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!currentUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { leagueId } = await params;
+    const targetLeagueId = parseInt(leagueId);
+
+    // ⚡ SECURITY FIX: Ensure user is a Global Admin OR a Commissioner (Level 2+) of THIS specific league
+    if (!currentUser.isGlobalAdmin) {
+       const membership = await prisma.leagueMembership.findFirst({
+         where: { 
+           userId: currentUser.id, 
+           leagueId: targetLeagueId,
+           isApproved: true
+         }
+       });
+
+       // If they aren't in the league, or they are just a Scorekeeper (Level 1), block them.
+       if (!membership || membership.roleLevel < 2) {
+         return NextResponse.json({ error: "Forbidden: You must be a Commissioner to change personnel access." }, { status: 403 });
+       }
+    }
 
     const { membershipId, isApproved, roleLevel } = await request.json();
 

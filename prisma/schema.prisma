@@ -130,7 +130,7 @@ model Event {
   status    String   @default("UPCOMING")
   startDate DateTime?
   seasonId  Int
-  season    Season   @relation(fields: [seasonId], references: [id])
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   games     Game[]
   winnerId  Int?
   winner    Team?    @relation("EventWinner", fields: [winnerId], references: [id])

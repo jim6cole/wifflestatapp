@@ -18,7 +18,6 @@ export default function MasterPlayerRegistry() {
   const user = session?.user as any;
   const isGlobalAdmin = user?.isGlobalAdmin;
   
-  // UPDATED: Only extract IDs for leagues where the user is a Commissioner (Tier 2 or 3)
   const userLeagueIds = user?.memberships
     ?.filter((m: any) => m.roleLevel >= 2)
     .map((m: any) => m.leagueId) || [];
@@ -35,6 +34,9 @@ export default function MasterPlayerRegistry() {
   const [isMergeMode, setIsMergeMode] = useState(false);
   const [mergeSource, setMergeSource] = useState<any>(null); 
   const [mergeTarget, setMergeTarget] = useState<any>(null);
+  
+  // ⚡ FIX: State to handle inline confirmation
+  const [isConfirmingMerge, setIsConfirmingMerge] = useState(false);
 
   useEffect(() => {
     fetchPlayers();
@@ -94,11 +96,10 @@ export default function MasterPlayerRegistry() {
     }
   };
 
+  // ⚡ FIX: Removed the clunky window.confirm that was getting blocked
   const executeMerge = async () => {
     if (!isGlobalAdmin) return alert("Unauthorized: Only Global Admins can consolidate rosters.");
     if (!mergeSource || !mergeTarget || mergeSource.id === mergeTarget.id) return;
-
-    if (!confirm(`Consolidate ${mergeSource.name} into ${mergeTarget.name}? History will be moved, duplicate will be retired.`)) return;
 
     setLoading(true);
     try {
@@ -113,12 +114,16 @@ export default function MasterPlayerRegistry() {
         setMergeSource(null);
         setMergeTarget(null);
         setIsMergeMode(false);
+        setIsConfirmingMerge(false);
         alert("Rosters consolidated successfully.");
       } else {
-        alert("Merge failed on the server.");
+        const err = await res.json();
+        alert(`Merge failed: ${err.error}`);
+        setIsConfirmingMerge(false);
       }
     } catch (e) { 
       alert("Merge failed. Check connection."); 
+      setIsConfirmingMerge(false);
     } finally { 
       setLoading(false); 
     }
@@ -132,7 +137,6 @@ export default function MasterPlayerRegistry() {
     <div className="min-h-screen bg-[#001d3d] p-8 md:p-16 border-[12px] border-[#c1121f]">
       <div className="max-w-5xl mx-auto">
         
-        {/* --- STICKY HEADER SECTION --- */}
         <header className="mb-12 border-b-8 border-[#ffd60a] pb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-6xl font-black italic uppercase text-white tracking-tighter leading-none">Master Roster</h1>
@@ -147,6 +151,7 @@ export default function MasterPlayerRegistry() {
                   setIsMergeMode(!isMergeMode);
                   setMergeSource(null);
                   setMergeTarget(null);
+                  setIsConfirmingMerge(false);
                 }}
                 className={`px-6 py-3 font-black uppercase italic text-sm border-4 transition-all ${isMergeMode ? 'bg-[#ffd60a] border-white text-[#001d3d]' : 'bg-[#c1121f] border-[#001d3d] text-white hover:bg-[#ffd60a] hover:text-[#001d3d]'}`}
               >
@@ -159,7 +164,6 @@ export default function MasterPlayerRegistry() {
           </div>
         </header>
 
-        {/* --- STICKY SEARCH BAR --- */}
         {!isMergeMode && (
           <div className="sticky top-4 z-30 mb-8">
             <input 
@@ -177,7 +181,7 @@ export default function MasterPlayerRegistry() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center text-[#001d3d]">
               <div 
                 className={`p-6 border-4 border-dashed min-h-[100px] flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${mergeSource ? 'bg-[#c1121f]/10 border-[#c1121f]' : 'bg-slate-100 border-slate-300 hover:border-slate-500'}`}
-                onClick={() => setMergeSource(null)}
+                onClick={() => { setMergeSource(null); setIsConfirmingMerge(false); }}
               >
                 <p className="text-[10px] font-black uppercase text-slate-400 mb-2 tracking-widest">Duplicate to Delete</p>
                 {mergeSource ? <span className="font-black text-[#c1121f] text-xl uppercase italic tracking-tighter">{mergeSource.name}</span> : <span className="text-slate-300 italic font-bold uppercase">Select Player Below</span>}
@@ -185,7 +189,7 @@ export default function MasterPlayerRegistry() {
 
               <div 
                 className={`p-6 border-4 border-dashed min-h-[100px] flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${mergeTarget ? 'bg-[#003566]/10 border-[#003566]' : 'bg-slate-100 border-slate-300 hover:border-slate-500'}`}
-                onClick={() => setMergeTarget(null)}
+                onClick={() => { setMergeTarget(null); setIsConfirmingMerge(false); }}
               >
                 <p className="text-[10px] font-black uppercase text-slate-400 mb-2 tracking-widest">Survivor to Keep</p>
                 {mergeTarget ? <span className="font-black text-[#003566] text-xl uppercase italic tracking-tighter">{mergeTarget.name}</span> : <span className="text-slate-300 italic font-bold uppercase">Select Player Below</span>}
@@ -193,12 +197,31 @@ export default function MasterPlayerRegistry() {
             </div>
 
             {mergeSource && mergeTarget && mergeSource.id !== mergeTarget.id && (
-              <button 
-                onClick={executeMerge}
-                className="w-full mt-6 bg-[#001d3d] text-white py-4 font-black uppercase italic tracking-widest text-xl hover:bg-[#c1121f] transition-colors shadow-[6px_6px_0px_#ffd60a]"
-              >
-                Confirm Merge
-              </button>
+              isConfirmingMerge ? (
+                <div className="flex flex-col md:flex-row gap-4 mt-6">
+                  <button 
+                    onClick={executeMerge}
+                    disabled={loading}
+                    className="flex-1 bg-[#c1121f] text-white py-4 font-black uppercase italic tracking-widest text-xl hover:bg-white hover:text-[#c1121f] transition-colors border-4 border-transparent hover:border-[#c1121f] shadow-[6px_6px_0px_#001d3d]"
+                  >
+                    {loading ? 'MERGING...' : 'YES, CONSOLIDATE'}
+                  </button>
+                  <button 
+                    onClick={() => setIsConfirmingMerge(false)}
+                    disabled={loading}
+                    className="flex-1 bg-slate-200 text-slate-500 py-4 font-black uppercase italic tracking-widest text-xl hover:bg-slate-300 transition-colors border-4 border-transparent hover:border-slate-400"
+                  >
+                    CANCEL
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={() => setIsConfirmingMerge(true)}
+                  className="w-full mt-6 bg-[#001d3d] text-white py-4 font-black uppercase italic tracking-widest text-xl hover:bg-[#c1121f] transition-colors shadow-[6px_6px_0px_#ffd60a]"
+                >
+                  Confirm Merge
+                </button>
+              )
             )}
           </div>
         )}

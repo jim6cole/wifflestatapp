@@ -54,10 +54,14 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
 
   const fetchSchedule = async () => {
     try {
-      const res = await fetch(`/api/admin/seasons/${seasonId}/schedule`);
+      // ⚡ FIX 1: Add a timestamp to completely bypass Next.js caching
+      const t = new Date().getTime();
+      const res = await fetch(`/api/admin/seasons/${seasonId}/schedule?t=${t}`);
+      
       if (res.ok) {
         const games = await res.json();
-        setUpcomingGames(games.filter((g: any) => g.status === 'SCHEDULED'));
+        // ⚡ FIX 2: Filter for BOTH 'SCHEDULED' and 'UPCOMING' so it catches the games you already made!
+        setUpcomingGames(games.filter((g: any) => g.status === 'SCHEDULED' || g.status === 'UPCOMING'));
       }
     } catch (err) {
       console.error("Failed to load schedule", err);
@@ -67,10 +71,11 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
   useEffect(() => {
     async function load() {
       try {
+        const t = new Date().getTime();
         const [seasonRes, teamsRes, eventsRes] = await Promise.all([
-          fetch(`/api/admin/seasons/${seasonId}`),
-          fetch(`/api/admin/seasons/${seasonId}/teams`),
-          fetch(`/api/admin/seasons/${seasonId}/events`)
+          fetch(`/api/admin/seasons/${seasonId}?t=${t}`),
+          fetch(`/api/admin/seasons/${seasonId}/teams?t=${t}`),
+          fetch(`/api/admin/seasons/${seasonId}/events?t=${t}`)
         ]);
 
         if (!seasonRes.ok) throw new Error("Failed to load season");
@@ -143,6 +148,8 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
       setHomeTeamId('');
       // Note: We leave fieldNumber, location, and date alone to make scheduling double-headers easier!
       setSaving(false);
+      
+      // ⚡ Automatically refresh the schedule list
       await fetchSchedule(); 
       
     } catch (err: any) {
