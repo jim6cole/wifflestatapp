@@ -23,7 +23,7 @@ export default function ForgotPassword() {
 
       if (res.ok) {
         setStatus('success');
-        setMessage("If an account exists with that email, a reset link has been dispatched.");
+        setMessage("If an account exists with that email, a reset link has been dispatched. Please check your inbox and your SPAM/JUNK folder.");
       } else {
         setStatus('error');
         setMessage(data.error || "Failed to process request. Please try again.");
@@ -70,6 +70,11 @@ export default function ForgotPassword() {
             <p className="text-sm font-bold text-[#001d3d] mb-6">
               Enter your clearance email below. If recognized, the system will securely route a temporary access reset link to your inbox.
             </p>
+            <div className="bg-[#fdf0d5] border-4 border-[#c1121f] p-4 text-center shadow-[4px_4px_0px_#000] mb-6">
+              <p className="text-[#c1121f] text-[10px] font-black uppercase tracking-widest">
+                ⚠️ NOTE: Password reset emails frequently route to SPAM/JUNK folders. Check there if you don't see it within 2 minutes.
+              </p>
+            </div>
 
             <div className="flex flex-col">
               <label className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest mb-2">Clearance Email</label>

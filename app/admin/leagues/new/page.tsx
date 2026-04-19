@@ -1,9 +1,11 @@
 'use client';
+import { useSession } from 'next-auth/react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function NewLeaguePage() {
+  const { update } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -35,6 +37,8 @@ export default function NewLeaguePage() {
       });
 
       if (res.ok) {
+        await update(); // ⚡ Force NextAuth to realize you are now a Commissioner
+        // Refresh and head back to the dugout
         // Refresh and head back to the dugout
         router.push('/admin/dashboard');
         router.refresh();

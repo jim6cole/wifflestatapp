@@ -11,7 +11,6 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
   
-  const router = useRouter();
   const searchParams = useSearchParams();
   
   const callbackUrl = searchParams.get('callbackUrl') || '/admin/dashboard';
@@ -34,8 +33,11 @@ function LoginForm() {
     } else {
       // Success! Trigger the clubhouse entrance state
       setIsRedirecting(true);
-      router.push(callbackUrl);
-      router.refresh(); 
+      
+      // ⚡ THE IPHONE & FIRST-TIME LOGIN FIX ⚡
+      // Using window.location.href forces a hard reload. 
+      // This forces Safari to sync the NextAuth cookie and prevents Next.js from loading a cached unauthenticated page.
+      window.location.href = callbackUrl;
     }
   };
 

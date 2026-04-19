@@ -34,12 +34,17 @@ export async function GET(
     const teams = new Set(player.lineups.map(l => l.team.name));
 
     // Helper to initialize or get a split bucket
+    // Helper to initialize or get a split bucket
     const getSplit = (game: any) => {
       const year = new Date(game.scheduledAt).getFullYear().toString();
       let lName = game.season.league.shortName || game.season.league.name;
       if (lName.toUpperCase() === 'MID ATLANTIC WIFFLE') lName = 'MAW';
       
-      const style = game.season.isSpeedRestricted ? 'MED' : 'FAST';
+      // ⚡ FIX: Check the Game override first, fallback to Season default
+      const isRestricted = game.isSpeedRestricted ?? game.season.isSpeedRestricted;
+      const speedLim = game.speedLimit ?? game.season.speedLimit ?? 60;
+
+      const style = isRestricted ? `MED (${speedLim}mph)` : 'FAST';
       const splitKey = `${year}-${lName}-${style}`;
 
       if (!yearlySplits[splitKey]) {
@@ -47,7 +52,9 @@ export async function GET(
           year, leagueName: lName, style,
           batting: { ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, bb: 0, k: 0, tb: 0 },
           pitching: { w: 0, l: 0, sv: 0, outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, faced: 0, weighted_er: 0 },
-          gameIds: new Set<number>()
+          liveGameIds: new Set<number>(),
+          manualGameIds: new Set<number>(),
+          importedGp: 0 // ⚡ NEW: Separate counter for imported bulk games
         };
       }
       return yearlySplits[splitKey];
@@ -56,7 +63,7 @@ export async function GET(
     // 3. Process Live Data
     atBats.forEach(ab => {
       const split = getSplit(ab.game);
-      split.gameIds.add(ab.gameId);
+      split.liveGameIds.add(ab.gameId);
       const res = ab.result?.toUpperCase() || '';
       const isHit = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
       const isOut = ['K', 'OUT', 'FLY', 'GROUND', 'DP', 'STRIKEOUT'].some(o => res.includes(o));
@@ -109,7 +116,13 @@ export async function GET(
     // 4. Process Manual Data
     player.manualStats.forEach(ms => {
       const split = getSplit(ms.game);
-      split.gameIds.add(ms.gameId);
+      
+      // ⚡ FIX: Add to importedGp if it's a bulk upload, otherwise log the single gameId
+      if (ms.gp && ms.gp > 0) {
+        split.importedGp += ms.gp;
+      } else {
+        split.manualGameIds.add(ms.gameId);
+      }
       
       split.batting.ab += ms.ab; split.batting.h += ms.h; split.batting.hr += ms.hr;
       split.batting.rbi += ms.rbi; split.batting.bb += ms.bb; split.batting.k += ms.k;
@@ -127,9 +140,9 @@ export async function GET(
         split.pitching.r += ms.pr; split.pitching.er += ms.per;
         split.pitching.hr += (ms.phr || 0);
         split.pitching.weighted_er += (ms.per * standard);
-        if (ms.win) split.pitching.w++;
-        if (ms.loss) split.pitching.l++;
-        if (ms.save) split.pitching.sv++;
+        if (ms.winCount && ms.winCount > 0) split.pitching.w += ms.winCount;
+        if (ms.lossCount && ms.lossCount > 0) split.pitching.l += ms.lossCount;
+        if (ms.saveCount && ms.saveCount > 0) split.pitching.sv += ms.saveCount;
       }
     });
 
@@ -142,9 +155,13 @@ export async function GET(
       const slg = s.batting.ab > 0 ? s.batting.tb / s.batting.ab : 0;
       const mathIP = s.pitching.outs / 3;
 
+      // ⚡ FIX: Calculate total GP by unioning single game IDs, plus the imported bulk GP.
+      const uniqueSingleGames = new Set([...s.liveGameIds, ...s.manualGameIds]).size;
+      const totalGp = uniqueSingleGames + s.importedGp;
+
       return {
         ...s,
-        gp: s.gameIds.size,
+        gp: totalGp,
         batting: {
           ...s.batting, pa,
           avg: s.batting.ab > 0 ? (s.batting.h / s.batting.ab).toFixed(3).replace(/^0/, '') : '.000',

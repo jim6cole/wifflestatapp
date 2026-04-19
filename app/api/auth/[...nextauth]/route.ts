@@ -50,10 +50,21 @@ export const authOptions: NextAuthOptions = {
     })
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.isGlobalAdmin = (user as any).isGlobalAdmin;
         token.memberships = (user as any).memberships;
+      }
+      
+      // ⚡ THE FIX: When the client calls update(), fetch fresh roles from the database!
+      if (trigger === "update" && token.email) {
+        const freshUser = await prisma.user.findUnique({
+          where: { email: token.email },
+          include: { memberships: true }
+        });
+        if (freshUser) {
+           token.memberships = freshUser.memberships;
+        }
       }
       return token;
     },

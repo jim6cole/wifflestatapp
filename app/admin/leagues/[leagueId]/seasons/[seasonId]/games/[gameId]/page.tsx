@@ -50,6 +50,13 @@ export default function AdminBoxScorePage({ params }: { params: Promise<{ league
           >
             Audit Play-by-Play →
           </Link>
+          
+          <Link 
+          href={`/admin/leagues/${leagueId}/seasons/${seasonId}/manual-override/${gameId}`}
+          className="bg-[#ffd60a] text-[#001d3d] font-black italic uppercase px-4 py-2 border-2 border-[#001d3d] shadow-[4px_4px_0px_#c1121f] hover:bg-white transition-colors"
+          >
+          Manual Box Score Override
+          </Link>
         </div>
 
         {/* --- MAIN HEADER (1:1 EXACT PUBLIC CLONE) --- */}

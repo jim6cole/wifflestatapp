@@ -1,275 +1,411 @@
 'use client';
+
 import { useState, useEffect, use } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-export default function GameScheduler({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
-  const { leagueId, seasonId } = use(params);
-  
-  const [season, setSeason] = useState<any>(null);
-  const [activeTeams, setActiveTeams] = useState<any[]>([]);
-  const [games, setGames] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+// ⚡ HELPERS: Generate standard dropdown options
+const generateTimeOptions = () => {
+  const options = [];
+  for (let h = 6; h <= 23; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      const val = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const displayH = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+      const label = `${displayH}:${m.toString().padStart(2, '0')} ${ampm}`;
+      options.push({ val, label });
+    }
+  }
+  return options;
+};
 
-  // Form State
+const TIME_OPTIONS = generateTimeOptions();
+const FIELD_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; 
+// ⚡ UPDATED: Now strictly generates 55 MPH to 80 MPH
+const SPEED_OPTIONS = Array.from({ length: 26 }, (_, i) => i + 55); 
+
+export default function ScheduleNewGamePage({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
+  const { leagueId, seasonId } = use(params);
+  const router = useRouter();
+
+  const [season, setSeason] = useState<any>(null);
+  const [teams, setTeams] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [upcomingGames, setUpcomingGames] = useState<any[]>([]);
+  
   const [homeTeamId, setHomeTeamId] = useState('');
   const [awayTeamId, setAwayTeamId] = useState('');
-  const [gameDate, setGameDate] = useState('');
-  const [gameTime, setGameTime] = useState('09:00'); 
+  const [eventId, setEventId] = useState('');
+  
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
+  
+  const [location, setLocation] = useState('');
   const [fieldNumber, setFieldNumber] = useState('1'); 
   const [isPlayoff, setIsPlayoff] = useState(false);
   
-  // NEW: Tournament State
-  const [eventId, setEventId] = useState('');
+  const [overrideSpeed, setOverrideSpeed] = useState(false);
+  const [isSpeedRestricted, setIsSpeedRestricted] = useState(false);
+  const [speedLimit, setSpeedLimit] = useState(60); 
 
-  const availableFields = Array.from({ length: 15 }, (_, i) => (i + 1).toString());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  const generateTimeSlots = () => {
-    const slots = [];
-    for (let hour = 0; hour < 24; hour++) {
-      for (let min = 0; min < 60; min += 15) {
-        const h = hour.toString().padStart(2, '0');
-        const m = min.toString().padStart(2, '0');
-        const period = hour >= 12 ? 'PM' : 'AM';
-        const displayHour = hour % 12 === 0 ? 12 : hour % 12;
-        slots.push({ value: `${h}:${m}`, label: `${displayHour}:${m} ${period}` });
+  const fetchSchedule = async () => {
+    try {
+      const res = await fetch(`/api/admin/seasons/${seasonId}/schedule`);
+      if (res.ok) {
+        const games = await res.json();
+        setUpcomingGames(games.filter((g: any) => g.status === 'SCHEDULED'));
       }
+    } catch (err) {
+      console.error("Failed to load schedule", err);
     }
-    return slots;
   };
 
-  const timeSlots = generateTimeSlots();
-
   useEffect(() => {
-    async function fetchScheduleData() {
+    async function load() {
       try {
-        const seasonRes = await fetch(`/api/admin/seasons/${seasonId}`);
-        if (seasonRes.ok) setSeason(await seasonRes.json());
+        const [seasonRes, teamsRes, eventsRes] = await Promise.all([
+          fetch(`/api/admin/seasons/${seasonId}`),
+          fetch(`/api/admin/seasons/${seasonId}/teams`),
+          fetch(`/api/admin/seasons/${seasonId}/events`)
+        ]);
 
-        const teamsRes = await fetch(`/api/admin/seasons/${seasonId}/teams`);
-        if (teamsRes.ok) setActiveTeams(await teamsRes.json());
+        if (!seasonRes.ok) throw new Error("Failed to load season");
+        
+        const sData = await seasonRes.json();
+        setSeason(sData);
+        setTeams(await teamsRes.json());
+        setEvents(await eventsRes.json());
+        
+        // Use season default if it exists, otherwise keep our 60 fallback
+        setIsSpeedRestricted(sData.isSpeedRestricted || false);
+        setSpeedLimit(sData.speedLimit || 60);
 
-        const gamesRes = await fetch(`/api/admin/seasons/${seasonId}/games`);
-        if (gamesRes.ok) setGames(await gamesRes.json());
-      } catch (error) {
-        console.error("Failed to fetch schedule data:", error);
-      } finally {
+        await fetchSchedule();
+        setLoading(false);
+      } catch (err: any) {
+        setError(err.message);
         setLoading(false);
       }
     }
-    fetchScheduleData();
+    load();
   }, [seasonId]);
 
-  const handleScheduleGame = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!homeTeamId || !awayTeamId || !gameDate || !gameTime || !fieldNumber) return;
-    if (homeTeamId === awayTeamId) return alert("A team cannot play itself!");
+  // SMART WATCHER: Automatically set 5PM for Weekdays, 9AM for Weekends
+  useEffect(() => {
+    if (scheduledDate) {
+      const [year, month, day] = scheduledDate.split('-');
+      const dateObj = new Date(Number(year), Number(month) - 1, Number(day));
+      const dayOfWeek = dateObj.getDay(); 
+      
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        setScheduledTime('09:00'); // 9:00 AM
+      } else {
+        setScheduledTime('17:00'); // 5:00 PM
+      }
+    }
+  }, [scheduledDate]);
 
-    const scheduledAt = new Date(`${gameDate}T${gameTime}`).toISOString();
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!homeTeamId || !awayTeamId || !scheduledDate || !scheduledTime) return setError("Please fill in all required fields (Teams, Date & Time).");
+    if (homeTeamId === awayTeamId) return setError("A team cannot play itself.");
+
+    setSaving(true);
+    setError('');
+
+    const combinedDateTime = new Date(`${scheduledDate}T${scheduledTime}`).toISOString();
 
     try {
       const res = await fetch(`/api/admin/seasons/${seasonId}/games`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          homeTeamId, 
-          awayTeamId, 
-          scheduledAt, 
-          isPlayoff, 
-          fieldNumber: parseInt(fieldNumber),
-          eventId // <-- Pass the selected tournament to the backend
-        }),
+        body: JSON.stringify({
+          homeTeamId: parseInt(homeTeamId),
+          awayTeamId: parseInt(awayTeamId),
+          eventId: eventId ? parseInt(eventId) : null,
+          scheduledAt: combinedDateTime,
+          location: location || null,
+          fieldNumber: fieldNumber ? parseInt(fieldNumber) : null,
+          isPlayoff,
+          status: 'SCHEDULED',
+          isSpeedRestricted: overrideSpeed ? isSpeedRestricted : null,
+          speedLimit: overrideSpeed && isSpeedRestricted ? speedLimit : null
+        })
       });
 
-      if (res.ok) {
-        const newGame = await res.json();
-        setGames([...games, newGame].sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()));
-        setHomeTeamId('');
-        setAwayTeamId('');
-        setGameTime('09:00'); 
-        // We leave the eventId set so they can rapidly schedule multiple games for the same tournament!
-      } else {
-        const err = await res.json();
-        alert(`Error: ${err.error}`);
-      }
-    } catch (error) {
-      console.error("Scheduling error:", error);
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to schedule game");
+      
+      setAwayTeamId('');
+      setHomeTeamId('');
+      // Note: We leave fieldNumber, location, and date alone to make scheduling double-headers easier!
+      setSaving(false);
+      await fetchSchedule(); 
+      
+    } catch (err: any) {
+      setError(err.message);
+      setSaving(false);
     }
   };
 
-  const handleDeleteGame = async (gameId: number) => {
-    if (!confirm("Are you sure you want to delete this scheduled game? This cannot be undone.")) return;
-
-    try {
-      const res = await fetch(`/api/admin/games/${gameId}`, {
-        method: 'DELETE',
-      });
-
-      if (res.ok) {
-        setGames(games.filter(g => g.id !== gameId));
-      } else {
-        const err = await res.json();
-        alert(`Failed to delete game: ${err.error}`);
-      }
-    } catch (error) {
-      console.error("Delete error:", error);
-    }
-  };
-
-  const upcomingGamesList = games.filter(g => g.status !== 'COMPLETED');
+  if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center text-[#ffd60a] font-black italic text-2xl md:text-4xl animate-pulse">Warming up the Bullpen...</div>;
 
   return (
-    <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] font-sans p-8 md:p-16 border-[16px] border-[#001d3d]">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-3 md:p-8 font-sans border-[8px] md:border-[16px] border-[#c1121f]">
+      <div className="max-w-7xl mx-auto">
         
-        <div className="mb-12 border-b-8 border-[#c1121f] pb-6">
-          <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}`} className="text-[10px] font-black uppercase text-[#669bbc] tracking-widest hover:text-[#c1121f] transition-colors block mb-4">
-            ← Back to Season Hub
+        {/* HEADER */}
+        <div className="mb-6 md:mb-8 border-b-4 border-[#c1121f] pb-4">
+          <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}`} className="text-[10px] md:text-xs font-black uppercase text-[#669bbc] hover:text-[#ffd60a] tracking-widest mb-3 inline-block transition-colors">
+            ← Return to Season Hub
           </Link>
-          <h1 className="text-6xl md:text-8xl font-black italic uppercase tracking-tighter text-[#001d3d] drop-shadow-[4px_4px_0px_#ffd60a] mt-2">
-            Matchup Generator
+          <h1 className="text-4xl md:text-6xl lg:text-7xl font-black italic uppercase text-[#ffd60a] tracking-tighter drop-shadow-[2px_2px_0px_#c1121f] md:drop-shadow-[4px_4px_0px_#c1121f] leading-none mb-2">
+            Schedule Maker
           </h1>
+          <p className="text-[#669bbc] font-bold uppercase text-[10px] md:text-xs tracking-widest">
+            {season?.league?.name} // {season?.name}
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {error && (
+          <div className="bg-[#c1121f] text-white p-3 md:p-4 mb-6 border-2 md:border-4 border-[#001d3d] shadow-[4px_4px_0px_#000] md:shadow-[8px_8px_0px_#000]">
+            <p className="text-[10px] font-black uppercase tracking-widest">Error: {error}</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 items-start">
           
-          <div className="lg:col-span-1 h-fit bg-white border-4 border-[#001d3d] p-6 shadow-[8px_8px_0px_#ffd60a]">
-            <h2 className="text-2xl font-black italic uppercase mb-6 text-[#001d3d] border-b-4 border-[#c1121f] pb-2">Schedule Game</h2>
-            
-            {activeTeams.length < 2 ? (
-              <div className="bg-[#c1121f]/10 border-2 border-[#c1121f] p-4 text-center">
-                <p className="font-bold text-[#c1121f] uppercase text-xs">Not enough active teams!</p>
+          {/* LEFT: THE SCHEDULING FORM */}
+          <div className="lg:col-span-2 space-y-6 md:space-y-8">
+            <form onSubmit={handleSubmit} className="bg-white text-[#001d3d] p-4 md:p-6 border-4 border-[#001d3d] shadow-[8px_8px_0px_#c1121f] md:shadow-[12px_12px_0px_#c1121f] space-y-6">
+              
+              {/* TEAM SELECTION */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#fdf0d5] p-4 border-2 border-[#001d3d]">
+                <div className="flex flex-col">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#c1121f] mb-1.5">Away Team (Visitor)</label>
+                  <select 
+                    value={awayTeamId} 
+                    onChange={(e) => setAwayTeamId(e.target.value)}
+                    className="w-full bg-white border-2 border-[#001d3d] p-3 font-black uppercase text-sm md:text-base outline-none focus:border-[#669bbc] cursor-pointer"
+                    required
+                  >
+                    <option value="">-- Select Away --</option>
+                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex flex-col">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#001d3d] mb-1.5">Home Team</label>
+                  <select 
+                    value={homeTeamId} 
+                    onChange={(e) => setHomeTeamId(e.target.value)}
+                    className="w-full bg-white border-2 border-[#001d3d] p-3 font-black uppercase text-sm md:text-base outline-none focus:border-[#669bbc] cursor-pointer"
+                    required
+                  >
+                    <option value="">-- Select Home --</option>
+                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
               </div>
-            ) : (
-              <form onSubmit={handleScheduleGame} className="space-y-6">
+
+              {/* GAME DETAILS */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 
-                <div className="space-y-4 bg-[#fdf0d5] border-2 border-[#001d3d] p-4 shadow-inner">
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Away Team</label>
-                    <select value={awayTeamId} onChange={(e) => setAwayTeamId(e.target.value)} className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer" required>
-                      <option value="">Select Away...</option>
-                      {activeTeams.map(t => <option key={`away-${t.id}`} value={t.id}>{t.name}</option>)}
-                    </select>
+                <div className="flex flex-col sm:flex-row gap-4 sm:col-span-2">
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] mb-1.5">Date</label>
+                    <input 
+                      type="date" 
+                      value={scheduledDate} 
+                      onChange={(e) => setScheduledDate(e.target.value)}
+                      className="w-full bg-[#fdf0d5] border-2 border-[#001d3d] p-2.5 font-bold outline-none focus:border-[#c1121f] text-sm cursor-pointer"
+                      required
+                    />
                   </div>
-                  <div className="text-center font-black italic text-[#c1121f] text-2xl">@</div>
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Home Team</label>
-                    <select value={homeTeamId} onChange={(e) => setHomeTeamId(e.target.value)} className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer" required>
-                      <option value="">Select Home...</option>
-                      {activeTeams.map(t => <option key={`home-${t.id}`} value={t.id}>{t.name}</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="bg-white border-2 border-[#001d3d] p-4">
-                  <label className="block text-[10px] font-bold uppercase text-[#c1121f] tracking-widest mb-2 text-center">{season?.isTournament ? "Tournament Stage" : "Season Stage"}</label>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setIsPlayoff(false)} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest border-2 transition-all ${!isPlayoff ? 'bg-[#001d3d] text-white border-[#001d3d]' : 'bg-slate-100 text-slate-400 border-slate-300'}`}>{season?.isTournament ? "Pool Play" : "Regular"}</button>
-                    <button type="button" onClick={() => setIsPlayoff(true)} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest border-2 transition-all ${isPlayoff ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d]' : 'bg-slate-100 text-slate-400 border-slate-300'}`}>{season?.isTournament ? "Bracket" : "Playoffs"}</button>
-                  </div>
-                </div>
-
-                {/* NEW: TOURNAMENT ATTACHMENT DROPDOWN */}
-                {season?.events && season.events.length > 0 && (
-                  <div className="bg-white border-2 border-[#001d3d] p-4">
-                    <label className="block text-[10px] font-bold uppercase text-[#c1121f] tracking-widest mb-2 text-center">Tournament Link (Optional)</label>
-                    <select value={eventId} onChange={(e) => setEventId(e.target.value)} className="w-full bg-[#fdf0d5] border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer">
-                      <option value="">-- No Tournament (Standard Game) --</option>
-                      {season.events.map((ev: any) => (
-                        <option key={ev.id} value={ev.id}>{ev.name}</option>
+                  <div className="flex flex-col flex-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] mb-1.5">Time</label>
+                    <select 
+                      value={scheduledTime} 
+                      onChange={(e) => setScheduledTime(e.target.value)}
+                      className="w-full bg-[#fdf0d5] border-2 border-[#001d3d] p-2.5 font-bold outline-none focus:border-[#c1121f] text-sm cursor-pointer"
+                      required
+                    >
+                      <option value="">-- Select Time --</option>
+                      {TIME_OPTIONS.map(t => (
+                        <option key={t.val} value={t.val}>{t.label}</option>
                       ))}
                     </select>
                   </div>
-                )}
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Date</label>
-                    <input type="date" value={gameDate} onChange={(e) => setGameDate(e.target.value)} className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f]" required />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Time</label>
-                      <select value={gameTime} onChange={(e) => setGameTime(e.target.value)} className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer" required>
-                        <option value="">Select...</option>
-                        {timeSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-[#669bbc] tracking-widest mb-1">Field #</label>
-                      <select 
-                        value={fieldNumber} 
-                        onChange={(e) => setFieldNumber(e.target.value)} 
-                        className="w-full bg-white border-2 border-[#001d3d] p-3 text-[#001d3d] font-black uppercase outline-none focus:border-[#c1121f] cursor-pointer"
-                        required
-                      >
-                        {availableFields.map(num => <option key={num} value={num}>Field {num}</option>)}
-                      </select>
-                    </div>
-                  </div>
                 </div>
-                
-                <button type="submit" className="w-full bg-[#c1121f] border-4 border-[#001d3d] px-4 py-4 font-black italic uppercase tracking-widest text-white hover:bg-white hover:text-[#c1121f] transition-all shadow-[6px_6px_0px_#001d3d] active:translate-y-1 active:shadow-none">
-                  + Add to Calendar
-                </button>
-              </form>
-            )}
+
+                <div className="flex flex-col sm:col-span-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] mb-1.5">Event (Optional)</label>
+                  <select 
+                    value={eventId} 
+                    onChange={(e) => setEventId(e.target.value)}
+                    className="w-full bg-[#fdf0d5] border-2 border-[#001d3d] p-2.5 font-bold uppercase text-xs outline-none focus:border-[#c1121f] cursor-pointer truncate"
+                  >
+                    <option value="">-- Standalone Game --</option>
+                    {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex flex-col">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] mb-1.5">Location / Stadium</label>
+                  <input 
+                    type="text" 
+                    value={location} 
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="e.g. Fenway Park"
+                    className="w-full bg-[#fdf0d5] border-2 border-[#001d3d] p-2.5 font-bold uppercase text-xs outline-none focus:border-[#c1121f]"
+                  />
+                </div>
+
+                <div className="flex flex-col">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] mb-1.5">Field Number</label>
+                  <select 
+                    value={fieldNumber} 
+                    onChange={(e) => setFieldNumber(e.target.value)}
+                    className="w-full bg-[#fdf0d5] border-2 border-[#001d3d] p-2.5 font-bold text-xs outline-none focus:border-[#c1121f] cursor-pointer"
+                  >
+                    <option value="">-- TBD --</option>
+                    {FIELD_OPTIONS.map(num => (
+                      <option key={num} value={num}>Field {num}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 bg-[#fdf0d5] p-3 border-2 border-[#001d3d]">
+                <input 
+                  type="checkbox" 
+                  id="isPlayoff"
+                  checked={isPlayoff}
+                  onChange={(e) => setIsPlayoff(e.target.checked)}
+                  className="w-5 h-5 accent-[#c1121f] cursor-pointer shrink-0"
+                />
+                <label htmlFor="isPlayoff" className="text-xs md:text-sm font-black uppercase tracking-widest cursor-pointer mt-0.5 select-none">
+                  This is a Playoff/Tournament Game
+                </label>
+              </div>
+
+              {/* PITCHING OVERRIDE */}
+              <div className="border-2 border-[#001d3d] bg-slate-50">
+                <label className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-100 transition-colors select-none">
+                  <div className="pr-4">
+                    <h3 className="text-xs md:text-sm font-black uppercase text-[#001d3d]">Pitching Style Override</h3>
+                    <p className="text-[9px] font-bold uppercase text-[#669bbc] tracking-widest mt-0.5">
+                      Default: {season?.isSpeedRestricted ? `Medium Pitch (${season.speedLimit}mph)` : 'Fast Pitch (No Limit)'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#c1121f]">Override?</span>
+                    <input 
+                      type="checkbox" 
+                      checked={overrideSpeed}
+                      onChange={(e) => setOverrideSpeed(e.target.checked)}
+                      className="w-5 h-5 accent-[#c1121f] cursor-pointer"
+                    />
+                  </div>
+                </label>
+
+                {overrideSpeed && (
+                  <div className="border-t-2 border-slate-200 p-3 bg-white grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex flex-col">
+                       <label className="text-[9px] font-black uppercase tracking-widest text-[#001d3d] mb-1">Game Style</label>
+                       <select
+                         value={isSpeedRestricted ? 'true' : 'false'}
+                         onChange={(e) => setIsSpeedRestricted(e.target.value === 'true')}
+                         className="w-full bg-[#fdf0d5] border-2 border-[#001d3d] p-2 font-bold uppercase text-xs outline-none focus:border-[#c1121f] cursor-pointer"
+                       >
+                         <option value="false">Fast Pitch</option>
+                         <option value="true">Medium Pitch</option>
+                       </select>
+                    </div>
+                    {isSpeedRestricted && (
+                      <div className="flex flex-col">
+                         <label className="text-[9px] font-black uppercase tracking-widest text-[#c1121f] mb-1">Speed Limit</label>
+                         <select
+                           value={speedLimit}
+                           onChange={(e) => setSpeedLimit(parseInt(e.target.value))}
+                           className="w-full bg-[#fdf0d5] border-2 border-[#c1121f] p-2 font-bold text-xs outline-none focus:border-[#001d3d] cursor-pointer"
+                         >
+                           {SPEED_OPTIONS.map(speed => (
+                             <option key={speed} value={speed}>{speed} MPH</option>
+                           ))}
+                         </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={saving}
+                className="w-full bg-[#c1121f] text-white py-4 md:py-5 font-black italic uppercase tracking-[0.2em] text-lg border-4 border-[#001d3d] hover:bg-[#ffd60a] hover:text-[#001d3d] transition-all shadow-[4px_4px_0px_#000] md:shadow-[6px_6px_0px_#000] active:translate-y-1 active:shadow-none disabled:opacity-50"
+              >
+                {saving ? 'Booking...' : '+ Add to Schedule'}
+              </button>
+
+            </form>
           </div>
 
-          <div className="lg:col-span-2 space-y-4">
-            <h2 className="text-3xl font-black italic uppercase text-[#001d3d] border-b-4 border-[#ffd60a] pb-2 inline-block mb-6">Upcoming Matches</h2>
+          {/* RIGHT: UPCOMING MATCHUPS LIST */}
+          <div className="lg:col-span-1 border-4 border-[#001d3d] bg-[#fdf0d5] flex flex-col h-full max-h-[800px] shadow-[8px_8px_0px_#000]">
+            <div className="bg-[#001d3d] text-white p-4 border-b-4 border-[#c1121f]">
+              <h2 className="text-xl font-black italic uppercase tracking-widest">Upcoming Matchups</h2>
+              <p className="text-[9px] font-bold text-[#669bbc] uppercase tracking-[0.3em]">Scheduled Games Only</p>
+            </div>
             
-            {loading ? (
-              <div className="py-20 text-center text-[#001d3d] animate-pulse italic font-black">SCANNING...</div>
-            ) : upcomingGamesList.length === 0 ? (
-              <div className="bg-white border-4 border-[#001d3d] p-12 text-center shadow-[8px_8px_0px_#ffd60a]">
-                <p className="text-2xl font-black italic uppercase opacity-30">No Upcoming Matches</p>
-              </div>
-            ) : (
-              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-                {upcomingGamesList.map((game) => {
-                  const gameDateObj = new Date(game.scheduledAt);
-                  const isLive = game.status === 'LIVE'; 
+            <div className="p-4 overflow-y-auto flex-1 space-y-3 bg-white">
+              {upcomingGames.length === 0 ? (
+                <div className="text-center p-6 border-2 border-dashed border-[#001d3d] bg-slate-50">
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">No upcoming games scheduled.</p>
+                </div>
+              ) : (
+                upcomingGames.map((game: any) => {
+                  const gameDate = new Date(game.scheduledAt);
+                  const isToday = new Date().toDateString() === gameDate.toDateString();
+
                   return (
-                    <div key={game.id} className={`bg-white border-4 ${isLive ? 'border-[#ffd60a] shadow-[6px_6px_0px_#ffd60a]' : 'border-[#001d3d] shadow-[4px_4px_0px_#001d3d]'} p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center hover:bg-[#fdf0d5] transition-colors gap-4`}>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <span className="text-xl font-black italic uppercase text-[#001d3d]">{game.awayTeam?.name}</span>
-                          <span className="text-[10px] font-black text-[#c1121f]">@</span>
-                          <span className="text-xl font-black italic uppercase text-[#001d3d]">{game.homeTeam?.name}</span>
-                          <span className="bg-[#001d3d] text-[#ffd60a] px-2 py-0.5 text-[10px] font-black uppercase border-2 border-[#ffd60a]">
-                             F{game.fieldNumber || '1'}
-                          </span>
-                          {/* NEW: Show an indicator if it belongs to an Event */}
-                          {game.eventId && (
-                            <span className="bg-[#c1121f] text-white px-2 py-0.5 text-[8px] font-black uppercase tracking-widest border border-[#001d3d]">
-                              Tournament Play
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] font-bold uppercase text-slate-500 tracking-widest mt-1">ID: {game.id} | Status: <span className={isLive ? "text-green-500" : ""}>{game.status}</span></p>
+                    <div key={game.id} className="border-2 border-[#001d3d] p-3 shadow-[2px_2px_0px_#c1121f] hover:bg-slate-50 transition-colors">
+                      <div className="flex justify-between items-start mb-2">
+                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 ${isToday ? 'bg-[#c1121f] text-white' : 'bg-[#001d3d] text-white'}`}>
+                          {isToday ? 'TODAY' : gameDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        </span>
+                        <span className="text-[9px] font-bold text-[#669bbc] uppercase tracking-widest">
+                          {gameDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                        </span>
                       </div>
                       
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => handleDeleteGame(game.id)}
-                          className="bg-white text-red-600 px-3 py-2 font-black italic uppercase text-lg border-2 border-[#001d3d] hover:bg-red-600 hover:text-white transition-colors"
-                          title="Delete Matchup"
-                        >
-                          X
-                        </button>
-                        {isLive && <Link href={`/games/${game.id}/live`} className="bg-[#c1121f] text-white px-4 py-2 font-black italic uppercase text-[10px] border-2 border-[#001d3d] hover:bg-white hover:text-[#c1121f]">Enter Game →</Link>}
-                        <div className="bg-[#fdf0d5] border-2 border-[#001d3d] px-4 py-2 text-right min-w-[140px] shadow-inner">
-                          <p className="font-black text-sm text-[#001d3d]">{gameDateObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</p>
-                          <p className="text-[10px] font-black text-[#c1121f] uppercase mt-0.5">{gameDateObj.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</p>
+                      <div className="flex flex-col gap-1 text-sm font-black uppercase tracking-tighter text-[#001d3d]">
+                        <div className="flex justify-between items-center">
+                          <span className="truncate">{game.awayTeam?.name}</span>
+                          <span className="text-[8px] text-slate-400 tracking-widest">(A)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[#c1121f] text-[10px]">@</span>
+                          <span className="truncate">{game.homeTeam?.name}</span>
                         </div>
                       </div>
+
+                      {(game.location || game.fieldNumber) && (
+                        <div className="mt-2 pt-2 border-t border-slate-200 text-[8px] font-bold uppercase text-slate-500 tracking-widest flex gap-2">
+                          {game.location && <span>📍 {game.location}</span>}
+                          {game.fieldNumber && <span>FIELD {game.fieldNumber}</span>}
+                        </div>
+                      )}
                     </div>
                   );
-                })}
-              </div>
-            )}
+                })
+              )}
+            </div>
           </div>
+
         </div>
       </div>
     </div>
