@@ -77,7 +77,7 @@ export default function PlayerCard() {
 
           <div className="relative z-10 flex flex-col md:flex-row justify-between md:items-end gap-6 border-b-8 border-[#c1121f] pb-6">
             <div>
-              <p className="text-[#c1121f] font-black uppercase tracking-[0.4em] text-xs mb-2">AWAA Official Player Profile</p>
+              <p className="text-[#c1121f] font-black uppercase tracking-[0.4em] text-xs mb-2">Wiff+ Career Stats</p>
               <h1 className="text-6xl md:text-8xl font-black italic uppercase text-[#001d3d] tracking-tighter leading-none">
                 {player?.name}
               </h1>
