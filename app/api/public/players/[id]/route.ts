@@ -11,7 +11,7 @@ export async function GET(
     const { id } = await params;
     const playerId = parseInt(id);
 
-    // 1. Fetch Player + Manual Stats + Lineups (⚡ FIX: Included game data for lineups)
+    // 1. Fetch Player + Manual Stats + Lineups
     const player = await prisma.player.findUnique({
       where: { id: playerId },
       include: {
@@ -35,7 +35,6 @@ export async function GET(
 
     // Helper to initialize or get a split bucket
     const getSplit = (game: any) => {
-      // ⚡ FIX: Use the Official Season Year, NOT the exact date the dummy game was scheduled/imported
       const year = game?.season?.year?.toString() || new Date(game.scheduledAt).getFullYear().toString();
       
       let lName = game?.season?.league?.shortName || game?.season?.league?.name || 'AWAA';
@@ -60,8 +59,8 @@ export async function GET(
       return yearlySplits[splitKey];
     };
 
-    // ⚡ NEW: Build a quick list of games where this player has a manual override
-    const overriddenGameIds = new Set(player.manualStats.map(ms => ms.gameId));
+    // ⚡ FIX: Find out which games actually have live at-bats
+    const gamesWithLiveAtBats = new Set(atBats.map(ab => ab.gameId));
 
     // 3. Seed GP from Lineups (Ensures fielders with 0 ABs get a Game Played)
     player.lineups.forEach(l => {
@@ -72,9 +71,6 @@ export async function GET(
 
     // 4. Process Live Data
     atBats.forEach(ab => {
-      // ⚡ FIX: Prevent double-counting! If this game has a manual override, ignore the live at-bats entirely.
-      if (overriddenGameIds.has(ab.gameId)) return;
-
       const split = getSplit(ab.game);
       split.liveGameIds.add(ab.gameId);
       
@@ -130,33 +126,50 @@ export async function GET(
     player.manualStats.forEach(ms => {
       const split = getSplit(ms.game);
       
-      // ⚡ FIX: Only use raw addition if GP > 1 (Bulk Legacy Import). 
-      // If it's a single game override, add the ID to the Set to prevent overlap.
+      // If it's a bulk legacy import
       if (ms.gp && ms.gp > 1) {
         split.importedGp += ms.gp;
       } else {
         split.manualGameIds.add(ms.gameId);
       }
       
-      split.batting.ab += ms.ab; split.batting.h += ms.h; split.batting.hr += ms.hr;
-      split.batting.rbi += ms.rbi; split.batting.bb += ms.bb; split.batting.k += ms.k;
-      split.batting.d += ms.d2b; split.batting.t += ms.d3b;
-      split.batting.tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
+      // ⚡ Always apply W/L/SV (These are usually manual overrides)
+      if (ms.winCount && ms.winCount > 0) split.pitching.w += ms.winCount;
+      if (ms.lossCount && ms.lossCount > 0) split.pitching.l += ms.lossCount;
+      if (ms.saveCount && ms.saveCount > 0) split.pitching.sv += ms.saveCount;
 
-      if (ms.ip > 0 || ms.pk > 0) {
-        const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) 
-          ? ms.game?.season?.inningsPerGame 
-          : (ms.game?.season?.eraStandard || 4);
+      // ⚡ Only apply manual box stats if the game was NOT scored live
+      if (!gamesWithLiveAtBats.has(ms.gameId)) {
+        split.batting.ab += ms.ab || 0; 
+        split.batting.h += ms.h || 0; 
+        split.batting.hr += ms.hr || 0;
+        split.batting.rbi += ms.rbi || 0; 
+        split.batting.bb += ms.bb || 0; 
+        split.batting.k += ms.k || 0;
+        split.batting.d += ms.d2b || 0; 
+        split.batting.t += ms.d3b || 0;
+        
+        const d2b = ms.d2b || 0;
+        const d3b = ms.d3b || 0;
+        const hr = ms.hr || 0;
+        const h = ms.h || 0;
+        split.batting.tb += (h - d2b - d3b - hr) + (d2b * 2) + (d3b * 3) + (hr * 4);
 
-        const mOuts = (Math.floor(ms.ip) * 3) + (Math.round((ms.ip % 1) * 10));
-        split.pitching.outs += mOuts;
-        split.pitching.h += ms.ph; split.pitching.bb += ms.pbb; split.pitching.k += ms.pk;
-        split.pitching.r += ms.pr; split.pitching.er += ms.per;
-        split.pitching.hr += (ms.phr || 0);
-        split.pitching.weighted_er += (ms.per * standard);
-        if (ms.winCount && ms.winCount > 0) split.pitching.w += ms.winCount;
-        if (ms.lossCount && ms.lossCount > 0) split.pitching.l += ms.lossCount;
-        if (ms.saveCount && ms.saveCount > 0) split.pitching.sv += ms.saveCount;
+        if ((ms.ip || 0) > 0 || (ms.pk || 0) > 0) {
+          const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) 
+            ? ms.game?.season?.inningsPerGame 
+            : (ms.game?.season?.eraStandard || 4);
+
+          const mOuts = (Math.floor(ms.ip || 0) * 3) + (Math.round(((ms.ip || 0) % 1) * 10));
+          split.pitching.outs += mOuts;
+          split.pitching.h += ms.ph || 0; 
+          split.pitching.bb += ms.pbb || 0; 
+          split.pitching.k += ms.pk || 0;
+          split.pitching.r += ms.pr || 0; 
+          split.pitching.er += ms.per || 0;
+          split.pitching.hr += ms.phr || 0;
+          split.pitching.weighted_er += ((ms.per || 0) * standard);
+        }
       }
     });
 
