@@ -50,6 +50,9 @@ export default function LiveScorer() {
   const [homePitches, setHomePitches] = useState(0);
   const [awayPitches, setAwayPitches] = useState(0);
   
+  // ⚡ NEW: Track runs scored in the current half-inning for the Mercy Rule
+  const [runsThisInning, setRunsThisInning] = useState(0);
+  
   const [playLog, setPlayLog] = useState<any[]>([]); 
   const [redoStack, setRedoStack] = useState<any[]>([]);
 
@@ -62,6 +65,14 @@ export default function LiveScorer() {
   const [jackassMessage, setJackassMessage] = useState("");
   const [showOtherModal, setShowOtherModal] = useState(false);
   const [showGhostModal, setShowGhostModal] = useState(false);
+  const [ghostSetupBases, setGhostSetupBases] = useState([false, false, false]);
+
+  // ⚡ Sync the modal UI with whatever is actually on base when it opens
+  useEffect(() => {
+      if (showGhostModal) {
+          setGhostSetupBases([!!baseRunners[0], !!baseRunners[1], !!baseRunners[2]]);
+      }
+  }, [showGhostModal, baseRunners]);
 
   const [placementAction, setPlacementAction] = useState<string | null>(null);
   const [placementDetails, setPlacementDetails] = useState<any[]>([]);
@@ -98,6 +109,7 @@ export default function LiveScorer() {
           setAwayScore(savedState.awayScore ?? 0);
           setHomePitches(savedState.homePitches ?? 0);
           setAwayPitches(savedState.awayPitches ?? 0);
+          setRunsThisInning(savedState.runsThisInning ?? 0); // ⚡ Load runs this inning
           setPlayLog(savedState.playLog ?? []);
           setRedoStack(savedState.redoStack ?? []);
           setRetiredPitchers(savedState.retiredPitchers ?? []);
@@ -113,6 +125,7 @@ export default function LiveScorer() {
     const stateToSave = {
       batterIndices, isTopInning, inning, outs, balls, strikes,
       baseRunners, baseRunnerPitchers, homeScore, awayScore, homePitches, awayPitches,
+      runsThisInning, // ⚡ Save runs this inning
       playLog, redoStack, retiredPitchers
     };
     localStorage.setItem(`game-sync-${id}`, JSON.stringify(stateToSave));
@@ -124,8 +137,7 @@ export default function LiveScorer() {
         body: JSON.stringify({ state: stateToSave })
       }).catch(err => console.error("Cloud Autosave failed:", err));
     }, 1500);
-    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [isLoaded, game, id, batterIndices, isTopInning, inning, outs, balls, strikes, baseRunners, baseRunnerPitchers, homeScore, awayScore, homePitches, awayPitches, playLog, redoStack, retiredPitchers]);
+  }, [isLoaded, game, id, batterIndices, isTopInning, inning, outs, balls, strikes, baseRunners, baseRunnerPitchers, homeScore, awayScore, homePitches, awayPitches, runsThisInning, playLog, redoStack, retiredPitchers]);
 
   const activePitcherId = isTopInning ? game?.currentHomePitcherId : game?.currentAwayPitcherId;
 
@@ -231,9 +243,9 @@ export default function LiveScorer() {
     let nextBases: (any | null)[] = [null, null, null];
     let nextPitchers: (number | null)[] = [null, null, null];
     
+    // ⚡ Trigger the interactive Ghost Runner modal instead of auto-placing
     if (rules?.ghostRunner && nextInning > targetInnings) {
-       nextBases[1] = { id: `ghost-${Date.now()}`, name: 'Ghost Runner' };
-       nextPitchers[1] = null;
+       setShowGhostModal(true);
     }
 
     setPlayLog(prev => [{ 
@@ -242,7 +254,8 @@ export default function LiveScorer() {
       prevBaseRunners: [...baseRunners], 
       prevBaseRunnerPitchers: [...baseRunnerPitchers],
       prevOuts: outs, prevBalls: balls, prevStrikes: strikes,
-      prevBatterIndices: { ...batterIndices } 
+      prevBatterIndices: { ...batterIndices },
+      prevRunsThisInning: runsThisInning // ⚡ Save state for undo
     }, ...prev]);
     
     setIsTopInning(nextIsTop);
@@ -251,28 +264,35 @@ export default function LiveScorer() {
     setBaseRunnerPitchers(nextPitchers);
     setBalls(0); 
     setStrikes(0);
+    setRunsThisInning(0); // ⚡ Reset run limit tracker
     if (!isTopInning) setInning(prev => prev + 1);
-  }, [game, isTopInning, inning, baseRunners, baseRunnerPitchers, outs, balls, strikes, batterIndices, homeScore, awayScore]);
+  }, [game, isTopInning, inning, baseRunners, baseRunnerPitchers, outs, balls, strikes, batterIndices, homeScore, awayScore, runsThisInning]);
 
-  // --- 4. RECORD PLAY ---
+// --- 4. RECORD PLAY ---
   const recordPlay = useCallback((result: string, newBases: (any|null)[], runs: number, extraOuts: number = 0, nextPitchers?: (number|null)[], scoringPitcherIds?: number[], scoringRunnerIds?: number[]) => {
     clearRedo();
     if (!game) return;
     
-    const targetOuts = game.season?.outs || 3;
+    const rules = game.season;
+    const targetOuts = rules?.outs || 3;
+    const inningLimit = rules?.mercyRulePerInning || 0;
+    
+    // ⚡ Calculate if we are in the "Unlimited Last Inning"
+    const isUnlimitedInning = rules?.unlimitedLastInning && inning >= (rules?.inningsPerGame || 5);
+    
+    // ⚡ SOFT CAP LOGIC
+    // We let all runs from the current play count, but if the new total hits or exceeds the limit, the inning will end.
+    const newRunsThisInning = runsThisInning + runs;
 
-    // ⚡ SAFETY: Prevent recording an out if the inning is technically already over
     if (outs >= targetOuts && extraOuts > 0) {
        triggerJackass(`Inning is already over! (Current Outs: ${outs})`);
        return;
     }
 
-    // ⚡ PITCH COUNTER: Increment for every completed at-bat (Hit, Out, BB, K, DP, HBP, etc)
     if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
 
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
     
-    // Identify the hitting lineup to move the batter index
     const hittingLineup = game.lineups
       .filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99)
       .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
@@ -283,10 +303,10 @@ export default function LiveScorer() {
     const runner1Id = baseRunners[0]?.id || null;
     const runner2Id = baseRunners[1]?.id || null;
     const runner3Id = baseRunners[2]?.id || null;
+    
     const scorerIdsString = (scoringRunnerIds || []).join(',');
     const runAttributionString = (scoringPitcherIds || []).filter(id => id !== null).join(',');
 
-    // ⚡ API SYNC: Save the record to the database
     fetch(`/api/games/${id}/at-bat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -299,22 +319,21 @@ export default function LiveScorer() {
       })
     });
 
-    // Update Local Score State
     if (isTopInning) setAwayScore(prev => prev + runs); else setHomeScore(prev => prev + runs);
+    setRunsThisInning(newRunsThisInning); 
 
-    // ⚡ PLAY LOG: Save metadata so the Undo/Redo system can accurately step backwards
     setPlayLog(prev => [{
-      type: 'play', batter: batter?.name || 'Unknown', batterId: batter?.id, pitcherId: activePitcherId, result, runsScored: runs, runs,
+      type: 'play', batter: batter?.name || 'Unknown', batterId: batter?.id, pitcherId: activePitcherId, 
+      result, runsScored: runs, runs: runs,
       inning: inning, isTopInning: isTopInning, slot: activeBatterIdx + 1, runAttribution: runAttributionString,
       runner1Id, runner2Id, runner3Id, scorerIds: scorerIdsString,
       logDisplayInning: `${isTopInning ? 'TOP' : 'BOT'} ${inning}`,
       prevBaseRunners: [...baseRunners], prevBaseRunnerPitchers: [...baseRunnerPitchers], 
       prevOuts: outs, prevBalls: balls, prevStrikes: strikes,
-      prevBatterIndices: { ...batterIndices },
+      prevBatterIndices: { ...batterIndices }, prevRunsThisInning: runsThisInning, 
       extraOuts 
     }, ...prev]);
 
-    // ⚡ FIX: BATTER ADVANCEMENT - Increment the index for the hitting team to cycle the lineup
     setBatterIndices(prev => ({
       ...prev,
       [isTopInning ? 'away' : 'home']: (prev[isTopInning ? 'away' : 'home'] + 1) % hittingLineup.length
@@ -323,8 +342,7 @@ export default function LiveScorer() {
     const newAwayScore = isTopInning ? awayScore + runs : awayScore;
     const newHomeScore = !isTopInning ? homeScore + runs : homeScore;
 
-    // Check for Walk-Offs (Bottom of last inning or later, home team takes the lead)
-    const homeJustTookLead = !isTopInning && inning >= (game.season?.inningsPerGame || 5) && newHomeScore > newAwayScore;
+    const homeJustTookLead = !isTopInning && inning >= (rules?.inningsPerGame || 5) && newHomeScore > newAwayScore;
     const wasHomeAlreadyLeading = !isTopInning && homeScore > awayScore;
 
     if (homeJustTookLead && !wasHomeAlreadyLeading) {
@@ -334,19 +352,19 @@ export default function LiveScorer() {
         return;
     }
 
-    // SITUATIONAL ADVANCEMENT
-    if (outs + extraOuts >= targetOuts) {
-      // Clear bases/count and flip side
+    // ⚡ INNING RUN LIMIT INTERCEPTOR (Soft Cap)
+    const runLimitReached = inningLimit > 0 && newRunsThisInning >= inningLimit && !isUnlimitedInning;
+
+    if (runLimitReached || outs + extraOuts >= targetOuts) {
       toggleInning();
     } else {
-      // Update runners and count for the next batter
       setBaseRunners(newBases); 
       setBaseRunnerPitchers(nextPitchers || [null, null, null]);
       setOuts(outs + extraOuts); 
       setBalls(0); 
       setStrikes(0);
     }
-  }, [game, id, isTopInning, batterIndices, outs, inning, baseRunners, baseRunnerPitchers, activePitcherId, homeScore, awayScore, toggleInning, clearRedo, setHomePitches, setAwayPitches, triggerJackass, setAwayScore, setHomeScore, setPlayLog, balls, strikes, setBatterIndices, setBaseRunners, setBaseRunnerPitchers, setOuts, setBalls, setStrikes]);
+  }, [game, id, isTopInning, batterIndices, outs, inning, baseRunners, baseRunnerPitchers, activePitcherId, homeScore, awayScore, runsThisInning, toggleInning, clearRedo, setHomePitches, setAwayPitches, triggerJackass, setAwayScore, setHomeScore, setPlayLog, balls, strikes, setBatterIndices, setBaseRunners, setBaseRunnerPitchers, setOuts, setBalls, setStrikes, setRunsThisInning]);
 
   const advanceRunnersAuto = useCallback((basesToMove: number, type: string) => {
     if (!game) return;
@@ -380,7 +398,6 @@ export default function LiveScorer() {
     recordPlay(type, curB, scoringR.length, 0, curP, scoringP, scoringR);
   }, [game, isTopInning, batterIndices, baseRunners, baseRunnerPitchers, activePitcherId, recordPlay]);
 
-  // --- SMART BASERUNNING VALIDATION ---
   const validatePlacements = (placements: any[]) => {
     const counts: any = { '1st': 0, '2nd': 0, '3rd': 0 };
     for (const p of placements) { if (counts[p.end] !== undefined) counts[p.end]++; }
@@ -389,7 +406,6 @@ export default function LiveScorer() {
 
     const activeRunners = placements.filter(p => p.end !== 'Out' && p.end !== 'Home');
     
-    // Prevent Passing the Preexisting Runner
     for (let i = 0; i < activeRunners.length; i++) {
        for (let j = 0; j < activeRunners.length; j++) {
           if (i === j) continue;
@@ -402,7 +418,6 @@ export default function LiveScorer() {
        }
     }
 
-    // Prevent Backwards Running
     for (const p of placements) {
        if (p.end !== 'Out' && p.end !== 'Home') {
            if (baseToInt(p.from) > baseToInt(p.end)) {
@@ -411,7 +426,6 @@ export default function LiveScorer() {
            }
        }
     }
-
     return true;
   };
 
@@ -459,7 +473,6 @@ export default function LiveScorer() {
     const runnersOn = baseRunners.filter(b => b !== null);
     if (actionType === 'Tag' && runnersOn.length === 0) return triggerJackass("Can't tag somebody who ain't there cheater");
     
-    // Calculate Default Base Endings Automatically Based on Hit
     const hitVal = actionType.includes('Triple') ? 3 : actionType.includes('Double') ? 2 : actionType.includes('Single') || actionType === 'Error' || actionType === 'Fielder\'s Choice' ? 1 : 0;
     
     const active = [];
@@ -569,8 +582,6 @@ export default function LiveScorer() {
   const handleAction = (type: string) => {
     if (!game) return;
 
-    // ⚡ REMOVED the old pitch increment list here as recordPlay now handles it
-
     if (['Single', 'Double', 'Triple'].includes(type)) {
       if (game.season?.isBaserunning && baseRunners.some(b => b !== null)) startPlacementFlow(type);
       else advanceRunnersAuto(type === 'Triple' ? 3 : type === 'Double' ? 2 : 1, type);
@@ -583,7 +594,6 @@ export default function LiveScorer() {
       
       if (type === 'Ball') {
         if (balls >= (game.season?.balls || 4) - 1) {
-           // recordPlay handles the pitch increment for a Walk
            let curB = [...baseRunners]; let curP = [...baseRunnerPitchers]; let scoringP: number[] = []; let scoringR: number[] = [];
            const btTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
            const hittingLineup = game.lineups.filter((l: any) => l.teamId === btTeamId && l.battingOrder !== 99).sort((a: any, b: any) => a.battingOrder - b.battingOrder);
@@ -595,22 +605,19 @@ export default function LiveScorer() {
            recordPlay('Walk', curB, scoringR.length, 0, curP, scoringP, scoringR);
         } else {
            setBalls(b => b + 1);
-           // ⚡ FIX: Increment pitches for Ball count changes
            if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
         }
       } else {
         if (strikes >= (game.season?.strikes || 3) - 1) {
-           // recordPlay handles the pitch increment for a Strikeout
            recordPlay('K', [...baseRunners], 0, 1, [...baseRunnerPitchers]);
         } else {
            setStrikes(s => s + 1);
-           // ⚡ FIX: Increment pitches for Strike count changes
            if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
         }
       }
       return;
     }
-    // ... (rest of handleAction)
+    
     if (type === 'K') { recordPlay('K', [...baseRunners], 0, 1, [...baseRunnerPitchers]); return; }
     if (type === 'BB') {
       let curB = [...baseRunners]; let curP = [...baseRunnerPitchers]; let scoringR: number[] = []; let scoringP: number[] = [];
@@ -637,12 +644,10 @@ export default function LiveScorer() {
     
     const itemsToUndo = [playLog[0]];
     
-    // ⚡ FIX 3: If we just toggled the inning, we MUST also undo the play that triggered it!
     if (playLog[0].type === 'divider' && playLog.length > 1 && playLog[1].type === 'play') {
        itemsToUndo.push(playLog[1]);
     }
     
-    // Create a multi-item snapshot to perfectly preserve the state we are leaving
     const snapshot = {
        state: {
          baseRunners: [...baseRunners], baseRunnerPitchers: [...baseRunnerPitchers], outs, balls, strikes, 
@@ -656,14 +661,12 @@ export default function LiveScorer() {
     
     const lastItem = itemsToUndo[itemsToUndo.length - 1];
     
-    // Erase the plays from the database
     for (const item of itemsToUndo) {
        if (item.type === 'play') {
           try { await fetch(`/api/games/${id}/undo`, { method: 'DELETE' }); } catch (err) {}
        }
     }
     
-    // Revert the Pitch Counts and Scores
     let newHomeScore = homeScore;
     let newAwayScore = awayScore;
     let newHomePitches = homePitches;
@@ -689,12 +692,16 @@ export default function LiveScorer() {
     setHomePitches(newHomePitches);
     setAwayPitches(newAwayPitches);
     
-    // Snap the gameboard back perfectly
     setBaseRunners(lastItem.prevBaseRunners);
     setBaseRunnerPitchers(lastItem.prevBaseRunnerPitchers || [null, null, null]);
     setOuts(lastItem.prevOuts);
     setBalls(lastItem.prevBalls);
     setStrikes(lastItem.prevStrikes);
+    
+    // ⚡ FIX: Safely restore the run limit tracker
+    if (lastItem.prevRunsThisInning !== undefined) {
+       setRunsThisInning(lastItem.prevRunsThisInning);
+    }
     
     if (itemsToUndo.some(i => i.type === 'divider')) {
        setIsTopInning(!isTopInning);
@@ -709,13 +716,11 @@ export default function LiveScorer() {
     if (redoStack.length === 0) return;
     const [snapshot, ...remaining] = redoStack;
     
-    // Reverse the entries so they are processed in chronological order (Play, then Divider)
     const chronologicalEntries = [...snapshot.entries].reverse();
     
     for (const entry of chronologicalEntries) {
        if (entry.type === 'play') {
           try { 
-             // ⚡ FIX 4: Corrected broken API string and properly passed outs data
              await fetch(`/api/games/${id}/at-bat`, { 
                method: 'POST', 
                headers: { 'Content-Type': 'application/json' }, 
@@ -735,7 +740,6 @@ export default function LiveScorer() {
        }
     }
     
-    // Jump forward instantly
     setBaseRunners(snapshot.state.baseRunners);
     setBaseRunnerPitchers(snapshot.state.baseRunnerPitchers);
     setOuts(snapshot.state.outs);
@@ -1036,14 +1040,54 @@ export default function LiveScorer() {
 
       {showGhostModal && (
         <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/95 p-6 backdrop-blur-sm">
-          <div className="bg-[#002D62] border-2 border-slate-400 p-6 rounded-3xl w-full max-sm shadow-2xl text-center">
-            <h2 className="text-xl font-black uppercase italic mb-6 text-slate-300">Place Ghost Runner</h2>
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {[0, 1, 2].map(idx => (
-                <button key={idx} onClick={() => { let gB = [...baseRunners]; gB[idx] = { id: `ghost-${Date.now()}`, name: 'Ghost Runner' }; setPlayLog(prev => [{ type: 'ghost', batter: 'System', result: `Add Ghost Runner (${idx+1}st)`, runs: 0, inning, isTopInning, prevBaseRunners: [...baseRunners], prevOuts: outs, prevBalls: balls, prevStrikes: strikes, prevBatterIndices: { ...batterIndices } }, ...prev]); setBaseRunners(gB); setShowGhostModal(false); }} className="bg-slate-800 p-4 rounded-xl border border-white/10 hover:bg-white hover:text-[#002D62] font-black text-lg">{idx+1}{idx === 0 ? 'st' : idx === 1 ? 'nd' : 'rd'}</button>
-              ))}
+          <div className="bg-[#002D62] border-4 border-[#669bbc] p-8 rounded-3xl w-full max-w-sm shadow-2xl text-center">
+            <h2 className="text-2xl font-black uppercase italic mb-2 text-white">Extra Innings</h2>
+            <p className="text-[#669bbc] font-bold uppercase tracking-widest text-[10px] mb-8">Tap to Set Ghost Runners</p>
+
+            {/* The Interactive Diamond */}
+            <div className="relative w-32 h-32 mx-auto mb-8 rotate-45">
+              {/* 3rd Base */}
+              <button onClick={() => setGhostSetupBases([ghostSetupBases[0], ghostSetupBases[1], !ghostSetupBases[2]])} className={`absolute top-0 left-0 w-10 h-10 border-2 transition-all ${ghostSetupBases[2] ? 'bg-[#ffd60a] border-white shadow-[0_0_15px_rgba(255,214,10,0.6)]' : 'bg-[#001d3d] border-white/20'}`}></button>
+              {/* 2nd Base */}
+              <button onClick={() => setGhostSetupBases([ghostSetupBases[0], !ghostSetupBases[1], ghostSetupBases[2]])} className={`absolute top-0 right-0 w-10 h-10 border-2 transition-all ${ghostSetupBases[1] ? 'bg-[#ffd60a] border-white shadow-[0_0_15px_rgba(255,214,10,0.6)]' : 'bg-[#001d3d] border-white/20'}`}></button>
+              {/* 1st Base */}
+              <button onClick={() => setGhostSetupBases([!ghostSetupBases[0], ghostSetupBases[1], ghostSetupBases[2]])} className={`absolute bottom-0 right-0 w-10 h-10 border-2 transition-all ${ghostSetupBases[0] ? 'bg-[#ffd60a] border-white shadow-[0_0_15px_rgba(255,214,10,0.6)]' : 'bg-[#001d3d] border-white/20'}`}></button>
+              {/* Home Plate (Decorative) */}
+              <div className="absolute bottom-0 left-0 w-10 h-10 border-2 border-white/5 bg-white/5"></div>
             </div>
-            <button onClick={() => setShowGhostModal(false)} className="w-full py-2 text-white/30 font-black uppercase text-[10px] tracking-widest hover:text-white">Cancel</button>
+
+            <div className="grid grid-cols-2 gap-3 mb-6">
+               <button onClick={() => setGhostSetupBases([true, true, true])} className="bg-white/5 p-3 rounded-xl border border-white/10 font-black uppercase text-[10px] text-white hover:bg-white/10">Bases Loaded</button>
+               <button onClick={() => setGhostSetupBases([false, false, false])} className="bg-white/5 p-3 rounded-xl border border-white/10 font-black uppercase text-[10px] text-white hover:bg-white/10">Empty</button>
+            </div>
+
+            <button onClick={() => {
+                let gB = [...baseRunners];
+                let gP = [...baseRunnerPitchers];
+                
+                ghostSetupBases.forEach((isOn, idx) => {
+                    if (isOn && !gB[idx]) {
+                        gB[idx] = { id: `ghost-${Date.now()}-${idx}`, name: 'Ghost Runner' };
+                        gP[idx] = null; // ⚡ null pitcher means these runs won't charge to the ERA!
+                    } else if (!isOn && gB[idx]) {
+                        gB[idx] = null;
+                        gP[idx] = null;
+                    }
+                });
+
+                setPlayLog(prev => [{
+                    type: 'ghost', batter: 'System', result: `Ghost Runner Setup`,
+                    runs: 0, inning, isTopInning,
+                    prevBaseRunners: [...baseRunners], prevBaseRunnerPitchers: [...baseRunnerPitchers],
+                    prevOuts: outs, prevBalls: balls, prevStrikes: strikes, prevBatterIndices: { ...batterIndices },
+                    prevRunsThisInning: runsThisInning
+                }, ...prev]);
+
+                setBaseRunners(gB);
+                setBaseRunnerPitchers(gP);
+                setShowGhostModal(false);
+            }} className="w-full bg-[#669bbc] text-white p-4 rounded-xl font-black uppercase tracking-widest hover:bg-white hover:text-[#001d3d] transition-all shadow-lg">Confirm Bases</button>
+            <button onClick={() => setShowGhostModal(false)} className="w-full mt-4 py-2 text-white/30 font-black uppercase text-[10px] hover:text-white">Cancel / Play On</button>
           </div>
         </div>
       )}
@@ -1105,9 +1149,9 @@ export default function LiveScorer() {
                     <div className="text-lg font-black">{balls}-{strikes}</div>
                 </div>
                 <div className="flex flex-col items-center justify-center p-3 text-center">
-                    <div className="font-black text-2xl leading-none">{isTopInning ? '▲' : '▼'}{inning}</div>
-                    <div className="text-[10px] font-black uppercase opacity-60 mt-1">{outs} OUT</div>
-                </div>
+                   <div className="font-black text-2xl leading-none">{isTopInning ? '▲' : '▼'}{inning}</div>
+                  <div className="text-[10px] font-black uppercase opacity-60 mt-1">{outs} OUT</div>
+               </div>
             </div>
         </div>
         <div className="bg-[#EAEAEA] text-black px-4 py-2 flex justify-between items-center border-t border-black/20 font-black italic text-[10px]">
