@@ -43,6 +43,7 @@ export async function PATCH(
     if (body.homeTeamId) updateData.homeTeamId = parseInt(body.homeTeamId);
     if (body.awayTeamId) updateData.awayTeamId = parseInt(body.awayTeamId);
     if (body.scheduledAt) updateData.scheduledAt = new Date(body.scheduledAt);
+    if (body.fieldNumber) updateData.fieldNumber = body.fieldNumber; // ⚡ ADD THIS LINE
     if (body.status) updateData.status = body.status;
     if (body.homeScore !== undefined) updateData.homeScore = parseInt(body.homeScore);
     if (body.awayScore !== undefined) updateData.awayScore = parseInt(body.awayScore);

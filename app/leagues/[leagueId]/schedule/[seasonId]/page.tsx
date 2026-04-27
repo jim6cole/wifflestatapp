@@ -101,7 +101,11 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
                         <span className="w-2 h-2 rounded-full bg-[#001d3d] animate-pulse"></span>
                         <span className="font-black italic uppercase text-[10px] tracking-widest leading-none">On Air</span>
                       </div>
-                      <span className="font-black uppercase text-[10px] tracking-widest leading-none">Field {game.fieldNumber || '1'}</span>
+                      <div className="flex items-center gap-2">
+                       {game.location && <span className="font-black uppercase text-[10px] tracking-widest leading-none">📍 {game.location}</span>}
+                       {game.fieldNumber && <span className="font-black uppercase text-[10px] tracking-widest leading-none">Field {game.fieldNumber}</span>}
+                       {!game.location && !game.fieldNumber && <span className="font-black uppercase text-[10px] tracking-widest leading-none">Field 1</span>}
+                     </div>
                     </div>
 
                     {/* Teams & Scores */}
@@ -167,13 +171,15 @@ export default function SeasonSchedulePage({ params }: { params: Promise<{ leagu
                 <>
                   <div className="bg-[#001d3d] text-white p-2 md:p-3 flex justify-between items-center border-b-4 border-[#c1121f]">
                     <span className="text-[10px] font-black uppercase tracking-widest text-[#ffd60a]">
-                      {new Date(game.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                      {new Date(game.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} @ {new Date(game.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                     </span>
                     <div className="flex gap-2 items-center">
                       {game.isPlayoff && (
-                        <span className="text-[8px] font-black uppercase text-[#c1121f] tracking-widest bg-white px-1">Elim</span>
+                       <span className="text-[8px] font-black uppercase text-[#c1121f] tracking-widest bg-white px-1">Elim</span>
                       )}
-                      <span className="text-[9px] font-black uppercase tracking-widest text-[#669bbc]">Field {game.fieldNumber || '1'}</span>
+                      {game.location && <span className="text-[9px] font-black uppercase tracking-widest text-[#669bbc]">📍 {game.location}</span>}
+                      {game.fieldNumber && <span className="text-[9px] font-black uppercase tracking-widest text-[#669bbc]">Field {game.fieldNumber}</span>}
+                      {!game.location && !game.fieldNumber && <span className="text-[9px] font-black uppercase tracking-widest text-[#669bbc]">Field 1</span>}
                     </div>
                   </div>
 

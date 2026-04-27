@@ -2,11 +2,23 @@
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 
+// 15-Min Slot Generator
+const timeSlots = Array.from({ length: 96 }, (_, i) => {
+  const h = Math.floor(i / 4).toString().padStart(2, '0');
+  const m = (i % 4 * 15).toString().padStart(2, '0');
+  const period = +h >= 12 ? 'PM' : 'AM';
+  const displayH = +h % 12 === 0 ? 12 : +h % 12;
+  return { value: `${h}:${m}`, label: `${displayH}:${m} ${period}` };
+});
+
+const FIELD_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; 
+
 export default function EditSchedule({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
   const { leagueId, seasonId } = use(params);
   
   const [activeTeams, setActiveTeams] = useState<any[]>([]);
   const [games, setGames] = useState<any[]>([]);
+  const [savedFields, setSavedFields] = useState<string[]>([]); // ⚡ Added saved fields state
   const [loading, setLoading] = useState(true);
 
   // Selection/Edit State
@@ -15,31 +27,29 @@ export default function EditSchedule({ params }: { params: Promise<{ leagueId: s
   const [awayTeamId, setAwayTeamId] = useState('');
   const [gameDate, setGameDate] = useState('');
   const [gameTime, setGameTime] = useState('');
-
-  // 15-Min Slot Generator (Same as Scheduler)
-  const timeSlots = Array.from({ length: 96 }, (_, i) => {
-    const h = Math.floor(i / 4).toString().padStart(2, '0');
-    const m = (i % 4 * 15).toString().padStart(2, '0');
-    const period = +h >= 12 ? 'PM' : 'AM';
-    const displayH = +h % 12 === 0 ? 12 : +h % 12;
-    return { value: `${h}:${m}`, label: `${displayH}:${m} ${period}` };
-  });
+  const [location, setLocation] = useState(''); // ⚡ Added location state
+  const [fieldNumber, setFieldNumber] = useState(''); // ⚡ Added field number state
 
   useEffect(() => {
     async function loadData() {
-      const [tRes, gRes] = await Promise.all([
-        fetch(`/api/admin/seasons/${seasonId}/teams`),
-        fetch(`/api/admin/seasons/${seasonId}/games`)
+      const t = new Date().getTime();
+      const [tRes, gRes, fRes] = await Promise.all([
+        fetch(`/api/admin/seasons/${seasonId}/teams?t=${t}`),
+        fetch(`/api/admin/seasons/${seasonId}/games?t=${t}`),
+        fetch(`/api/admin/leagues/${leagueId}/fields?t=${t}`) // ⚡ Fetch remembered fields
       ]);
+      
       if (tRes.ok) {
         const tData = await tRes.json();
         setActiveTeams(tData.filter((t: any) => t.seasonId === parseInt(seasonId)));
       }
       if (gRes.ok) setGames(await gRes.json());
+      if (fRes.ok) setSavedFields(await fRes.json()); // ⚡ Set the fields
+      
       setLoading(false);
     }
     loadData();
-  }, [seasonId]);
+  }, [seasonId, leagueId]);
 
   // Load a game into the Editor
   const loadGameToEdit = (game: any) => {
@@ -47,6 +57,8 @@ export default function EditSchedule({ params }: { params: Promise<{ leagueId: s
     setEditingGameId(game.id);
     setHomeTeamId(game.homeTeamId.toString());
     setAwayTeamId(game.awayTeamId.toString());
+    setLocation(game.location || ''); // ⚡ Load existing location
+    setFieldNumber(game.fieldNumber?.toString() || ''); // ⚡ Load existing field number
     setGameDate(d.toISOString().split('T')[0]);
     setGameTime(`${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`);
   };
@@ -58,14 +70,20 @@ export default function EditSchedule({ params }: { params: Promise<{ leagueId: s
     const res = await fetch(`/api/admin/games/${editingGameId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ homeTeamId, awayTeamId, scheduledAt })
+      body: JSON.stringify({ 
+          homeTeamId: parseInt(homeTeamId), 
+          awayTeamId: parseInt(awayTeamId), 
+          scheduledAt,
+          location: location || null, // ⚡ Send location to DB
+          fieldNumber: fieldNumber ? parseInt(fieldNumber) : null // ⚡ Send field number to DB
+      })
     });
 
     if (res.ok) {
       const updated = await res.json();
       setGames(games.map(g => g.id === updated.id ? updated : g));
       setEditingGameId(null); // Close editor
-      setHomeTeamId(''); setAwayTeamId(''); setGameDate(''); setGameTime('');
+      setHomeTeamId(''); setAwayTeamId(''); setGameDate(''); setGameTime(''); setLocation(''); setFieldNumber('');
     }
   };
 
@@ -105,7 +123,10 @@ export default function EditSchedule({ params }: { params: Promise<{ leagueId: s
               <div className="bg-[#003566] border-2 border-[#fdf0d5] p-6 shadow-2xl animate-in slide-in-from-left duration-300">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-black italic uppercase text-white">Edit Game #{editingGameId}</h2>
-                  <button onClick={() => setEditingGameId(null)} className="text-[#c1121f] font-black hover:text-white">CANCEL</button>
+                  <button onClick={() => {
+                      setEditingGameId(null);
+                      setHomeTeamId(''); setAwayTeamId(''); setGameDate(''); setGameTime(''); setLocation(''); setFieldNumber('');
+                  }} className="text-[#c1121f] font-black hover:text-white">CANCEL</button>
                 </div>
                 
                 <form onSubmit={handleUpdate} className="space-y-6">
@@ -124,6 +145,34 @@ export default function EditSchedule({ params }: { params: Promise<{ leagueId: s
                     <select value={gameTime} onChange={(e) => setGameTime(e.target.value)} className="bg-[#001d3d] border-2 border-[#669bbc] p-3 text-white font-bold uppercase">
                       {timeSlots.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                     </select>
+                  </div>
+
+                  {/* ⚡ NEW: Location & Field Number */}
+                  <div className="grid grid-cols-1 gap-4">
+                     <div className="flex flex-col">
+                        <input 
+                          type="text" 
+                          list="edit-fields-list"
+                          placeholder="Location / Stadium Name"
+                          value={location} 
+                          onChange={(e) => setLocation(e.target.value)}
+                          className="bg-[#001d3d] border-2 border-[#669bbc] p-3 text-white font-bold uppercase placeholder:normal-case placeholder:text-white/30"
+                        />
+                        <datalist id="edit-fields-list">
+                           {savedFields.map(f => <option key={f} value={f} />)}
+                        </datalist>
+                     </div>
+
+                     <select 
+                        value={fieldNumber} 
+                        onChange={(e) => setFieldNumber(e.target.value)}
+                        className="bg-[#001d3d] border-2 border-[#669bbc] p-3 text-white font-bold uppercase"
+                      >
+                        <option value="">-- Field # (TBD) --</option>
+                        {FIELD_OPTIONS.map(num => (
+                          <option key={num} value={num}>Field {num}</option>
+                        ))}
+                      </select>
                   </div>
 
                   <button type="submit" className="w-full bg-[#c1121f] border-2 border-[#fdf0d5] py-4 font-black italic uppercase text-white hover:bg-white hover:text-[#c1121f] transition-all">
@@ -145,7 +194,11 @@ export default function EditSchedule({ params }: { params: Promise<{ leagueId: s
                     <div className="flex items-center gap-2">
                       <span className="text-lg font-black italic uppercase text-white">{game.awayTeam?.name} @ {game.homeTeam?.name}</span>
                     </div>
-                    <p className="text-[10px] font-bold uppercase text-[#669bbc]">{d.toLocaleDateString()} @ {d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>
+                    <p className="text-[10px] font-bold uppercase text-[#669bbc] mt-1">
+                        {d.toLocaleDateString()} @ {d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        {game.location && ` • 📍 ${game.location}`}
+                        {game.fieldNumber && ` • Field ${game.fieldNumber}`}
+                    </p>
                   </div>
                   
                   <div className="flex gap-2">

@@ -21,7 +21,6 @@ const generateTimeOptions = () => {
 
 const TIME_OPTIONS = generateTimeOptions();
 const FIELD_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; 
-// ⚡ UPDATED: Now strictly generates 55 MPH to 80 MPH
 const SPEED_OPTIONS = Array.from({ length: 26 }, (_, i) => i + 55); 
 
 export default function ScheduleNewGamePage({ params }: { params: Promise<{ leagueId: string, seasonId: string }> }) {
@@ -32,7 +31,11 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
   const [teams, setTeams] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [upcomingGames, setUpcomingGames] = useState<any[]>([]);
-  
+  const [savedFields, setSavedFields] = useState<string[]>([]); // ⚡ State for remembered fields
+
+  // Tracking if we are editing an existing game
+  const [editingGameId, setEditingGameId] = useState<number | null>(null);
+
   const [homeTeamId, setHomeTeamId] = useState('');
   const [awayTeamId, setAwayTeamId] = useState('');
   const [eventId, setEventId] = useState('');
@@ -54,13 +57,11 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
 
   const fetchSchedule = async () => {
     try {
-      // ⚡ FIX 1: Add a timestamp to completely bypass Next.js caching
       const t = new Date().getTime();
       const res = await fetch(`/api/admin/seasons/${seasonId}/schedule?t=${t}`);
       
       if (res.ok) {
         const games = await res.json();
-        // ⚡ FIX 2: Filter for BOTH 'SCHEDULED' and 'UPCOMING' so it catches the games you already made!
         setUpcomingGames(games.filter((g: any) => g.status === 'SCHEDULED' || g.status === 'UPCOMING'));
       }
     } catch (err) {
@@ -72,10 +73,12 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
     async function load() {
       try {
         const t = new Date().getTime();
-        const [seasonRes, teamsRes, eventsRes] = await Promise.all([
+        // ⚡ FIX: Fetch fields simultaneously with the other season data
+        const [seasonRes, teamsRes, eventsRes, fieldsRes] = await Promise.all([
           fetch(`/api/admin/seasons/${seasonId}?t=${t}`),
           fetch(`/api/admin/seasons/${seasonId}/teams?t=${t}`),
-          fetch(`/api/admin/seasons/${seasonId}/events?t=${t}`)
+          fetch(`/api/admin/seasons/${seasonId}/events?t=${t}`),
+          fetch(`/api/admin/leagues/${leagueId}/fields?t=${t}`)
         ]);
 
         if (!seasonRes.ok) throw new Error("Failed to load season");
@@ -85,7 +88,10 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
         setTeams(await teamsRes.json());
         setEvents(await eventsRes.json());
         
-        // Use season default if it exists, otherwise keep our 60 fallback
+        if (fieldsRes.ok) {
+           setSavedFields(await fieldsRes.json());
+        }
+
         setIsSpeedRestricted(sData.isSpeedRestricted || false);
         setSpeedLimit(sData.speedLimit || 60);
 
@@ -97,22 +103,75 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
       }
     }
     load();
-  }, [seasonId]);
+  }, [seasonId, leagueId]);
 
-  // SMART WATCHER: Automatically set 5PM for Weekdays, 9AM for Weekends
+  // SMART WATCHER: Automatically set 5PM for Weekdays, 9AM for Weekends (Only if NOT editing)
   useEffect(() => {
-    if (scheduledDate) {
+    if (scheduledDate && !editingGameId) {
       const [year, month, day] = scheduledDate.split('-');
       const dateObj = new Date(Number(year), Number(month) - 1, Number(day));
       const dayOfWeek = dateObj.getDay(); 
       
       if (dayOfWeek === 0 || dayOfWeek === 6) {
-        setScheduledTime('09:00'); // 9:00 AM
+        setScheduledTime('09:00'); 
       } else {
-        setScheduledTime('17:00'); // 5:00 PM
+        setScheduledTime('17:00'); 
       }
     }
-  }, [scheduledDate]);
+  }, [scheduledDate, editingGameId]);
+
+  // Load a game into the form for editing
+  const handleEditClick = (game: any) => {
+    setEditingGameId(game.id);
+    setHomeTeamId(game.homeTeamId?.toString() || '');
+    setAwayTeamId(game.awayTeamId?.toString() || '');
+    setEventId(game.eventId?.toString() || '');
+    setLocation(game.location || '');
+    setFieldNumber(game.fieldNumber?.toString() || '');
+    setIsPlayoff(game.isPlayoff || false);
+    
+    // Check if this game had specific speed overrides
+    if (game.isSpeedRestricted !== null) {
+        setOverrideSpeed(true);
+        setIsSpeedRestricted(game.isSpeedRestricted);
+        setSpeedLimit(game.speedLimit || 60);
+    } else {
+        setOverrideSpeed(false);
+    }
+
+    // Parse the date
+    const d = new Date(game.scheduledAt);
+    setScheduledDate(d.toISOString().split('T')[0]);
+    setScheduledTime(`${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`);
+    
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Cancel editing mode
+  const cancelEdit = () => {
+      setEditingGameId(null);
+      setHomeTeamId('');
+      setAwayTeamId('');
+      setOverrideSpeed(false);
+      setIsPlayoff(false);
+  };
+
+  // Delete a game
+  const handleDeleteClick = async (gameId: number) => {
+      if (!window.confirm("Permanently delete this scheduled game?")) return;
+      
+      try {
+          const res = await fetch(`/api/admin/games/${gameId}`, { method: 'DELETE' });
+          if (res.ok) {
+              setUpcomingGames(prev => prev.filter(g => g.id !== gameId));
+              if (editingGameId === gameId) cancelEdit();
+          } else {
+              throw new Error("Failed to delete game");
+          }
+      } catch (err: any) {
+          setError(err.message);
+      }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,32 +183,46 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
 
     const combinedDateTime = new Date(`${scheduledDate}T${scheduledTime}`).toISOString();
 
-    try {
-      const res = await fetch(`/api/admin/seasons/${seasonId}/games`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          homeTeamId: parseInt(homeTeamId),
-          awayTeamId: parseInt(awayTeamId),
-          eventId: eventId ? parseInt(eventId) : null,
-          scheduledAt: combinedDateTime,
-          location: location || null,
-          fieldNumber: fieldNumber ? parseInt(fieldNumber) : null,
-          isPlayoff,
-          status: 'SCHEDULED',
-          isSpeedRestricted: overrideSpeed ? isSpeedRestricted : null,
-          speedLimit: overrideSpeed && isSpeedRestricted ? speedLimit : null
-        })
-      });
+    const payload = {
+        homeTeamId: parseInt(homeTeamId),
+        awayTeamId: parseInt(awayTeamId),
+        eventId: eventId ? parseInt(eventId) : null,
+        scheduledAt: combinedDateTime,
+        location: location || null,
+        fieldNumber: fieldNumber ? parseInt(fieldNumber) : null,
+        isPlayoff,
+        status: 'SCHEDULED',
+        isSpeedRestricted: overrideSpeed ? isSpeedRestricted : null,
+        speedLimit: overrideSpeed && isSpeedRestricted ? speedLimit : null
+    };
 
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to schedule game");
+    try {
+      let res;
+      // If editing, use PATCH to the specific game. If not, use POST to create new.
+      if (editingGameId) {
+          res = await fetch(`/api/admin/games/${editingGameId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+      } else {
+          res = await fetch(`/api/admin/seasons/${seasonId}/games`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+      }
+
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to save game");
       
-      setAwayTeamId('');
-      setHomeTeamId('');
-      // Note: We leave fieldNumber, location, and date alone to make scheduling double-headers easier!
+      if (editingGameId) {
+          cancelEdit();
+      } else {
+          setAwayTeamId('');
+          setHomeTeamId('');
+      }
+
       setSaving(false);
-      
-      // ⚡ Automatically refresh the schedule list
       await fetchSchedule(); 
       
     } catch (err: any) {
@@ -187,8 +260,16 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
           
           {/* LEFT: THE SCHEDULING FORM */}
           <div className="lg:col-span-2 space-y-6 md:space-y-8">
-            <form onSubmit={handleSubmit} className="bg-white text-[#001d3d] p-4 md:p-6 border-4 border-[#001d3d] shadow-[8px_8px_0px_#c1121f] md:shadow-[12px_12px_0px_#c1121f] space-y-6">
+            <form onSubmit={handleSubmit} className={`bg-white text-[#001d3d] p-4 md:p-6 border-4 shadow-[8px_8px_0px_#c1121f] md:shadow-[12px_12px_0px_#c1121f] space-y-6 transition-all ${editingGameId ? 'border-[#22c55e] shadow-[#22c55e]' : 'border-[#001d3d]'}`}>
               
+              {/* Visual Indicator for Edit Mode */}
+              {editingGameId && (
+                <div className="bg-[#22c55e] text-[#001d3d] -mx-4 md:-mx-6 -mt-4 md:-mt-6 mb-6 p-3 flex justify-between items-center font-black uppercase italic tracking-widest">
+                   <span>Editing Game #{editingGameId}</span>
+                   <button type="button" onClick={cancelEdit} className="text-white hover:text-red-900 bg-black/20 px-3 py-1 text-xs">Cancel Edit</button>
+                </div>
+              )}
+
               {/* TEAM SELECTION */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#fdf0d5] p-4 border-2 border-[#001d3d]">
                 <div className="flex flex-col">
@@ -262,13 +343,18 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
 
                 <div className="flex flex-col">
                   <label className="text-[10px] font-black uppercase tracking-widest text-[#669bbc] mb-1.5">Location / Stadium</label>
+                  {/* ⚡ THE DATALIST FOR REMEMBERED FIELDS */}
                   <input 
                     type="text" 
+                    list="saved-fields-list"
                     value={location} 
                     onChange={(e) => setLocation(e.target.value)}
                     placeholder="e.g. Fenway Park"
                     className="w-full bg-[#fdf0d5] border-2 border-[#001d3d] p-2.5 font-bold uppercase text-xs outline-none focus:border-[#c1121f]"
                   />
+                  <datalist id="saved-fields-list">
+                     {savedFields.map(f => <option key={f} value={f} />)}
+                  </datalist>
                 </div>
 
                 <div className="flex flex-col">
@@ -353,9 +439,9 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
               <button 
                 type="submit" 
                 disabled={saving}
-                className="w-full bg-[#c1121f] text-white py-4 md:py-5 font-black italic uppercase tracking-[0.2em] text-lg border-4 border-[#001d3d] hover:bg-[#ffd60a] hover:text-[#001d3d] transition-all shadow-[4px_4px_0px_#000] md:shadow-[6px_6px_0px_#000] active:translate-y-1 active:shadow-none disabled:opacity-50"
+                className={`w-full text-white py-4 md:py-5 font-black italic uppercase tracking-[0.2em] text-lg border-4 transition-all shadow-[4px_4px_0px_#000] md:shadow-[6px_6px_0px_#000] active:translate-y-1 active:shadow-none disabled:opacity-50 ${editingGameId ? 'bg-[#22c55e] border-[#001d3d] text-[#001d3d] hover:bg-white hover:text-[#22c55e]' : 'bg-[#c1121f] border-[#001d3d] hover:bg-[#ffd60a] hover:text-[#001d3d]'}`}
               >
-                {saving ? 'Booking...' : '+ Add to Schedule'}
+                {saving ? 'Processing...' : editingGameId ? '✓ Update Game' : '+ Add to Schedule'}
               </button>
 
             </form>
@@ -377,9 +463,10 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
                 upcomingGames.map((game: any) => {
                   const gameDate = new Date(game.scheduledAt);
                   const isToday = new Date().toDateString() === gameDate.toDateString();
+                  const isCurrentlyEditing = editingGameId === game.id;
 
                   return (
-                    <div key={game.id} className="border-2 border-[#001d3d] p-3 shadow-[2px_2px_0px_#c1121f] hover:bg-slate-50 transition-colors">
+                    <div key={game.id} className={`border-2 transition-all p-3 shadow-[2px_2px_0px_#c1121f] hover:bg-slate-50 ${isCurrentlyEditing ? 'border-[#22c55e] bg-green-50 translate-x-2' : 'border-[#001d3d]'}`}>
                       <div className="flex justify-between items-start mb-2">
                         <span className={`text-[8px] font-black uppercase px-2 py-0.5 ${isToday ? 'bg-[#c1121f] text-white' : 'bg-[#001d3d] text-white'}`}>
                           {isToday ? 'TODAY' : gameDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
@@ -406,6 +493,16 @@ export default function ScheduleNewGamePage({ params }: { params: Promise<{ leag
                           {game.fieldNumber && <span>FIELD {game.fieldNumber}</span>}
                         </div>
                       )}
+
+                      {/* Edit & Delete Action Buttons */}
+                      <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-200 pt-3">
+                         <button onClick={() => handleEditClick(game)} className="bg-[#669bbc]/10 text-[#001d3d] border border-[#669bbc]/30 text-[9px] font-black uppercase py-1.5 hover:bg-[#669bbc] hover:text-white transition-all">
+                             Edit
+                         </button>
+                         <button onClick={() => handleDeleteClick(game.id)} className="bg-[#c1121f]/5 text-[#c1121f] border border-[#c1121f]/20 text-[9px] font-black uppercase py-1.5 hover:bg-[#c1121f] hover:text-white transition-all">
+                             Delete
+                         </button>
+                      </div>
                     </div>
                   );
                 })
