@@ -17,8 +17,6 @@ export async function GET(
     });
     const eraStandard = season?.eraStandard || 4;
 
-    // ⚡ FIX: Explicitly include the nested batter/pitcher names inside the atBats
-    // AND include the lineups to properly credit GP to fielders
     const games = await prisma.game.findMany({
       where: { seasonId: sId, status: 'COMPLETED' },
       include: { 
@@ -60,19 +58,20 @@ export async function GET(
       let lastAwayPitcher = 0;
       let lastHomePitcher = 0;
 
-      // ⚡ FIX: SEED GP CREDIT BEFORE AT-BATS ARE CALCULATED
-      // This guarantees fielders get credit for the game even if they don't hit
       game.lineups.forEach(l => {
          initBatter(l.playerId, l.player?.name || "Unknown");
          batterMap[l.playerId].gamesSet.add(game.id);
       });
 
       game.atBats.forEach(ab => {
-        const res = ab.result;
-        const isH = ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(hit => res?.startsWith(hit));
-        const isHR = res?.startsWith('HR');
-        const isBB = res === 'WALK' || res === 'BB';
+        const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
+        
+        // ⚡ STRICT CHECKS
         const isK = res === 'K' || res === 'STRIKEOUT';
+        const isBB = res === 'WALK' || res === 'BB' || res.includes('HBP');
+        const isH = !isK && !isBB && ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(hit => res.startsWith(hit));
+        const isHR = res.startsWith('HR');
+        const isOtherOut = ['FLY_OUT', 'GROUND_OUT', 'OUT', 'DP', 'FIELDERS_CHOICE'].some(o => res.startsWith(o));
         
         if (ab.isTopInning) {
           awayRuns += ab.runsScored;
@@ -89,39 +88,38 @@ export async function GET(
         }
 
         if (ab.batterId) {
-          // FIX: Pass the actual player name from the database
           initBatter(ab.batterId, ab.batter?.name || "Unknown"); 
           const b = batterMap[ab.batterId];
-          b.gamesSet.add(game.id); // Safe redundancy, already added by lineup loop
+          b.gamesSet.add(game.id);
           b.rbi += (ab.rbi || ab.runsScored || 0);
           b.pa++;
+          
           if (isH) { b.h++; b.ab++; }
-          if (res?.includes('DOUBLE')) b.double++;
-          if (res?.includes('TRIPLE')) b.triple++;
+          if (res.includes('DOUBLE')) b.double++;
+          if (res.includes('TRIPLE')) b.triple++;
           if (isHR) { b.hr++; b.tb += 4; }
-          if (isBB) b.bb++;
+          if (isBB) b.bb++; // Adds to PA, not AB
           if (isK) { b.k++; b.ab++; }
-          if (['FLY_OUT', 'GROUND_OUT', 'OUT'].includes(res || '')) b.ab++;
+          if (isOtherOut) b.ab++;
         }
 
         if (ab.pitcherId) {
-          // FIX: Pass the actual pitcher name from the database
           initPitcher(ab.pitcherId, ab.pitcher?.name || "Unknown");
           const p = pitcherMap[ab.pitcherId];
           p.gamesSet.add(game.id);
           p.outs += ab.outs;
           p.r += ab.runsScored;
           p.er += ab.runsScored; 
+          
           if (isH) p.h++;
           if (isHR) p.hr++;
           if (isBB) p.bb++;
-          if (isK) p.k++;
+          if (isK) p.k++; // ⚡ Now protected from walks
         }
       });
 
       const homeWinner = homeRuns > awayRuns;
       
-      // Safe helper to find pitcher with most outs
       const getPitcherWithMostOuts = (outsDict: Record<number, number>) => {
           const keys = Object.keys(outsDict);
           if (keys.length === 0) return 0;

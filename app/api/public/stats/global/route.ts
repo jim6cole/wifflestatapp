@@ -14,7 +14,6 @@ export async function GET(request: Request) {
 
     const whereClause: any = { status: 'COMPLETED' };
 
-    // --- 1. FILTERING LOGIC ---
     if (seasonIdFilter) {
       whereClause.seasonId = parseInt(seasonIdFilter);
       if (eventIdFilter) {
@@ -33,7 +32,6 @@ export async function GET(request: Request) {
       }
     }
 
-    // Replace the Promise.all with this:
     const [atBats, manualLines, leagues, metadata, lineups] = await Promise.all([
       prisma.atBat.findMany({
         where: { game: whereClause },
@@ -63,7 +61,6 @@ export async function GET(request: Request) {
           where: { id: parseInt(seasonIdFilter) },
           include: { events: { orderBy: { id: 'desc' } } }
         }) : null),
-      // ⚡ FETCH LINEUPS TO SECURE GP FOR FIELDERS
       prisma.lineupEntry.findMany({
         where: { game: whereClause },
         include: {
@@ -77,7 +74,6 @@ export async function GET(request: Request) {
     const pitcherMap: Record<number, any> = {};
     const gamesWithLiveAtBats = new Set(atBats.map(ab => ab.gameId));
 
-    // --- 2. UPDATED ADD TO MAP WITH SPEED LIMIT LOGIC ---
     const addToMap = (map: any, id: number, name: string, game: any) => {
       const leagueLabel = game?.season?.league?.shortName || game?.season?.league?.name || 'AWAA';
       const isMed = game?.season?.isSpeedRestricted;
@@ -101,26 +97,26 @@ export async function GET(request: Request) {
       return map[id];
     };
 
-    // ⚡ SEED FIELDERS WITH GP CREDITS
     lineups.forEach(l => {
        const b = addToMap(batterMap, l.playerId, l.player.name, l.game);
        b.gameIds.add(l.gameId);
     });
 
-    // ... continue to Process At-Bats
-
-    // Process At-Bats
     atBats.forEach(ab => {
       const b = addToMap(batterMap, ab.batterId, ab.batter.name, ab.game);
       b.gameIds.add(ab.gameId);
-      const res = ab.result?.toUpperCase() || '';
-      const isH = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
-      const isWalk = ['WALK', 'BB', 'HBP'].some(w => res.includes(w));
+      
+      const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
+      
+      // ⚡ STRICT CHECKS
+      const isK = res === 'K' || res === 'STRIKEOUT';
+      const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
+      const isH = !isK && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
       
       if (isWalk) b.bb++;
       else {
         b.ab++;
-        if (res.includes('K')) b.k++;
+        if (isK) b.k++;
         if (isH) {
           b.h++;
           const bases = (res.includes('HR') || res.includes('4B')) ? 4 : (res.includes('TRIPLE') || res.includes('3B')) ? 3 : (res.includes('DOUBLE') || res.includes('2B')) ? 2 : 1;
@@ -128,6 +124,7 @@ export async function GET(request: Request) {
           if (bases === 2) b.d++; else if (bases === 3) b.t++; else if (bases === 4) b.hr++;
         }
       }
+      
       b.rbi += (ab.rbi || ab.runsScored || 0);
       if (ab.scorerIds) {
         ab.scorerIds.split(',').forEach(sid => { 
@@ -143,7 +140,9 @@ export async function GET(request: Request) {
       const p = addToMap(pitcherMap, ab.pitcherId, ab.pitcher.name, ab.game);
       p.gameIds.add(ab.gameId);
       p.ipOuts += (ab.outs || 0);
-      if (res.includes('K')) p.pk++;
+      
+      // ⚡ STRICT PITCHER CHECKS
+      if (isK) p.pk++;
       if (isH) { p.ph++; if (res.includes('HR') || res.includes('4B')) p.phr++; }
       if (isWalk) p.pbb++;
       
@@ -156,7 +155,6 @@ export async function GET(request: Request) {
       }
     });
 
-    // Process Manual Data
     manualLines.forEach((ms: any) => { 
       const p = addToMap(pitcherMap, ms.playerId, ms.player.name, ms.game);
       if (ms.winCount) p.w += ms.winCount;
@@ -176,7 +174,6 @@ export async function GET(request: Request) {
       }
     });
 
-    // --- 3. UPDATED DISPLAY HELPER ---
     const getDisplays = (item: any) => {
       const styles = Array.from(item.stylesPlayed) as string[];
       const hasFast = styles.includes('FAST');
@@ -186,7 +183,6 @@ export async function GET(request: Request) {
       if (hasFast && hasMed) {
         speedDisplay = "BOTH";
       } else {
-        // Sorts styles so 'FAST' usually comes first or alphabetically
         speedDisplay = styles.sort().join(' / ');
       }
 
@@ -226,7 +222,6 @@ export async function GET(request: Request) {
       };
     });
 
-    // CASTING: Handle Metadata for filtering
     const meta = metadata as any;
     let seasons: any[] = [];
     let years: number[] = [];
