@@ -167,8 +167,6 @@ export async function GET(
       }
     });
 
-    // CRITICAL FIX: Pre-load HR Tracker with manual HRs from PREVIOUS games
-    // This ensures legacy imports are counted in the season totals properly
     seasonManualStats.filter(ms => ms.gameId !== gId).forEach(ms => {
       seasonHRTracker[ms.playerId] = (seasonHRTracker[ms.playerId] || 0) + ms.hr;
     });
@@ -176,10 +174,13 @@ export async function GET(
     seasonAtBats.forEach(ab => {
       const isCurrent = ab.gameId === gId;
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
-      const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'K', 'STRIKEOUT', 'DOUBLE_PLAY'].some(o => res.includes(o));
-      const isWalk = res.includes('WALK') || res === 'BB' || res.includes('HBP');
-      const isHit = !isOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
-      const isAB = isHit || isOut;
+      
+      // ⚡ CRITICAL FIX: Strict match K and WALK to prevent overlapping
+      const isK = res === 'K' || res === 'STRIKEOUT';
+      const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
+      const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY'].some(o => res.includes(o)) || isK;
+      const isHit = !isOut && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
+      const isAB = isHit || isOut; // Walk does not count as AB
 
       if (isCurrent) {
         if (ab.isTopInning) {
@@ -210,7 +211,7 @@ export async function GET(
                 side: ab.isTopInning ? 'TOP' : 'BOT',
                 teamId: ab.isTopInning ? game.awayTeamId : game.homeTeamId,
                 seasonTotal: seasonHRTracker[ab.batterId],
-                runsScored: ab.runsScored || 1 // <-- Exposes exact runs for UI processing
+                runsScored: ab.runsScored || 1
               });
               b.hr++;
             }
@@ -220,7 +221,8 @@ export async function GET(
         }
         
         if (isCurrent) {
-          if (res.includes('K')) b.k++;
+          // ⚡ CRITICAL FIX: Use strict isK check here
+          if (isK) b.k++;
           b.rbi += (ab.rbi || ab.runsScored || 0);
           if (ab.scorerIds) {
             ab.scorerIds.split(',').forEach(sid => {
@@ -238,7 +240,13 @@ export async function GET(
         if (isWalk) p.season_bb++;
         if (isCurrent) {
           p.battersFaced++; p.outs += ab.outs;
-          if (isHit) p.h++; if (isWalk) p.bb++; if (res.includes('K')) p.k++; if (res.includes('HR')) p.hr++;
+          if (isHit) p.h++; 
+          if (isWalk) p.bb++; 
+          
+          // ⚡ CRITICAL FIX: Use strict isK check here
+          if (isK) p.k++; 
+          
+          if (res.includes('HR')) p.hr++;
           if (res.includes('GROUND')) p.groundOuts += (ab.outs > 1 ? 2 : 1);
           if (res.includes('FLY')) p.flyOuts += (ab.outs > 1 ? 2 : 1);
           p.totalPitches += (ab.balls + ab.strikes + 1);
@@ -285,11 +293,9 @@ export async function GET(
       };
     };
 
-    // --- ⚡ CRITICAL FIX: Hide Fielders and Sort Lineup ---
     const filterBatters = (battersMap: Record<number, any>, teamId: number) => {
         return Object.values(battersMap)
             .filter((b: any) => b.teamId === teamId)
-            // Hide Fielder-Only (Slot 99) UNLESS they scored a run or recorded a manual stat
             .filter((b: any) => b.slot !== 99 || b.ab > 0 || b.bb > 0 || b.r > 0 || b.rbi > 0 || b.h > 0 || b.k > 0)
             .sort((a: any, b: any) => a.slot - b.slot)
             .map(formatB);
