@@ -1,18 +1,18 @@
 'use client';
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
-import { useSession } from 'next-auth/react'; // NEW: Import session hook
+import { useSession } from 'next-auth/react';
 
 export default function LeagueHub({ params }: { params: Promise<{ leagueId: string }> }) {
   const { leagueId } = use(params);
-  const { data: session } = useSession(); // NEW: Get session data
+  const { data: session } = useSession();
   const user = session?.user as any;
   
   const [league, setLeague] = useState<any>(null);
   const [seasons, setSeasons] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
 
-  // NEW: Robust Commissioner check (Covers Level 2 and Global Admins)
+  // ⚡ COMMISSIONER CHECK: Only Level 2+ and Global Admins pass
   const isCommish = user?.isGlobalAdmin || user?.memberships?.some(
     (m: any) => Number(m.leagueId) === Number(leagueId) && m.roleLevel >= 2 && m.isApproved
   );
@@ -37,7 +37,6 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
   if (loading) return <div className="min-h-screen bg-[#001d3d] flex items-center justify-center font-black uppercase text-white animate-pulse italic text-2xl tracking-tighter">Accessing League Mainframe...</div>;
 
   const activeSeasons = seasons.filter(s => s.status === 'ACTIVE');
-  const latestActiveSeason = activeSeasons.length > 0 ? activeSeasons[0] : null;
 
   return (
     <div className="min-h-screen bg-[#001d3d] text-white font-sans p-4 sm:p-6 md:p-12 lg:p-16 border-[8px] md:border-[16px] border-[#c1121f] selection:bg-[#ffd60a] selection:text-[#001d3d]">
@@ -53,7 +52,7 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
               {league?.name} <span className="text-[#c1121f] not-italic text-[0.4em] inline-block ml-2 align-middle border-l-8 border-[#c1121f] pl-4 md:pl-6 bg-white px-2 shadow-[4px_4px_0px_#ffd60a]">HUB</span>
             </h1>
             <p className="text-[#669bbc] font-bold uppercase text-[clamp(0.75rem,1.2vw,0.9rem)] tracking-[0.35em] mt-8 italic max-w-2xl leading-relaxed">
-              {league?.description || 'League Operations & Franchise Management'}
+              {isCommish ? (league?.description || 'League Operations & Franchise Management') : 'League Staff Portal // Scorekeeper Access'}
             </p>
           </div>
           
@@ -65,29 +64,9 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
         {/* --- COMMAND GRID --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
           
-          {/* COLUMN 1: PERSONNEL */}
-          <HubColumn title="Personnel" icon="👥">
-            <HubButton 
-              title="Edit Teams" 
-              subtitle="Franchise Management" 
-              href={`/admin/leagues/${leagueId}/teams`} 
-            />
-            <HubButton 
-              title="Edit Rosters" 
-              subtitle="Active Player Pool" 
-              href={latestActiveSeason ? `/admin/leagues/${leagueId}/seasons/${latestActiveSeason.id}/players` : '#'}
-              disabled={!latestActiveSeason}
-            />
-            <HubButton 
-              title="User Access" 
-              subtitle="Permissions Hub" 
-              href={`/admin/leagues/${leagueId}/staff`} 
-            />
-          </HubColumn>
-
-          {/* COLUMN 2: CAMPAIGNS */}
-          <HubColumn title="Campaigns" icon="🏆">
-            <div className="space-y-4 mb-4">
+          {/* COLUMN 1: ACTIVE SEASONS (Everyone) */}
+          <HubColumn title="Campaigns" icon="🏆" highlight>
+            <div className="space-y-4">
               {activeSeasons.map((s) => (
                 <HubButton 
                   key={s.id}
@@ -97,45 +76,39 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
                   highlight 
                 />
               ))}
+              {activeSeasons.length === 0 && <p className="text-[#001d3d] opacity-40 font-black uppercase text-center py-4 italic">No Active Operations</p>}
             </div>
+          </HubColumn>
 
-            <div className="space-y-4 border-t-8 border-[#001d3d]/5 pt-6">
+          {/* COLUMN 2: ARCHIVES (Everyone) */}
+          <HubColumn title="Archives" icon="📜">
+            <HubButton 
+              title="Season History" 
+              subtitle="Archives & Past Data" 
+              href={`/admin/leagues/${leagueId}/seasons`} 
+            />
+          </HubColumn>
+
+          {/* COLUMN 3: COMMISSIONER ONLY (Personnel & Wizard) */}
+          {isCommish && (
+            <HubColumn title="Administration" icon="⚙️">
               <HubButton 
                 title="+ Season Wizard" 
-                subtitle="Standard League Play" 
+                subtitle="Start New Play" 
                 href={`/admin/leagues/${leagueId}/seasons/new`} 
               />
               <HubButton 
-                title="+ Tournament Circuit Wizard" 
-                subtitle="Multi-Event Summer Tour" 
-                href={`/admin/leagues/${leagueId}/circuits/new`} 
-                highlight
+                title="Edit Teams" 
+                subtitle="Franchise Management" 
+                href={`/admin/leagues/${leagueId}/teams`} 
               />
               <HubButton 
-                title="+ Standalone Tournament Wizard" 
-                subtitle="One-Off Tournament" 
-                href={`/admin/leagues/${leagueId}/tournaments/new`} 
+                title="User Access" 
+                subtitle="Permissions Hub" 
+                href={`/admin/leagues/${leagueId}/staff`} 
               />
-            </div>
-          </HubColumn>
-
-          {/* COLUMN 3: GAME DAY */}
-          <HubColumn title="Game Day" icon="⚾" highlight>
-            <HubButton 
-              title="Season Archives" 
-              subtitle="Active, Planned, and Past Seasons" 
-              href={`/admin/leagues/${leagueId}/seasons`} 
-            />
-            {/* NEW: LEGACY IMPORT BUTTON (Visible to Commissioners only) */}
-            {isCommish && (
-              <HubButton 
-                title="Import Legacy Stats" 
-                subtitle="Sync historical data/seasons" 
-                href={`/admin/leagues/${leagueId}/import`} 
-                highlight
-              />
-            )}
-          </HubColumn>
+            </HubColumn>
+          )}
 
         </div>
       </div>
@@ -143,7 +116,6 @@ export default function LeagueHub({ params }: { params: Promise<{ leagueId: stri
   );
 }
 
-// Column Container Fix for Navy Background
 function HubColumn({ title, icon, children, highlight = false }: any) {
   return (
     <div className={`flex flex-col bg-white border-4 border-[#c1121f] p-6 md:p-8 relative shadow-[12px_12px_0px_#000] ${highlight ? 'ring-8 ring-[#ffd60a]/20' : ''}`}>
@@ -158,17 +130,7 @@ function HubColumn({ title, icon, children, highlight = false }: any) {
   );
 }
 
-// Button Styling Fix for White Cards on Navy
-function HubButton({ title, subtitle, href, highlight = false, disabled = false }: any) {
-  if (disabled) {
-    return (
-      <div className="block bg-slate-50 border-4 border-slate-200 p-6 opacity-40 cursor-not-allowed">
-        <h3 className="text-lg font-black italic uppercase text-slate-400 leading-tight">{title}</h3>
-        <p className="text-[9px] font-bold uppercase text-slate-400 tracking-widest mt-1">LOCKED</p>
-      </div>
-    );
-  }
-
+function HubButton({ title, subtitle, href, highlight = false }: any) {
   return (
     <Link 
       href={href} 
@@ -178,7 +140,7 @@ function HubButton({ title, subtitle, href, highlight = false, disabled = false 
           : 'bg-white border-[#001d3d] hover:bg-[#ffd60a]'
       }`}
     >
-      <h3 className={`font-black italic uppercase leading-none transition-colors text-[clamp(1rem,2vw,1.75rem)] tracking-tight ${
+      <h3 className={`font-black italic uppercase leading-none transition-colors text-[clamp(1rem,2xl,1.75rem)] tracking-tight ${
         highlight ? 'text-white group-hover:text-[#001d3d]' : 'text-[#001d3d]'
       }`}>
         {title}
