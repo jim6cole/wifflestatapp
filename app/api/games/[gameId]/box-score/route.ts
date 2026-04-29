@@ -1,4 +1,3 @@
-// Replace the entire GET function in app/api/games/[gameId]/box-score/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
@@ -175,12 +174,12 @@ export async function GET(
       const isCurrent = ab.gameId === gId;
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
       
-      // ⚡ CRITICAL FIX: Strict match K and WALK to prevent overlapping
+      const isManualOut = res === 'MANUAL_OUT';
       const isK = res === 'K' || res === 'STRIKEOUT';
       const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
       const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY'].some(o => res.includes(o)) || isK;
-      const isHit = !isOut && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
-      const isAB = isHit || isOut; // Walk does not count as AB
+      const isHit = !isOut && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
+      const isAB = (isHit || isOut) && !isManualOut; 
 
       if (isCurrent) {
         if (ab.isTopInning) {
@@ -194,8 +193,9 @@ export async function GET(
         }
       }
 
+      // ⚡ BATTER SHIELD
       const b = batters[ab.batterId];
-      if (b) {
+      if (b && !isManualOut) {
         if (isAB) { b.season_ab++; if (isCurrent) b.ab++; }
         if (isWalk) { b.season_bb++; if (isCurrent) b.bb++; }
         if (isHit) {
@@ -221,7 +221,6 @@ export async function GET(
         }
         
         if (isCurrent) {
-          // ⚡ CRITICAL FIX: Use strict isK check here
           if (isK) b.k++;
           b.rbi += (ab.rbi || ab.runsScored || 0);
           if (ab.scorerIds) {
@@ -242,8 +241,6 @@ export async function GET(
           p.battersFaced++; p.outs += ab.outs;
           if (isHit) p.h++; 
           if (isWalk) p.bb++; 
-          
-          // ⚡ CRITICAL FIX: Use strict isK check here
           if (isK) p.k++; 
           
           if (res.includes('HR')) p.hr++;

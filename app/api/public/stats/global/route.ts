@@ -103,29 +103,33 @@ export async function GET(request: Request) {
     });
 
     atBats.forEach(ab => {
-      const b = addToMap(batterMap, ab.batterId, ab.batter.name, ab.game);
-      b.gameIds.add(ab.gameId);
-      
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
+      const isManualOut = res === 'MANUAL_OUT';
       
-      // ⚡ STRICT CHECKS
-      const isK = res === 'K' || res === 'STRIKEOUT';
-      const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
-      const isH = !isK && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
-      
-      if (isWalk) b.bb++;
-      else {
-        b.ab++;
-        if (isK) b.k++;
-        if (isH) {
-          b.h++;
-          const bases = (res.includes('HR') || res.includes('4B')) ? 4 : (res.includes('TRIPLE') || res.includes('3B')) ? 3 : (res.includes('DOUBLE') || res.includes('2B')) ? 2 : 1;
-          b.tb += bases;
-          if (bases === 2) b.d++; else if (bases === 3) b.t++; else if (bases === 4) b.hr++;
-        }
+      // ⚡ BATTER SHIELD
+      if (!isManualOut && ab.batterId && ab.batter) {
+          const b = addToMap(batterMap, ab.batterId, ab.batter.name, ab.game);
+          b.gameIds.add(ab.gameId);
+          
+          const isK = res === 'K' || res === 'STRIKEOUT';
+          const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
+          const isH = !isK && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
+          
+          if (isWalk) b.bb++;
+          else {
+            b.ab++;
+            if (isK) b.k++;
+            if (isH) {
+              b.h++;
+              const bases = (res.includes('HR') || res.includes('4B')) ? 4 : (res.includes('TRIPLE') || res.includes('3B')) ? 3 : (res.includes('DOUBLE') || res.includes('2B')) ? 2 : 1;
+              b.tb += bases;
+              if (bases === 2) b.d++; else if (bases === 3) b.t++; else if (bases === 4) b.hr++;
+            }
+          }
+          
+          b.rbi += (ab.rbi || ab.runsScored || 0);
       }
       
-      b.rbi += (ab.rbi || ab.runsScored || 0);
       if (ab.scorerIds) {
         ab.scorerIds.split(',').forEach(sid => { 
             const sIdNum = parseInt(sid);
@@ -137,21 +141,27 @@ export async function GET(request: Request) {
         });
       }
 
-      const p = addToMap(pitcherMap, ab.pitcherId, ab.pitcher.name, ab.game);
-      p.gameIds.add(ab.gameId);
-      p.ipOuts += (ab.outs || 0);
-      
-      // ⚡ STRICT PITCHER CHECKS
-      if (isK) p.pk++;
-      if (isH) { p.ph++; if (res.includes('HR') || res.includes('4B')) p.phr++; }
-      if (isWalk) p.pbb++;
-      
-      const standard = (ab.game?.season?.eraStandard === 4 && ab.game?.season?.inningsPerGame !== 4) 
-        ? ab.game?.season?.inningsPerGame 
-        : (ab.game?.season?.eraStandard || 4);
+      // ⚡ PITCHERS STILL GET THEIR MANUAL OUTS
+      if (ab.pitcherId && ab.pitcher) {
+          const p = addToMap(pitcherMap, ab.pitcherId, ab.pitcher.name, ab.game);
+          p.gameIds.add(ab.gameId);
+          p.ipOuts += (ab.outs || 0);
+          
+          const isK = res === 'K' || res === 'STRIKEOUT';
+          const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
+          const isH = !isK && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
 
-      if (ab.runsScored > 0) {
-        p.pr += ab.runsScored; p.per += ab.runsScored; p.weighted_per += (ab.runsScored * standard);
+          if (isK) p.pk++;
+          if (isH) { p.ph++; if (res.includes('HR') || res.includes('4B')) p.phr++; }
+          if (isWalk) p.pbb++;
+          
+          const standard = (ab.game?.season?.eraStandard === 4 && ab.game?.season?.inningsPerGame !== 4) 
+            ? ab.game?.season?.inningsPerGame 
+            : (ab.game?.season?.eraStandard || 4);
+
+          if (ab.runsScored > 0) {
+            p.pr += ab.runsScored; p.per += ab.runsScored; p.weighted_per += (ab.runsScored * standard);
+          }
       }
     });
 

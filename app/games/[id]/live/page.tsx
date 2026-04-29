@@ -6,8 +6,11 @@ import Link from 'next/link';
 // --- BASERUNNING UTILITIES ---
 const baseToInt = (b: string) => b === '1st' ? 1 : b === '2nd' ? 2 : b === '3rd' ? 3 : b === 'Home' ? 4 : b === 'Batter' ? 0 : -1;
 const intToBase = (i: number) => i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : i >= 4 ? 'Home' : 'Out';
-const isBaseDisabled = (from: string, target: string) => {
+
+// ⚡ FIX: Allow backwards movement ONLY for the "Move Runners" mid-ab action
+const isBaseDisabled = (from: string, target: string, action: string | null = null) => {
     if (target === 'Out' || target === 'Home') return false;
+    if (action === 'Move Runners') return false; 
     return baseToInt(from) > baseToInt(target);
 };
 
@@ -275,12 +278,17 @@ export default function LiveScorer() {
     const isUnlimitedInning = rules?.unlimitedLastInning && inning >= (rules?.inningsPerGame || 5);
     const newRunsThisInning = runsThisInning + runs;
 
+    // ⚡ MID AT-BAT LOGIC: Tied to previous play. Does not advance batter or clear count!
+    const isMidAtBat = result === 'Move Runners' || result === 'Manual Out';
+
     if (outs >= targetOuts && extraOuts > 0) {
        triggerJackass(`Inning is already over! (Current Outs: ${outs})`);
        return;
     }
 
-    if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
+    if (!isMidAtBat) {
+        if (isTopInning) setHomePitches(p => p + 1); else setAwayPitches(p => p + 1);
+    }
 
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
     const hittingLineup = game.lineups
@@ -288,7 +296,13 @@ export default function LiveScorer() {
       .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
 
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
-    const batter = hittingLineup[activeBatterIdx]?.player;
+    
+    // Assign to the PREVIOUS batter if this is a mid-at-bat adjustment
+    const effectiveBatterIdx = isMidAtBat 
+        ? (activeBatterIdx - 1 + hittingLineup.length) % hittingLineup.length 
+        : activeBatterIdx;
+    
+    const batter = hittingLineup[effectiveBatterIdx]?.player;
 
     const runner1Id = baseRunners[0]?.id || null;
     const runner2Id = baseRunners[1]?.id || null;
@@ -301,7 +315,7 @@ export default function LiveScorer() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        gameId: id, batterId: batter?.id, pitcherId: activePitcherId, slot: activeBatterIdx + 1,
+        gameId: id, batterId: batter?.id, pitcherId: activePitcherId, slot: effectiveBatterIdx + 1,
         runAttribution: runAttributionString, result: result.toUpperCase().replace(/\s/g, '_'), 
         runsScored: runs, outs: extraOuts, inning: inning, isTopInning: isTopInning,
         runner1Id, runner2Id, runner3Id, scorerIds: scorerIdsString,
@@ -313,9 +327,9 @@ export default function LiveScorer() {
     setRunsThisInning(newRunsThisInning); 
 
     setPlayLog(prev => [{
-      type: 'play', batter: batter?.name || 'Unknown', batterId: batter?.id, pitcherId: activePitcherId, 
+      type: 'play', batter: result === 'Manual Out' ? 'System' : (batter?.name || 'Unknown'), batterId: result === 'Manual Out' ? undefined : batter?.id, pitcherId: activePitcherId, 
       result, runsScored: runs, runs: runs,
-      inning: inning, isTopInning: isTopInning, slot: activeBatterIdx + 1, runAttribution: runAttributionString,
+      inning: inning, isTopInning: isTopInning, slot: effectiveBatterIdx + 1, runAttribution: runAttributionString,
       runner1Id, runner2Id, runner3Id, scorerIds: scorerIdsString,
       logDisplayInning: `${isTopInning ? 'TOP' : 'BOT'} ${inning}`,
       prevBaseRunners: [...baseRunners], prevBaseRunnerPitchers: [...baseRunnerPitchers], 
@@ -324,10 +338,13 @@ export default function LiveScorer() {
       extraOuts 
     }, ...prev]);
 
-    setBatterIndices(prev => ({
-      ...prev,
-      [isTopInning ? 'away' : 'home']: (prev[isTopInning ? 'away' : 'home'] + 1) % hittingLineup.length
-    }));
+    // Skip advancing batter index if we are just moving runners mid-at-bat
+    if (!isMidAtBat) {
+        setBatterIndices(prev => ({
+          ...prev,
+          [isTopInning ? 'away' : 'home']: (prev[isTopInning ? 'away' : 'home'] + 1) % hittingLineup.length
+        }));
+    }
 
     const newAwayScore = isTopInning ? awayScore + runs : awayScore;
     const newHomeScore = !isTopInning ? homeScore + runs : homeScore;
@@ -350,8 +367,12 @@ export default function LiveScorer() {
       setBaseRunners(newBases); 
       setBaseRunnerPitchers(nextPitchers || [null, null, null]);
       setOuts(outs + extraOuts); 
-      setBalls(0); 
-      setStrikes(0);
+      
+      // Preserve the pitch count if we are just moving runners or adding a manual out
+      if (!isMidAtBat) {
+          setBalls(0); 
+          setStrikes(0);
+      }
     }
   }, [game, id, isTopInning, batterIndices, outs, inning, baseRunners, baseRunnerPitchers, activePitcherId, homeScore, awayScore, runsThisInning, toggleInning, clearRedo, setHomePitches, setAwayPitches, triggerJackass, setAwayScore, setHomeScore, setPlayLog, balls, strikes, setBatterIndices, setBaseRunners, setBaseRunnerPitchers, setOuts, setBalls, setStrikes, setRunsThisInning]);
 
@@ -386,7 +407,7 @@ export default function LiveScorer() {
     recordPlay(type, curB, scoringR.length, 0, curP, scoringP, scoringR);
   }, [game, isTopInning, batterIndices, baseRunners, baseRunnerPitchers, activePitcherId, recordPlay]);
 
-  const validatePlacements = (placements: any[]) => {
+  const validatePlacements = (placements: any[], action: string | null = null) => {
     const counts: any = { '1st': 0, '2nd': 0, '3rd': 0 };
     for (const p of placements) { if (counts[p.end] !== undefined) counts[p.end]++; }
     const dupes = Object.keys(counts).filter(k => counts[k] > 1);
@@ -408,7 +429,8 @@ export default function LiveScorer() {
 
     for (const p of placements) {
        if (p.end !== 'Out' && p.end !== 'Home') {
-           if (baseToInt(p.from) > baseToInt(p.end)) {
+           // Skip backwards check if they are manually correcting runner placement
+           if (action !== 'Move Runners' && baseToInt(p.from) > baseToInt(p.end)) {
               triggerJackass(`${p.player.name} cannot move backwards from ${p.from} to ${p.end}!`);
               return false;
            }
@@ -459,14 +481,11 @@ export default function LiveScorer() {
 
   const startPlacementFlow = (actionType: string) => {
     const runnersOn = baseRunners.filter(b => b !== null);
-    if (actionType === 'Tag' && runnersOn.length === 0) return triggerJackass("Can't tag somebody who ain't there cheater");
-    
-    const hitVal = actionType.includes('Triple') ? 3 : actionType.includes('Double') ? 2 : actionType.includes('Single') || actionType === 'Error' || actionType === 'Fielder\'s Choice' ? 1 : 0;
     
     const active = [];
-    if (baseRunners[2]) active.push({ player: baseRunners[2], from: '3rd', end: intToBase(3 + hitVal), internalId: 'b2' });
-    if (baseRunners[1]) active.push({ player: baseRunners[1], from: '2nd', end: intToBase(2 + hitVal), internalId: 'b1' });
-    if (baseRunners[0]) active.push({ player: baseRunners[0], from: '1st', end: intToBase(1 + hitVal), internalId: 'b0' });
+    if (baseRunners[2]) active.push({ player: baseRunners[2], from: '3rd', end: '3rd', internalId: 'b2' });
+    if (baseRunners[1]) active.push({ player: baseRunners[1], from: '2nd', end: '2nd', internalId: 'b1' });
+    if (baseRunners[0]) active.push({ player: baseRunners[0], from: '1st', end: '1st', internalId: 'b0' });
     
     const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
     const hittingLineup = game.lineups
@@ -476,12 +495,37 @@ export default function LiveScorer() {
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
     const btr = hittingLineup[activeBatterIdx]?.player;
 
-    if (actionType === 'Tag') {
-      setPlacementDetails([...active]); 
+    if (actionType === 'Move Runners') {
+        const lastLog = playLog[0];
+        if (lastLog && (lastLog.runs > 0 || lastLog.runsScored > 0) && lastLog.scorerIds) {
+            const scoredIds = lastLog.scorerIds.split(',').map((id: string) => parseInt(id.trim())).filter((id: number) => !isNaN(id));
+            const pIds = lastLog.runAttribution ? lastLog.runAttribution.split(',') : [];
+
+            scoredIds.forEach((sId: number, idx: number) => {
+                const scoredPlayer = game.lineups.find((l: any) => l.playerId === sId)?.player || { id: sId, name: 'Ghost Runner' };
+                const responsiblePitcher = pIds[idx] ? parseInt(pIds[idx]) : activePitcherId;
+                
+                active.push({ player: scoredPlayer, from: 'Home', end: 'Home', internalId: `scored_${idx}`, pId: responsiblePitcher });
+            });
+        }
+        
+        if (active.length === 0) {
+            return triggerJackass(`No baserunners to move!`);
+        }
+        setPlacementDetails([...active]); 
+    } else if (actionType === 'Tag') {
+        if (runnersOn.length === 0) return triggerJackass(`Can't tag if nobody is on base cheater`);
+        setPlacementDetails([...active]); 
+    } else if (actionType === 'Triple Play') {
+        if (outs > 0) return triggerJackass("Can't turn a triple play with outs already on the board!");
+        if (runnersOn.length < 2) return triggerJackass("Need at least 2 runners on for a Triple Play!");
+        setPlacementDetails([...active, { player: btr, from: 'Batter', end: 'Out', internalId: 'bat' }]);
     } else {
-      let batterEnd = intToBase(hitVal);
-      if(actionType === 'Error' || actionType === 'Fielder\'s Choice') batterEnd = '1st';
-      setPlacementDetails([...active, { player: btr, from: 'Batter', end: batterEnd, internalId: 'bat' }]);
+        const hitVal = actionType.includes('Triple') ? 3 : actionType.includes('Double') ? 2 : actionType.includes('Single') || actionType === 'Error' || actionType === 'Fielder\'s Choice' ? 1 : 0;
+        let batterEnd = intToBase(hitVal);
+        if(actionType === 'Error' || actionType === 'Fielder\'s Choice') batterEnd = '1st';
+        
+        setPlacementDetails([...active, { player: btr, from: 'Batter', end: batterEnd, internalId: 'bat' }]);
     }
     setPlacementAction(actionType);
   };
@@ -539,11 +583,34 @@ export default function LiveScorer() {
           setPlayLog(prev => [{ type: 'event', result: `Wild Pitch`, runs, inning, isTopInning, scorerIds: scoringR.join(','), prevBaseRunners: [...baseRunners], prevBaseRunnerPitchers: [...baseRunnerPitchers], prevOuts: outs, prevBalls: balls, prevStrikes: strikes, prevBatterIndices: { ...batterIndices } }, ...prev]);
           setBaseRunners(curB); setBaseRunnerPitchers(curP); break;
       }
+      case 'Skip Batter': {
+          clearRedo();
+          const battingTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
+          const hittingLineup = game.lineups.filter((l: any) => l.teamId === battingTeamId && l.battingOrder !== 99).sort((a: any, b: any) => a.battingOrder - b.battingOrder);
+          const currentIdx = isTopInning ? batterIndices.away : batterIndices.home;
+          const btr = hittingLineup[currentIdx]?.player;
+
+          setPlayLog(prev => [{ type: 'event', result: `Skipped: ${btr?.name}`, runs: 0, inning, isTopInning, scorerIds: '', prevBaseRunners: [...baseRunners], prevBaseRunnerPitchers: [...baseRunnerPitchers], prevOuts: outs, prevBalls: balls, prevStrikes: strikes, prevBatterIndices: { ...batterIndices } }, ...prev]);
+          
+          setBatterIndices(prev => ({
+              ...prev,
+              [isTopInning ? 'away' : 'home']: (prev[isTopInning ? 'away' : 'home'] + 1) % hittingLineup.length
+          }));
+          setBalls(0);
+          setStrikes(0);
+          break;
+      }
+      case 'Manual Out': {
+          recordPlay('Manual Out', [...baseRunners], 0, 1, [...baseRunnerPitchers]);
+          break;
+      }
       case 'Sac Fly': startPlacementFlow('Tag'); break;
       case 'Fielder\'s Choice': startPlacementFlow('Error'); break;
       case 'Ground Rule Double': advanceRunnersAuto(2, 'GR Double'); break;
       case 'Clean Single': if (game.season?.isBaserunning && baseRunners.some(b => b !== null)) startPlacementFlow('Clean Single'); else handleHit(1, true); break;
       case 'Clean Double': if (game.season?.isBaserunning && baseRunners.some(b => b !== null)) startPlacementFlow('Clean Double'); else handleHit(2, true); break;
+      case 'Move Baserunners': startPlacementFlow('Move Runners'); break;
+      case 'Triple Play': startPlacementFlow('Triple Play'); break;
       case 'Hit with Error':
         const hitValE = 1;
         const activeE = [];
@@ -762,6 +829,9 @@ export default function LiveScorer() {
         const isOut = ['FLY OUT', 'GROUND OUT', 'OUT', 'DP'].some(o => res === o || res.includes(o));
         const isK = res === 'K' || res.includes('STRIKEOUT');
 
+        // Prevent Manual Outs from ruining live active stats too!
+        if (res === 'MANUAL_OUT') return; 
+
         if (isHit) {
           gameH++;
           gameAb++;
@@ -844,7 +914,7 @@ export default function LiveScorer() {
                       <div className="flex justify-between text-[10px] font-black uppercase text-blue-400 mb-2"><span>From: {rp.from}</span><span>{rp.player.name}</span></div>
                       <div className="grid grid-cols-5 gap-1">
                         {['Out', '1st', '2nd', '3rd', 'Home'].map(base => {
-                          const disabled = isBaseDisabled(rp.from, base);
+                          const disabled = isBaseDisabled(rp.from, base, 'Double Play');
                           return (
                           <button 
                             key={base} 
@@ -858,7 +928,7 @@ export default function LiveScorer() {
                   ))}
                 </div>
                 <button onClick={() => {
-                  if (!validatePlacements(dpPlacements)) return;
+                  if (!validatePlacements(dpPlacements, 'Double Play')) return;
                   let nB = [null, null, null] as (any|null)[]; 
                   let nP = [null, null, null] as (number|null)[]; 
                   let r = 0; let scoringR: number[] = []; let scoringP: number[] = [];
@@ -882,22 +952,37 @@ export default function LiveScorer() {
 
       {placementAction && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95 p-4">
-          <div className={`bg-[#002D62] border-2 ${placementAction === 'Error' ? 'border-yellow-600' : placementAction === 'Tag' ? 'border-orange-600' : 'border-green-500'} p-6 rounded-3xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]`}>
+          <div className={`bg-[#002D62] border-2 ${placementAction === 'Error' ? 'border-yellow-600' : placementAction === 'Tag' ? 'border-orange-600' : placementAction === 'Move Runners' ? 'border-blue-500' : placementAction === 'Triple Play' ? 'border-red-600' : 'border-green-500'} p-6 rounded-3xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]`}>
             <div className="flex flex-col flex-1 overflow-hidden">
               <h2 className="text-xl font-black uppercase italic mb-2 text-center text-white">{placementAction} Placement</h2>
+              
+              <div className="relative w-20 h-20 mx-auto my-2">
+                <div className="absolute top-[18%] left-[18%] w-[64%] h-[64%] border-2 border-white/20 rotate-45 rounded-sm"></div>
+                <div className={`absolute top-[10%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 rotate-45 border-2 z-10 ${baseRunners[1] ? 'bg-[#ffd60a] border-white shadow-[0_0_10px_rgba(255,214,10,0.6)]' : 'bg-[#001d3d] border-white/30'}`}></div>
+                <div className={`absolute top-1/2 left-[10%] -translate-x-1/2 -translate-y-1/2 w-6 h-6 rotate-45 border-2 z-10 ${baseRunners[2] ? 'bg-[#ffd60a] border-white shadow-[0_0_10px_rgba(255,214,10,0.6)]' : 'bg-[#001d3d] border-white/30'}`}></div>
+                <div className={`absolute top-1/2 left-[90%] -translate-x-1/2 -translate-y-1/2 w-6 h-6 rotate-45 border-2 z-10 ${baseRunners[0] ? 'bg-[#ffd60a] border-white shadow-[0_0_10px_rgba(255,214,10,0.6)]' : 'bg-[#001d3d] border-white/30'}`}></div>
+                <div className="absolute top-[90%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 border-2 border-white/10 bg-white/5 rotate-45 z-10"></div>
+              </div>
+
+              {placementAction === 'Move Runners' && (
+                  <p className="text-[10px] text-blue-300 font-bold uppercase text-center mb-2 px-4 leading-tight">
+                      Adjusting runners mid-at-bat. Pulling a runner back from home deducts a run. 
+                  </p>
+              )}
+
               <div className="space-y-3 mb-6 overflow-y-auto flex-1 pr-2">
                 {placementDetails.map((rp) => (
                   <div key={rp.internalId} className="bg-white/5 p-3 rounded-xl border border-white/10 shrink-0">
                     <div className="flex justify-between text-[10px] font-black uppercase text-blue-400 mb-2"><span>From: {rp.from}</span><span>{rp.player.name}</span></div>
                     <div className="grid grid-cols-5 gap-1">
                       {['Out', '1st', '2nd', '3rd', 'Home'].map(base => {
-                        const disabled = isBaseDisabled(rp.from, base);
+                        const disabled = isBaseDisabled(rp.from, base, placementAction);
                         return (
                         <button 
                           key={base} 
                           disabled={disabled}
                           onClick={() => setPlacementDetails(placementDetails.map(p => p.internalId === rp.internalId ? {...p, end: base} : p))} 
-                          className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? (placementAction === 'Error' ? 'bg-yellow-600' : (placementAction === 'Tag' ? 'bg-orange-600' : 'bg-green-500')) + ' border-white text-white' : disabled ? 'border-white/5 text-slate-700 opacity-50 cursor-not-allowed' : 'border-white/10 text-slate-500 hover:text-white'}`}>{base}</button>
+                          className={`py-2 rounded font-black text-[8px] uppercase border ${rp.end === base ? (placementAction === 'Error' ? 'bg-yellow-600' : (placementAction === 'Tag' ? 'bg-orange-600' : placementAction === 'Move Runners' ? 'bg-blue-600' : placementAction === 'Triple Play' ? 'bg-red-600' : 'bg-green-500')) + ' border-white text-white' : disabled ? 'border-white/5 text-slate-700 opacity-50 cursor-not-allowed' : 'border-white/10 text-slate-500 hover:text-white'}`}>{base}</button>
                         )
                       })}
                     </div>
@@ -905,23 +990,49 @@ export default function LiveScorer() {
                 ))}
               </div>
               <button onClick={() => {
-                if (!validatePlacements(placementDetails)) return;
+                if (!validatePlacements(placementDetails, placementAction)) return;
                 let nB = [null, null, null] as (any|null)[]; 
                 let nP = [null, null, null] as (number|null)[]; 
-                let r = 0; let oX = placementAction === 'Tag' ? 1 : 0; 
+                let r = 0; 
+                let oX = placementAction === 'Tag' ? 1 : 0; 
                 let scoringR: number[] = []; let scoringP: number[] = [];
                 
                 placementDetails.forEach(rp => { 
-                  let pId = rp.internalId === 'b0' ? baseRunnerPitchers[0] : rp.internalId === 'b1' ? baseRunnerPitchers[1] : rp.internalId === 'b2' ? baseRunnerPitchers[2] : activePitcherId;
+                  let pId = null;
+                  if (rp.internalId === 'b0') pId = baseRunnerPitchers[0];
+                  else if (rp.internalId === 'b1') pId = baseRunnerPitchers[1];
+                  else if (rp.internalId === 'b2') pId = baseRunnerPitchers[2];
+                  else if (rp.internalId === 'bat') pId = activePitcherId;
+                  else if (rp.internalId.startsWith('scored_')) pId = (rp as any).pId; 
+                  
                   if (rp.end === '1st') { nB[0] = rp.player; nP[0] = pId; }
                   else if (rp.end === '2nd') { nB[1] = rp.player; nP[1] = pId; }
                   else if (rp.end === '3rd') { nB[2] = rp.player; nP[2] = pId; }
-                  else if (rp.end === 'Home') { r++; if(rp.player?.id) scoringR.push(rp.player.id); if(pId) scoringP.push(pId); }
-                  else if (rp.end === 'Out') oX++; 
+                  
+                  if (rp.end === 'Home' && rp.from !== 'Home') { 
+                      r++; 
+                      if(rp.player?.id) scoringR.push(rp.player.id); 
+                      if(pId) scoringP.push(pId); 
+                  } else if (rp.end === 'Out' && rp.from !== 'Out') {
+                      if (placementAction === 'Tag' && rp.from !== 'Batter') {
+                          oX++;
+                      } else if (placementAction !== 'Tag') {
+                          oX++;
+                      }
+                  }
+
+                  if (rp.from === 'Home' && rp.end !== 'Home') {
+                      r--;
+                  }
                 });
+
+                if (placementAction === 'Triple Play' && oX !== 3) {
+                    return triggerJackass("A Triple Play must result in exactly 3 outs!");
+                }
+
                 recordPlay(placementAction === 'Tag' ? 'Tag Up' : placementAction, nB, r, oX, nP, scoringP, scoringR); 
                 setPlacementAction(null);
-              }} className={`w-full p-4 rounded-xl font-black uppercase tracking-widest shadow-lg ${placementAction === 'Error' ? 'bg-yellow-600' : placementAction === 'Tag' ? 'bg-orange-600' : 'bg-green-500'}`}>Confirm Play</button>
+              }} className={`w-full p-4 rounded-xl font-black uppercase tracking-widest shadow-lg ${placementAction === 'Error' ? 'bg-yellow-600' : placementAction === 'Tag' ? 'bg-orange-600' : placementAction === 'Move Runners' ? 'bg-blue-600' : placementAction === 'Triple Play' ? 'bg-red-600' : 'bg-green-500'}`}>Confirm Play</button>
             </div>
             <button onClick={() => setPlacementAction(null)} className="w-full mt-4 py-2 text-white/30 font-black uppercase text-[10px]">Cancel</button>
           </div>
@@ -931,7 +1042,16 @@ export default function LiveScorer() {
       {hitErrorData && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/95 p-4 overflow-y-auto">
           <div className="bg-[#002D62] border-2 border-pink-500 p-6 rounded-3xl w-full max-w-md shadow-2xl flex flex-col my-auto max-h-[95vh]">
-             <h2 className="text-xl font-black uppercase italic mb-4 text-center text-pink-400">Hit + Error</h2>
+             <h2 className="text-xl font-black uppercase italic mb-2 text-center text-pink-400">Hit + Error</h2>
+             
+             <div className="relative w-20 h-20 mx-auto my-2">
+                <div className="absolute top-[18%] left-[18%] w-[64%] h-[64%] border-2 border-white/20 rotate-45 rounded-sm"></div>
+                <div className={`absolute top-[10%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 rotate-45 border-2 z-10 ${baseRunners[1] ? 'bg-[#ffd60a] border-white shadow-[0_0_10px_rgba(255,214,10,0.6)]' : 'bg-[#001d3d] border-white/30'}`}></div>
+                <div className={`absolute top-1/2 left-[10%] -translate-x-1/2 -translate-y-1/2 w-6 h-6 rotate-45 border-2 z-10 ${baseRunners[2] ? 'bg-[#ffd60a] border-white shadow-[0_0_10px_rgba(255,214,10,0.6)]' : 'bg-[#001d3d] border-white/30'}`}></div>
+                <div className={`absolute top-1/2 left-[90%] -translate-x-1/2 -translate-y-1/2 w-6 h-6 rotate-45 border-2 z-10 ${baseRunners[0] ? 'bg-[#ffd60a] border-white shadow-[0_0_10px_rgba(255,214,10,0.6)]' : 'bg-[#001d3d] border-white/30'}`}></div>
+                <div className="absolute top-[90%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 border-2 border-white/10 bg-white/5 rotate-45 z-10"></div>
+             </div>
+
              <div className="mb-4">
                 <label className="text-[10px] font-black uppercase text-pink-300 block mb-2">Credited Hit</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -961,7 +1081,7 @@ export default function LiveScorer() {
                      <div className="flex justify-between text-[10px] font-black uppercase text-pink-200 mb-2"><span>From: {rp.from}</span><span>{rp.player.name}</span></div>
                      <div className="grid grid-cols-5 gap-1">
                        {['Out', '1st', '2nd', '3rd', 'Home'].map(base => {
-                         const disabled = isBaseDisabled(rp.from, base);
+                         const disabled = isBaseDisabled(rp.from, base, 'Error');
                          return (
                          <button 
                             key={base} disabled={disabled}
@@ -975,7 +1095,7 @@ export default function LiveScorer() {
              </div>
              <button onClick={() => {
                 if (!hitErrorData.fielderId) return triggerJackass("Select the fielder who made the error.");
-                if (!validatePlacements(hitErrorData.placements)) return;
+                if (!validatePlacements(hitErrorData.placements, 'Error')) return;
                 let nB = [null, null, null] as (any|null)[]; let nP = [null, null, null] as (number|null)[]; 
                 let r = 0; let oX = 0; let scoringR: number[] = []; let scoringP: number[] = [];
                 
@@ -1003,30 +1123,24 @@ export default function LiveScorer() {
             <h2 className="text-2xl font-black uppercase italic mb-2 text-white">Extra Innings</h2>
             <p className="text-[#669bbc] font-bold uppercase tracking-widest text-[10px] mb-2">Tap to Set Ghost Runners</p>
 
-            {/* ⚡ FIX: The correctly oriented, interactive Baseball Diamond */}
             <div className="relative w-40 h-40 mx-auto my-8">
-              {/* Base paths (Diamond outline) */}
               <div className="absolute top-[18%] left-[18%] w-[64%] h-[64%] border-2 border-white/20 rotate-45 rounded-sm"></div>
 
-              {/* 2nd Base (Top Center) */}
               <button 
                 onClick={() => setGhostSetupBases([ghostSetupBases[0], !ghostSetupBases[1], ghostSetupBases[2]])} 
                 className={`absolute top-[10%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rotate-45 border-2 transition-all z-10 ${ghostSetupBases[1] ? 'bg-[#ffd60a] border-white shadow-[0_0_15px_rgba(255,214,10,0.6)] scale-110' : 'bg-[#001d3d] border-white/30 hover:border-white/80'}`}
               ></button>
               
-              {/* 3rd Base (Left Center) */}
               <button 
                 onClick={() => setGhostSetupBases([ghostSetupBases[0], ghostSetupBases[1], !ghostSetupBases[2]])} 
                 className={`absolute top-1/2 left-[10%] -translate-x-1/2 -translate-y-1/2 w-10 h-10 rotate-45 border-2 transition-all z-10 ${ghostSetupBases[2] ? 'bg-[#ffd60a] border-white shadow-[0_0_15px_rgba(255,214,10,0.6)] scale-110' : 'bg-[#001d3d] border-white/30 hover:border-white/80'}`}
               ></button>
               
-              {/* 1st Base (Right Center) */}
               <button 
                 onClick={() => setGhostSetupBases([!ghostSetupBases[0], ghostSetupBases[1], ghostSetupBases[2]])} 
                 className={`absolute top-1/2 left-[90%] -translate-x-1/2 -translate-y-1/2 w-10 h-10 rotate-45 border-2 transition-all z-10 ${ghostSetupBases[0] ? 'bg-[#ffd60a] border-white shadow-[0_0_15px_rgba(255,214,10,0.6)] scale-110' : 'bg-[#001d3d] border-white/30 hover:border-white/80'}`}
               ></button>
 
-              {/* Home Plate (Bottom Center) */}
               <div className="absolute top-[90%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 border-2 border-white/10 bg-white/5 rotate-45 z-10 flex items-center justify-center">
                  <span className="-rotate-45 text-[10px] font-black text-white/30">H</span>
               </div>
@@ -1068,6 +1182,7 @@ export default function LiveScorer() {
         </div>
       )}
 
+      {/* OTHER ACTIONS MODAL */}
       {showOtherModal && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/95 p-6 backdrop-blur-sm">
           <div className="bg-[#002D62] border-2 border-purple-600 p-6 rounded-3xl w-full max-w-sm shadow-2xl">
@@ -1078,8 +1193,22 @@ export default function LiveScorer() {
                  <button onClick={() => handleOtherAction('Wild Pitch')} className="w-full bg-white/5 border border-white/10 p-4 rounded-xl font-black uppercase text-xs hover:bg-purple-600 text-left flex justify-between items-center group">Wild Pitch (Advance Runners) <span className="group-hover:text-white">→</span></button>
               )}
             </div>
+
+            {/* ⚡ NEW: GAME MANAGEMENT & MANUAL OVERRIDES */}
+            <div className="pt-4 border-t border-white/10 mt-4">
+               <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Game Management</p>
+               <button onClick={() => handleOtherAction('Move Baserunners')} className="w-full bg-blue-900 border border-white/10 p-4 rounded-xl font-black uppercase text-[10px] hover:bg-blue-700 mb-2 transition-all">Move Baserunners (Mid At-Bat)</button>
+               
+               <div className="grid grid-cols-2 gap-2 mb-2">
+                   <button onClick={() => handleOtherAction('Manual Out')} className="w-full bg-slate-800 border border-white/10 p-4 rounded-xl font-black uppercase text-[10px] hover:bg-red-900 transition-all text-red-300">Manual Out</button>
+                   <button onClick={() => handleOtherAction('Skip Batter')} className="w-full bg-slate-800 border border-white/10 p-4 rounded-xl font-black uppercase text-[10px] hover:bg-slate-600 transition-all text-slate-300">Skip Batter</button>
+               </div>
+
+               <button onClick={() => handleOtherAction('Add Ghost Runner')} className="w-full bg-slate-800 border border-white/10 p-4 rounded-xl font-black uppercase text-[10px] hover:bg-slate-600 transition-all">+ Add Ghost Runner</button>
+            </div>
+
             <div className="space-y-2 pt-4 border-t border-white/10 mt-4">
-              {[ 'Sac Fly', 'Fielder\'s Choice', 'Ground Rule Double'].map(action => (
+              {[ 'Sac Fly', 'Fielder\'s Choice', 'Ground Rule Double', 'Triple Play'].map(action => (
                 <button key={action} onClick={() => handleOtherAction(action)} className="w-full bg-white/5 border border-white/10 p-4 rounded-xl font-black uppercase text-xs hover:bg-purple-600 text-left flex justify-between items-center group">{action} <span>→</span></button>
               ))}
               {game.season?.cleanHitRule && (
@@ -1090,15 +1219,13 @@ export default function LiveScorer() {
                     </div>
                 </div>
               )}
-              <div className="pt-4">
-                  <button onClick={() => handleOtherAction('Add Ghost Runner')} className="w-full bg-slate-800 border border-white/10 p-4 rounded-xl font-black uppercase text-[10px] hover:bg-slate-600">+ Add Ghost Runner</button>
-              </div>
             </div>
             <button onClick={() => setShowOtherModal(false)} className="w-full mt-8 py-2 text-white/30 font-black uppercase text-[10px] hover:text-white">Close Menu</button>
           </div>
         </div>
       )}
 
+      {/* ORIGINAL SCOREBOARD - COMPLETELY UNTOUCHED */}
       <div className="bg-[#002D62] overflow-hidden rounded shadow-2xl mb-8 border border-white/20 select-none">
         <div className="bg-[#c1121f] text-white px-3 py-1 flex justify-between items-center font-black uppercase text-[9px]">
             <span>{game.season?.name}</span>
@@ -1189,7 +1316,7 @@ export default function LiveScorer() {
             <div key={i} className={`flex flex-col px-3 py-2 rounded text-xs ${log.runs > 0 ? 'bg-blue-600/20 border-blue-500/30 border' : ''}`}>
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-3 font-black uppercase"><span className="text-[9px] font-bold text-slate-500 w-8">{log.logDisplayInning}</span>{log.batter}</div>
-                <div className="flex items-center gap-4"><span className={`font-black italic uppercase ${log.runs > 0 ? 'text-blue-400' : 'text-slate-400'}`}>{log.result}</span>{log.runs > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black">+{log.runs}</span>}</div>
+                <div className="flex items-center gap-4"><span className={`font-black italic uppercase ${log.runs > 0 ? 'text-blue-400' : log.runs < 0 ? 'text-red-400' : 'text-slate-400'}`}>{log.result}</span></div>
               </div>
               {log.runs > 0 && log.scorerIds && (
                 <div className="text-[8px] text-blue-300/80 font-bold uppercase mt-1 pl-11">

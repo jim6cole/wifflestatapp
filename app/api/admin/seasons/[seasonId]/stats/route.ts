@@ -66,12 +66,12 @@ export async function GET(
       game.atBats.forEach(ab => {
         const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
         
-        // ⚡ STRICT CHECKS
+        const isManualOut = res === 'MANUAL_OUT';
         const isK = res === 'K' || res === 'STRIKEOUT';
         const isBB = res === 'WALK' || res === 'BB' || res.includes('HBP');
-        const isH = !isK && !isBB && ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(hit => res.startsWith(hit));
+        const isH = !isK && !isBB && !isManualOut && ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(hit => res.startsWith(hit));
         const isHR = res.startsWith('HR');
-        const isOtherOut = ['FLY_OUT', 'GROUND_OUT', 'OUT', 'DP', 'FIELDERS_CHOICE'].some(o => res.startsWith(o));
+        const isOtherOut = ['FLY_OUT', 'GROUND_OUT', 'OUT', 'DP', 'FIELDERS_CHOICE'].some(o => res.startsWith(o)) && !isManualOut;
         
         if (ab.isTopInning) {
           awayRuns += ab.runsScored;
@@ -87,7 +87,8 @@ export async function GET(
           }
         }
 
-        if (ab.batterId) {
+        // ⚡ BATTER SHIELD
+        if (ab.batterId && !isManualOut) {
           initBatter(ab.batterId, ab.batter?.name || "Unknown"); 
           const b = batterMap[ab.batterId];
           b.gamesSet.add(game.id);
@@ -98,23 +99,24 @@ export async function GET(
           if (res.includes('DOUBLE')) b.double++;
           if (res.includes('TRIPLE')) b.triple++;
           if (isHR) { b.hr++; b.tb += 4; }
-          if (isBB) b.bb++; // Adds to PA, not AB
+          if (isBB) b.bb++; 
           if (isK) { b.k++; b.ab++; }
           if (isOtherOut) b.ab++;
         }
 
+        // ⚡ PITCHER CREDITS
         if (ab.pitcherId) {
           initPitcher(ab.pitcherId, ab.pitcher?.name || "Unknown");
           const p = pitcherMap[ab.pitcherId];
           p.gamesSet.add(game.id);
-          p.outs += ab.outs;
+          p.outs += ab.outs; // <--- The Magic Line!
           p.r += ab.runsScored;
           p.er += ab.runsScored; 
           
           if (isH) p.h++;
           if (isHR) p.hr++;
           if (isBB) p.bb++;
-          if (isK) p.k++; // ⚡ Now protected from walks
+          if (isK) p.k++; 
         }
       });
 
