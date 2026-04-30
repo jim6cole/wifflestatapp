@@ -7,7 +7,6 @@ import Link from 'next/link';
 const baseToInt = (b: string) => b === '1st' ? 1 : b === '2nd' ? 2 : b === '3rd' ? 3 : b === 'Home' ? 4 : b === 'Batter' ? 0 : -1;
 const intToBase = (i: number) => i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : i >= 4 ? 'Home' : 'Out';
 
-// ⚡ FIX: Allow backwards movement ONLY for the "Move Runners" mid-ab action
 const isBaseDisabled = (from: string, target: string, action: string | null = null) => {
     if (target === 'Out' || target === 'Home') return false;
     if (action === 'Move Runners') return false; 
@@ -100,6 +99,16 @@ export default function LiveScorer() {
 
   // ⚡ CENTRALIZED SYNC FUNCTION
   const syncStateFromCloud = useCallback((data: any) => {
+    // ⚡ FIX: IMMEDIATELY KICK SPECTATORS OUT IF THE GAME ENDS
+    if (data.status === 'COMPLETED') {
+        localStorage.removeItem(`game-sync-${id}`);
+        const exitUrl = source === 'public' 
+            ? `/leagues/${data.season?.leagueId}/live` 
+            : `/admin/leagues/${data.season?.leagueId}/seasons/${data.seasonId}/play`;
+        router.push(exitUrl);
+        return;
+    }
+
     setGame(data);
     setActiveScorerId(data.activeScorerId || null);
     
@@ -107,7 +116,6 @@ export default function LiveScorer() {
     const localData = localStorage.getItem(`game-sync-${id}`);
     const weHaveControl = !data.activeScorerId || data.activeScorerId === clientId;
     
-    // ⚡ NEW: Force modals to close immediately if someone steals the baton
     if (!weHaveControl) {
         setShowDPModal(false);
         setShowSubModal(null);
@@ -138,7 +146,7 @@ export default function LiveScorer() {
       setRetiredPitchers(savedState.retiredPitchers ?? []);
     }
     setIsLoaded(true);
-  }, [id, clientId]);
+  }, [id, clientId, router, source]);
 
   // ⚡ INITIAL LOAD & UNIVERSAL POLLING
   useEffect(() => {
@@ -149,8 +157,7 @@ export default function LiveScorer() {
           const res = await fetch(`/api/games/${id}/setup`);
           const data = await res.json();
           
-          // Auto-claim the baton if nobody has it!
-          if (!data.activeScorerId) {
+          if (!data.activeScorerId && data.status !== 'COMPLETED') {
               await fetch(`/api/games/${id}/baton`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
@@ -167,7 +174,6 @@ export default function LiveScorer() {
         loadGame();
     }
 
-    // ⚡ UNIVERSAL POLLING (Runs for BOTH Active Scorers and Spectators)
     const pollInterval = setInterval(async () => {
         try {
             const res = await fetch(`/api/games/${id}/setup`);
@@ -176,29 +182,36 @@ export default function LiveScorer() {
             const weAreSpectating = activeScorerId && activeScorerId !== clientId;
             const serverSaysWeLostControl = data.activeScorerId && data.activeScorerId !== clientId;
             
-            // If we are spectating, OR if someone just stole our control, SYNC!
-            if (weAreSpectating || serverSaysWeLostControl) {
+            if (weAreSpectating || serverSaysWeLostControl || data.status === 'COMPLETED') {
                 syncStateFromCloud(data);
             }
         } catch (err) {}
-    }, 1500); // ⚡ Hyper-fast 1.5s checks to guarantee instant visual lockouts
+    }, 1500); 
 
     return () => clearInterval(pollInterval);
   }, [id, clientId, activeScorerId, isLoaded, syncStateFromCloud]);
 
   // ⚡ TAKE CONTROL ACTION
   const claimBaton = async () => {
-      // ⚡ CRITICAL: Nuke stale local data immediately so we adopt the fresh cloud state upon takeover!
       localStorage.removeItem(`game-sync-${id}`);
       
-      await fetch(`/api/games/${id}/baton`, {
+      const resBaton = await fetch(`/api/games/${id}/baton`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ clientId })
       });
+
+      if (!resBaton.ok) {
+          const resData = await resBaton.json();
+          if (resData.error === "Game is already completed") {
+              alert("Cannot take control. This game has been finalized.");
+              router.push(source === 'public' ? `/leagues/${game?.season?.leagueId}/live` : `/admin/leagues/${game?.season?.leagueId}/seasons/${game?.seasonId}/play`);
+              return;
+          }
+      }
+
       setActiveScorerId(clientId);
       
-      // Hard Sync immediately to snap everything into place
       const res = await fetch(`/api/games/${id}/setup`);
       const data = await res.json();
       syncStateFromCloud(data);
@@ -228,7 +241,6 @@ export default function LiveScorer() {
         });
         
         if (res.status === 403) {
-            // Backup Cloud Shield: If autosave gets rejected, drop control immediately
             const data = await res.json();
             setActiveScorerId(data.activeScorerId);
         }
@@ -898,7 +910,8 @@ export default function LiveScorer() {
   };
 
   const finalizeGame = async () => {
-    try { await fetch(`/api/admin/games/${id}`, {
+    try { 
+      await fetch(`/api/admin/games/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'COMPLETED', homeScore, awayScore })
@@ -1293,7 +1306,6 @@ export default function LiveScorer() {
               )}
             </div>
 
-            {/* ⚡ GAME MANAGEMENT & MANUAL OVERRIDES */}
             <div className="pt-4 border-t border-white/10 mt-4">
                <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Game Management</p>
                <button onClick={() => handleOtherAction('Move Baserunners')} className="w-full bg-blue-900 border border-white/10 p-4 rounded-xl font-black uppercase text-[10px] hover:bg-blue-700 mb-2 transition-all">Move Baserunners (Mid At-Bat)</button>

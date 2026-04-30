@@ -9,11 +9,15 @@ export async function PATCH(
     const resolvedParams = await params;
     const body = await request.json();
 
-    // ⚡ CLOUD SHIELD: Check who has the baton!
+    // ⚡ CLOUD SHIELD: Check who has the baton AND if the game is over
     const game = await prisma.game.findUnique({
         where: { id: parseInt(resolvedParams.gameId) },
-        select: { activeScorerId: true }
+        select: { activeScorerId: true, status: true }
     });
+
+    if (game?.status === 'COMPLETED') {
+        return NextResponse.json({ error: "Game already completed", activeScorerId: game.activeScorerId }, { status: 403 });
+    }
 
     // If the game is locked by someone else, REJECT the autosave
     if (game?.activeScorerId && game.activeScorerId !== body.clientId) {

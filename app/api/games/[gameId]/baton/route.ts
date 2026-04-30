@@ -8,10 +8,21 @@ export async function PATCH(
   try {
     const resolvedParams = await params;
     const body = await request.json();
+    const gameIdNum = parseInt(resolvedParams.gameId);
+
+    // ⚡ FIX: Pre-check if the game is already over
+    const game = await prisma.game.findUnique({
+        where: { id: gameIdNum },
+        select: { status: true }
+    });
+
+    if (game?.status === 'COMPLETED') {
+        return NextResponse.json({ error: "Game is already completed" }, { status: 400 });
+    }
 
     // Pass the baton to the new client ID
     await prisma.game.update({
-      where: { id: parseInt(resolvedParams.gameId) },
+      where: { id: gameIdNum },
       data: { activeScorerId: body.clientId }
     });
 
