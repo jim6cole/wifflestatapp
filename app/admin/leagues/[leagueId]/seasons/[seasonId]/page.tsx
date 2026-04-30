@@ -160,6 +160,13 @@ export default function SeasonDugout({ params }: { params: Promise<{ leagueId: s
                   className={`flex-1 sm:flex-none px-2 py-1 font-black uppercase italic text-[9px] sm:text-[10px] border-2 transition-all ${isCompleted ? 'bg-slate-500 text-white border-white' : 'border-slate-400 text-slate-400 hover:bg-slate-500 hover:text-white'}`}
                 >End</button>
 
+                <Link 
+                  href={`/admin/leagues/${leagueId}/seasons/${seasonId}/settings`}
+                  className="border border-white/20 text-white/70 px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  View/Edit Settings
+                </Link>
+
                 <button 
                   onClick={deleteSeason}
                   className="w-full sm:w-auto px-3 py-1 font-black uppercase italic text-[9px] sm:text-[10px] border-2 border-[#c1121f] text-[#c1121f] hover:bg-[#c1121f] hover:text-white transition-all sm:ml-auto"

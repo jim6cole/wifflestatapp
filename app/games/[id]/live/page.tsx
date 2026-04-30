@@ -20,14 +20,12 @@ export default function LiveScorer() {
   
   const source = searchParams.get('source');
 
-  // ⚡ MULTI-USER IDENTIFICATION
   const [clientId, setClientId] = useState('');
   const [activeScorerId, setActiveScorerId] = useState<string | null>(null);
 
   const [game, setGame] = useState<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // --- NAVIGATION LOGIC ---
   let backUrl = `/admin/leagues/${game?.season?.leagueId}/seasons/${game?.seasonId}/play`;
   let backLabel = "Back to Gameday Board";
 
@@ -36,14 +34,12 @@ export default function LiveScorer() {
     backLabel = "Back to Live Action";
   }
 
-  // --- TRACKING FOR SUBS & STATS ---
   const [batterIndices, setBatterIndices] = useState({ away: 0, home: 0 }); 
   const [baseRunnerPitchers, setBaseRunnerPitchers] = useState<(number | null)[]>([null, null, null]);
   const [showSubModal, setShowSubModal] = useState<'pitcher' | 'batter' | null>(null);
   const [availableSubs, setAvailableSubs] = useState<any[]>([]);
   const [retiredPitchers, setRetiredPitchers] = useState<number[]>([]); 
 
-  // --- CORE GAME STATE ---
   const [isTopInning, setIsTopInning] = useState(true); 
   const [inning, setInning] = useState(1);
   const [outs, setOuts] = useState(0);
@@ -61,7 +57,6 @@ export default function LiveScorer() {
   const [playLog, setPlayLog] = useState<any[]>([]); 
   const [redoStack, setRedoStack] = useState<any[]>([]);
 
-  // Modal States
   const [showDPModal, setShowDPModal] = useState(false);
   const [dpStep, setDpStep] = useState(1); 
   const [batterWasOut, setBatterWasOut] = useState(true);
@@ -311,30 +306,33 @@ export default function LiveScorer() {
     setShowJackassError(true);
   };
 
+  // ⚡ FIX: 10-Run Rule Application & "Keep Playing" state transition
   const toggleInning = useCallback(() => {
     if (!game) return;
     const rules = game.season;
     const targetInnings = rules?.inningsPerGame || 5;
     const mercyLimit = rules?.mercyRule || 0;
+    const mercyInning = rules?.mercyRuleInningApply || 3;
 
     const scoreDiff = Math.abs(homeScore - awayScore);
     
-    if (mercyLimit > 0 && scoreDiff >= mercyLimit) {
-        setGameOverMessage(`MERCY RULE! ${homeScore > awayScore ? 'Home' : 'Away'} Team wins.`);
-        setShowEndGameModal(true);
-        return;
-    }
+    // Check if the game has reached the minimum inning for mercy rule (e.g. 2.5 innings if home is winning)
+    const isMercyEligible = inning > mercyInning || 
+                            (inning === mercyInning && !isTopInning) || 
+                            (inning === mercyInning && isTopInning && homeScore > awayScore);
 
-    if (isTopInning && inning >= targetInnings && homeScore > awayScore) {
-        setGameOverMessage(`GAME OVER! ${game.homeTeam.name} Wins!`);
-        setShowEndGameModal(true);
-        return;
-    }
+    let isGameOver = false;
+    let overMessage = "";
 
-    if (!isTopInning && inning >= targetInnings && homeScore !== awayScore) {
-        setGameOverMessage(`GAME OVER! ${homeScore > awayScore ? 'Home' : 'Away'} Team Wins!`);
-        setShowEndGameModal(true);
-        return; 
+    if (mercyLimit > 0 && scoreDiff >= mercyLimit && isMercyEligible) {
+        isGameOver = true;
+        overMessage = `MERCY RULE! ${homeScore > awayScore ? 'Home' : 'Away'} Team wins.`;
+    } else if (isTopInning && inning >= targetInnings && homeScore > awayScore) {
+        isGameOver = true;
+        overMessage = `GAME OVER! ${game.homeTeam.name} Wins!`;
+    } else if (!isTopInning && inning >= targetInnings && homeScore !== awayScore) {
+        isGameOver = true;
+        overMessage = `GAME OVER! ${homeScore > awayScore ? 'Home' : 'Away'} Team Wins!`;
     }
 
     const breakLabel = isTopInning ? `Mid ${inning}` : `End ${inning}`;
@@ -358,6 +356,7 @@ export default function LiveScorer() {
       prevRunsThisInning: runsThisInning 
     }, ...prev]);
     
+    // ⚡ Execute the inning transition BEFORE showing the modal so 'Keep Playing' drops you perfectly into the next inning
     setIsTopInning(nextIsTop);
     setOuts(0); 
     setBaseRunners(nextBases); 
@@ -366,6 +365,11 @@ export default function LiveScorer() {
     setStrikes(0);
     setRunsThisInning(0); 
     if (!isTopInning) setInning(prev => prev + 1);
+
+    if (isGameOver) {
+        setGameOverMessage(overMessage);
+        setShowEndGameModal(true);
+    }
   }, [game, isTopInning, inning, baseRunners, baseRunnerPitchers, outs, balls, strikes, batterIndices, homeScore, awayScore, runsThisInning]);
 
   const recordPlay = useCallback((
@@ -399,7 +403,6 @@ export default function LiveScorer() {
       .sort((a: any, b: any) => a.battingOrder - b.battingOrder);
 
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
-    
     const effectiveBatterIdx = isMidAtBat 
         ? (activeBatterIdx - 1 + hittingLineup.length) % hittingLineup.length 
         : activeBatterIdx;
@@ -450,12 +453,20 @@ export default function LiveScorer() {
     const newAwayScore = isTopInning ? awayScore + runs : awayScore;
     const newHomeScore = !isTopInning ? homeScore + runs : homeScore;
 
-    const homeJustTookLead = !isTopInning && inning >= (rules?.inningsPerGame || 5) && newHomeScore > newAwayScore;
+    // ⚡ FIX: Added Mercy Rule Walk-Off support
+    const targetInnings = rules?.inningsPerGame || 5;
+    const mercyLimit = rules?.mercyRule || 0;
+    const mercyInning = rules?.mercyRuleInningApply || 3;
+
+    const homeJustTookLead = !isTopInning && inning >= targetInnings && newHomeScore > newAwayScore;
     const wasHomeAlreadyLeading = !isTopInning && homeScore > awayScore;
 
-    if (homeJustTookLead && !wasHomeAlreadyLeading) {
+    const isMercyEligibleNow = inning >= mercyInning && !isTopInning;
+    const homeHitMercyLead = mercyLimit > 0 && isMercyEligibleNow && (newHomeScore - newAwayScore) >= mercyLimit;
+
+    if ((homeJustTookLead && !wasHomeAlreadyLeading) || homeHitMercyLead) {
         setBaseRunners(newBases);
-        setGameOverMessage("WALK-OFF WIN!");
+        setGameOverMessage(homeHitMercyLead ? "MERCY RULE WALK-OFF!" : "WALK-OFF WIN!");
         setShowEndGameModal(true);
         return;
     }
@@ -925,7 +936,6 @@ export default function LiveScorer() {
       if (log.type === 'play' && log.batterId === playerId) {
         const res = log.result.toUpperCase();
         
-        // ⚡ FIX: Protect 'Triple Play' from counting as a 'Triple'
         const isHit = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B'].some(h => res.includes(h)) && !res.includes('PLAY');
         const isOut = ['FLY OUT', 'GROUND OUT', 'OUT', 'DP', 'TRIPLE PLAY'].some(o => res === o || res.includes(o));
         const isK = res === 'K' || res.includes('STRIKEOUT');
@@ -1295,7 +1305,6 @@ export default function LiveScorer() {
               )}
             </div>
 
-            {/* ⚡ GAME MANAGEMENT & MANUAL OVERRIDES */}
             <div className="pt-4 border-t border-white/10 mt-4">
                <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Game Management</p>
                <button onClick={() => handleOtherAction('Move Baserunners')} className="w-full bg-blue-900 border border-white/10 p-4 rounded-xl font-black uppercase text-[10px] hover:bg-blue-700 mb-2 transition-all">Move Baserunners (Mid At-Bat)</button>

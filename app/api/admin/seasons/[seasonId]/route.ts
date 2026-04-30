@@ -29,7 +29,7 @@ export async function GET(
   }
 }
 
-// --- TOGGLE SEASON STATE (ACTIVE / COMPLETED) ---
+// --- UPDATE SEASON SETTINGS OR STATE ---
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ seasonId: string }> }
@@ -40,20 +40,20 @@ export async function PATCH(
 
     if (!session) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-    const { status } = await request.json(); 
+    const body = await request.json(); 
     const { seasonId } = await params;
     const id = parseInt(seasonId);
     
     if (isNaN(id)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
 
-    // ⚡ SECURITY: Ensure user is a Commissioner or Admin before toggling state
+    // ⚡ SECURITY: Ensure user is a Commissioner or Admin before updating
     if (!user.isGlobalAdmin) {
       const season = await prisma.season.findUnique({ where: { id } });
       if (!season) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
       const membership = await prisma.leagueMembership.findFirst({
         where: { 
-          userId: parseInt(user.id), // FIX: String to Int
+          userId: parseInt(user.id),
           leagueId: season.leagueId, 
           isApproved: true 
         }
@@ -64,9 +64,12 @@ export async function PATCH(
       }
     }
 
+    // ⚡ FILTER PAYLOAD: Prevent overwriting protected database fields
+    const { id: _id, leagueId, createdAt, updatedAt, events, ...updateData } = body;
+
     const updatedSeason = await prisma.season.update({
       where: { id },
-      data: { status } 
+      data: updateData 
     });
 
     return NextResponse.json(updatedSeason);
@@ -98,7 +101,7 @@ export async function DELETE(
        
        const membership = await prisma.leagueMembership.findFirst({
          where: { 
-           userId: parseInt(user.id), // FIX: String to Int
+           userId: parseInt(user.id),
            leagueId: season.leagueId, 
            isApproved: true 
          }
@@ -116,7 +119,6 @@ export async function DELETE(
     return NextResponse.json({ message: "Season deleted successfully" });
   } catch (error: any) {
     console.error("DELETE_ERROR:", error);
-    // 💡 PRO-TIP: If this returns a 500, it's likely a database foreign key constraint.
     return NextResponse.json({ error: "Deletion failed. Ensure all associated games are removed first or use Cascade Delete." }, { status: 500 });
   }
 }
