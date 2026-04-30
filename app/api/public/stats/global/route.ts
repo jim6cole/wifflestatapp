@@ -113,10 +113,12 @@ export async function GET(request: Request) {
           
           const isK = res === 'K' || res === 'STRIKEOUT';
           const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
-          const isH = !isK && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
+          // ⚡ FIX: Explicitly exclude 'PLAY' from hits, add 'TRIPLE_PLAY' to outs
+          const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
+          const isH = !isOut && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
           
           if (isWalk) b.bb++;
-          else {
+          else if (isH || isOut) { 
             b.ab++;
             if (isK) b.k++;
             if (isH) {
@@ -141,7 +143,6 @@ export async function GET(request: Request) {
         });
       }
 
-      // ⚡ PITCHERS STILL GET THEIR MANUAL OUTS
       if (ab.pitcherId && ab.pitcher) {
           const p = addToMap(pitcherMap, ab.pitcherId, ab.pitcher.name, ab.game);
           p.gameIds.add(ab.gameId);

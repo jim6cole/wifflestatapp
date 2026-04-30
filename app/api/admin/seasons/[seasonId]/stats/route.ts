@@ -69,9 +69,10 @@ export async function GET(
         const isManualOut = res === 'MANUAL_OUT';
         const isK = res === 'K' || res === 'STRIKEOUT';
         const isBB = res === 'WALK' || res === 'BB' || res.includes('HBP');
-        const isH = !isK && !isBB && !isManualOut && ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(hit => res.startsWith(hit));
+        // ⚡ FIX: Add TRIPLE_PLAY to Outs, ensure PLAY is excluded from hits
+        const isOtherOut = ['FLY_OUT', 'GROUND_OUT', 'OUT', 'DP', 'FIELDERS_CHOICE', 'TRIPLE_PLAY'].some(o => res.startsWith(o)) && !isManualOut;
+        const isH = !isK && !isBB && !isManualOut && !isOtherOut && ['SINGLE', 'CLEAN_SINGLE', 'DOUBLE', 'CLEAN_DOUBLE', 'GROUND_RULE_DOUBLE', 'TRIPLE', 'HR'].some(hit => res.startsWith(hit)) && !res.includes('PLAY');
         const isHR = res.startsWith('HR');
-        const isOtherOut = ['FLY_OUT', 'GROUND_OUT', 'OUT', 'DP', 'FIELDERS_CHOICE'].some(o => res.startsWith(o)) && !isManualOut;
         
         if (ab.isTopInning) {
           awayRuns += ab.runsScored;
@@ -87,7 +88,6 @@ export async function GET(
           }
         }
 
-        // ⚡ BATTER SHIELD
         if (ab.batterId && !isManualOut) {
           initBatter(ab.batterId, ab.batter?.name || "Unknown"); 
           const b = batterMap[ab.batterId];
@@ -96,20 +96,19 @@ export async function GET(
           b.pa++;
           
           if (isH) { b.h++; b.ab++; }
-          if (res.includes('DOUBLE')) b.double++;
-          if (res.includes('TRIPLE')) b.triple++;
+          if (res.includes('DOUBLE') && !res.includes('PLAY')) b.double++;
+          if (res.includes('TRIPLE') && !res.includes('PLAY')) b.triple++;
           if (isHR) { b.hr++; b.tb += 4; }
           if (isBB) b.bb++; 
           if (isK) { b.k++; b.ab++; }
           if (isOtherOut) b.ab++;
         }
 
-        // ⚡ PITCHER CREDITS
         if (ab.pitcherId) {
           initPitcher(ab.pitcherId, ab.pitcher?.name || "Unknown");
           const p = pitcherMap[ab.pitcherId];
           p.gamesSet.add(game.id);
-          p.outs += ab.outs; // <--- The Magic Line!
+          p.outs += ab.outs; 
           p.r += ab.runsScored;
           p.er += ab.runsScored; 
           

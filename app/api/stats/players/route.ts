@@ -51,7 +51,6 @@ export async function GET() {
       player.atBats?.forEach((ab: any) => {
         const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
         
-        // ⚡ BATTER SHIELD
         if (res === 'MANUAL_OUT') return; 
 
         rbis += ab.rbi || 0;
@@ -60,17 +59,18 @@ export async function GET() {
         const isK = res === 'K' || res === 'STRIKEOUT';
         const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
 
+        // ⚡ FIX: Add !res.includes('PLAY') to Triple
         if (res.includes('SINGLE')) { 
           abCount++; hits++; 
         } else if (res.includes('DOUBLE') && !res.includes('PLAY')) { 
           abCount++; hits++; d2b++;
-        } else if (res.includes('TRIPLE')) { 
+        } else if (res.includes('TRIPLE') && !res.includes('PLAY')) { 
           abCount++; hits++; d3b++;
         } else if (res.includes('HR') || res.includes('HOMERUN')) { 
           abCount++; hits++; hr++; 
         } else if (isWalk) { 
           walks++;
-        } else if (['FLY_OUT', 'GROUND_OUT', 'OUT', 'DOUBLE_PLAY'].some(o => res.includes(o)) || isK) { 
+        } else if (['FLY_OUT', 'GROUND_OUT', 'OUT', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK) { 
           abCount++; 
           if (isK) ks++;
         }
@@ -79,7 +79,6 @@ export async function GET() {
       player.pitchedAtBats?.forEach((ab: any) => {
         const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
         
-        // Pitchers STILL get credit for Manual Outs here
         ipOutsTotal += (ab.outs || 0);
         
         const isK = res === 'K' || res === 'STRIKEOUT';

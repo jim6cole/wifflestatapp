@@ -177,8 +177,10 @@ export async function GET(
       const isManualOut = res === 'MANUAL_OUT';
       const isK = res === 'K' || res === 'STRIKEOUT';
       const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
-      const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY'].some(o => res.includes(o)) || isK;
-      const isHit = !isOut && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
+      
+      // ⚡ FIX: Added TRIPLE_PLAY to the out list, excluded PLAY from hit list
+      const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
+      const isHit = !isOut && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
       const isAB = (isHit || isOut) && !isManualOut; 
 
       if (isCurrent) {
@@ -193,7 +195,6 @@ export async function GET(
         }
       }
 
-      // ⚡ BATTER SHIELD
       const b = batters[ab.batterId];
       if (b && !isManualOut) {
         if (isAB) { b.season_ab++; if (isCurrent) b.ab++; }

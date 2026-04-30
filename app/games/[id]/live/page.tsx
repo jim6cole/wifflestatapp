@@ -87,7 +87,6 @@ export default function LiveScorer() {
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ⚡ GENERATE UNIQUE DEVICE ID ON MOUNT
   useEffect(() => {
     let storedId = localStorage.getItem('scorer-client-id');
     if (!storedId) {
@@ -97,9 +96,7 @@ export default function LiveScorer() {
     setClientId(storedId);
   }, []);
 
-  // ⚡ CENTRALIZED SYNC FUNCTION
   const syncStateFromCloud = useCallback((data: any) => {
-    // ⚡ FIX: IMMEDIATELY KICK SPECTATORS OUT IF THE GAME ENDS
     if (data.status === 'COMPLETED') {
         localStorage.removeItem(`game-sync-${id}`);
         const exitUrl = source === 'public' 
@@ -112,7 +109,6 @@ export default function LiveScorer() {
     setGame(data);
     setActiveScorerId(data.activeScorerId || null);
     
-    // Only trust localStorage if WE have control, otherwise trust the DB
     const localData = localStorage.getItem(`game-sync-${id}`);
     const weHaveControl = !data.activeScorerId || data.activeScorerId === clientId;
     
@@ -148,7 +144,6 @@ export default function LiveScorer() {
     setIsLoaded(true);
   }, [id, clientId, router, source]);
 
-  // ⚡ INITIAL LOAD & UNIVERSAL POLLING
   useEffect(() => {
     if (!id || !clientId) return;
 
@@ -191,7 +186,6 @@ export default function LiveScorer() {
     return () => clearInterval(pollInterval);
   }, [id, clientId, activeScorerId, isLoaded, syncStateFromCloud]);
 
-  // ⚡ TAKE CONTROL ACTION
   const claimBaton = async () => {
       localStorage.removeItem(`game-sync-${id}`);
       
@@ -219,7 +213,6 @@ export default function LiveScorer() {
 
   const hasControl = !activeScorerId || activeScorerId === clientId;
 
-  // --- 2. DUAL-SYNC AUTOSAVE ---
   useEffect(() => {
     if (!isLoaded || !game || !id || !hasControl) return; 
     
@@ -250,7 +243,6 @@ export default function LiveScorer() {
 
   const activePitcherId = isTopInning ? game?.currentHomePitcherId : game?.currentAwayPitcherId;
 
-  // --- 3. SUBSTITUTION HUB ---
   const handleSubstitution = async (newPlayer: any) => {
     const type = showSubModal;
     setShowSubModal(null);
@@ -408,7 +400,6 @@ export default function LiveScorer() {
 
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
     
-    // Assign RBI to the PREVIOUS batter if this is a mid-at-bat adjustment
     const effectiveBatterIdx = isMidAtBat 
         ? (activeBatterIdx - 1 + hittingLineup.length) % hittingLineup.length 
         : activeBatterIdx;
@@ -449,7 +440,6 @@ export default function LiveScorer() {
       extraOuts 
     }, ...prev]);
 
-    // Skip advancing batter index if we are just moving runners mid-at-bat
     if (!isMidAtBat) {
         setBatterIndices(prev => ({
           ...prev,
@@ -479,7 +469,6 @@ export default function LiveScorer() {
       setBaseRunnerPitchers(nextPitchers || [null, null, null]);
       setOuts(outs + extraOuts); 
       
-      // Preserve the pitch count if we are just moving runners or adding a manual out
       if (!isMidAtBat) {
           setBalls(0); 
           setStrikes(0);
@@ -540,7 +529,6 @@ export default function LiveScorer() {
 
     for (const p of placements) {
        if (p.end !== 'Out' && p.end !== 'Home') {
-           // Skip backwards check if they are manually correcting runner placement
            if (action !== 'Move Runners' && baseToInt(p.from) > baseToInt(p.end)) {
               triggerJackass(`${p.player.name} cannot move backwards from ${p.from} to ${p.end}!`);
               return false;
@@ -937,8 +925,9 @@ export default function LiveScorer() {
       if (log.type === 'play' && log.batterId === playerId) {
         const res = log.result.toUpperCase();
         
-        const isHit = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B'].some(h => res.includes(h));
-        const isOut = ['FLY OUT', 'GROUND OUT', 'OUT', 'DP'].some(o => res === o || res.includes(o));
+        // ⚡ FIX: Protect 'Triple Play' from counting as a 'Triple'
+        const isHit = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B'].some(h => res.includes(h)) && !res.includes('PLAY');
+        const isOut = ['FLY OUT', 'GROUND OUT', 'OUT', 'DP', 'TRIPLE PLAY'].some(o => res === o || res.includes(o));
         const isK = res === 'K' || res.includes('STRIKEOUT');
 
         if (res === 'MANUAL_OUT') return; 
@@ -1306,6 +1295,7 @@ export default function LiveScorer() {
               )}
             </div>
 
+            {/* ⚡ GAME MANAGEMENT & MANUAL OVERRIDES */}
             <div className="pt-4 border-t border-white/10 mt-4">
                <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Game Management</p>
                <button onClick={() => handleOtherAction('Move Baserunners')} className="w-full bg-blue-900 border border-white/10 p-4 rounded-xl font-black uppercase text-[10px] hover:bg-blue-700 mb-2 transition-all">Move Baserunners (Mid At-Bat)</button>
