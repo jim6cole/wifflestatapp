@@ -21,6 +21,10 @@ export default function LiveScorer() {
   
   const source = searchParams.get('source');
 
+  // ⚡ MULTI-USER IDENTIFICATION
+  const [clientId, setClientId] = useState('');
+  const [activeScorerId, setActiveScorerId] = useState<string | null>(null);
+
   const [game, setGame] = useState<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -84,61 +88,153 @@ export default function LiveScorer() {
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // --- 1. INITIAL LOAD & RECOVERY ---
+  // ⚡ GENERATE UNIQUE DEVICE ID ON MOUNT
   useEffect(() => {
-    if (!id) return;
-    fetch(`/api/games/${id}/setup`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      })
-      .then(data => {
-        setGame(data);
-        const localData = localStorage.getItem(`game-sync-${id}`);
-        const savedState = localData ? JSON.parse(localData) : (data.liveState ? JSON.parse(data.liveState) : null);
+    let storedId = localStorage.getItem('scorer-client-id');
+    if (!storedId) {
+        storedId = 'scorer_' + Math.random().toString(36).substring(2, 10);
+        localStorage.setItem('scorer-client-id', storedId);
+    }
+    setClientId(storedId);
+  }, []);
 
-        if (savedState) {
-          setBatterIndices(savedState.batterIndices ?? { away: 0, home: 0 });
-          setIsTopInning(savedState.isTopInning ?? true);
-          setInning(savedState.inning ?? 1);
-          setOuts(savedState.outs ?? 0);
-          setBalls(savedState.balls ?? 0);
-          setStrikes(savedState.strikes ?? 0);
-          setBaseRunners(savedState.baseRunners ?? [null, null, null]);
-          setBaseRunnerPitchers(savedState.baseRunnerPitchers ?? [null, null, null]);
-          setHomeScore(savedState.homeScore ?? 0);
-          setAwayScore(savedState.awayScore ?? 0);
-          setHomePitches(savedState.homePitches ?? 0);
-          setAwayPitches(savedState.awayPitches ?? 0);
-          setRunsThisInning(savedState.runsThisInning ?? 0);
-          setPlayLog(savedState.playLog ?? []);
-          setRedoStack(savedState.redoStack ?? []);
-          setRetiredPitchers(savedState.retiredPitchers ?? []);
-        }
-        setIsLoaded(true); 
-      })
-      .catch(err => console.error("Error loading game:", err));
-  }, [id]);
+  // ⚡ CENTRALIZED SYNC FUNCTION
+  const syncStateFromCloud = useCallback((data: any) => {
+    setGame(data);
+    setActiveScorerId(data.activeScorerId || null);
+    
+    // Only trust localStorage if WE have control, otherwise trust the DB
+    const localData = localStorage.getItem(`game-sync-${id}`);
+    const weHaveControl = !data.activeScorerId || data.activeScorerId === clientId;
+    
+    // ⚡ NEW: Force modals to close immediately if someone steals the baton
+    if (!weHaveControl) {
+        setShowDPModal(false);
+        setShowSubModal(null);
+        setShowOtherModal(false);
+        setShowGhostModal(false);
+        setPlacementAction(null);
+        setHitErrorData(null);
+    }
+    
+    const savedState = (weHaveControl && localData) ? JSON.parse(localData) : (data.liveState ? JSON.parse(data.liveState) : null);
+
+    if (savedState) {
+      setBatterIndices(savedState.batterIndices ?? { away: 0, home: 0 });
+      setIsTopInning(savedState.isTopInning ?? true);
+      setInning(savedState.inning ?? 1);
+      setOuts(savedState.outs ?? 0);
+      setBalls(savedState.balls ?? 0);
+      setStrikes(savedState.strikes ?? 0);
+      setBaseRunners(savedState.baseRunners ?? [null, null, null]);
+      setBaseRunnerPitchers(savedState.baseRunnerPitchers ?? [null, null, null]);
+      setHomeScore(savedState.homeScore ?? 0);
+      setAwayScore(savedState.awayScore ?? 0);
+      setHomePitches(savedState.homePitches ?? 0);
+      setAwayPitches(savedState.awayPitches ?? 0);
+      setRunsThisInning(savedState.runsThisInning ?? 0);
+      setPlayLog(savedState.playLog ?? []);
+      setRedoStack(savedState.redoStack ?? []);
+      setRetiredPitchers(savedState.retiredPitchers ?? []);
+    }
+    setIsLoaded(true);
+  }, [id, clientId]);
+
+  // ⚡ INITIAL LOAD & UNIVERSAL POLLING
+  useEffect(() => {
+    if (!id || !clientId) return;
+
+    const loadGame = async () => {
+      try {
+          const res = await fetch(`/api/games/${id}/setup`);
+          const data = await res.json();
+          
+          // Auto-claim the baton if nobody has it!
+          if (!data.activeScorerId) {
+              await fetch(`/api/games/${id}/baton`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ clientId })
+              });
+              data.activeScorerId = clientId;
+          }
+          
+          syncStateFromCloud(data);
+      } catch (err) { console.error("Error loading game:", err); }
+    };
+
+    if (!isLoaded) {
+        loadGame();
+    }
+
+    // ⚡ UNIVERSAL POLLING (Runs for BOTH Active Scorers and Spectators)
+    const pollInterval = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/games/${id}/setup`);
+            const data = await res.json();
+            
+            const weAreSpectating = activeScorerId && activeScorerId !== clientId;
+            const serverSaysWeLostControl = data.activeScorerId && data.activeScorerId !== clientId;
+            
+            // If we are spectating, OR if someone just stole our control, SYNC!
+            if (weAreSpectating || serverSaysWeLostControl) {
+                syncStateFromCloud(data);
+            }
+        } catch (err) {}
+    }, 1500); // ⚡ Hyper-fast 1.5s checks to guarantee instant visual lockouts
+
+    return () => clearInterval(pollInterval);
+  }, [id, clientId, activeScorerId, isLoaded, syncStateFromCloud]);
+
+  // ⚡ TAKE CONTROL ACTION
+  const claimBaton = async () => {
+      // ⚡ CRITICAL: Nuke stale local data immediately so we adopt the fresh cloud state upon takeover!
+      localStorage.removeItem(`game-sync-${id}`);
+      
+      await fetch(`/api/games/${id}/baton`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId })
+      });
+      setActiveScorerId(clientId);
+      
+      // Hard Sync immediately to snap everything into place
+      const res = await fetch(`/api/games/${id}/setup`);
+      const data = await res.json();
+      syncStateFromCloud(data);
+  };
+
+  const hasControl = !activeScorerId || activeScorerId === clientId;
 
   // --- 2. DUAL-SYNC AUTOSAVE ---
   useEffect(() => {
-    if (!isLoaded || !game || !id) return; 
+    if (!isLoaded || !game || !id || !hasControl) return; 
+    
     const stateToSave = {
       batterIndices, isTopInning, inning, outs, balls, strikes,
       baseRunners, baseRunnerPitchers, homeScore, awayScore, homePitches, awayPitches,
-      runsThisInning,
-      playLog, redoStack, retiredPitchers
+      runsThisInning, playLog, redoStack, retiredPitchers
     };
+    
     localStorage.setItem(`game-sync-${id}`, JSON.stringify(stateToSave));
+    
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      fetch(`/api/games/${id}/live-state`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: stateToSave })
-      }).catch(err => console.error("Cloud Autosave failed:", err));
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/games/${id}/live-state`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: stateToSave, clientId })
+        });
+        
+        if (res.status === 403) {
+            // Backup Cloud Shield: If autosave gets rejected, drop control immediately
+            const data = await res.json();
+            setActiveScorerId(data.activeScorerId);
+        }
+      } catch (err) { console.error("Cloud Autosave failed:", err); }
     }, 1500);
-  }, [isLoaded, game, id, batterIndices, isTopInning, inning, outs, balls, strikes, baseRunners, baseRunnerPitchers, homeScore, awayScore, homePitches, awayPitches, runsThisInning, playLog, redoStack, retiredPitchers]);
+  }, [isLoaded, game, id, hasControl, clientId, batterIndices, isTopInning, inning, outs, balls, strikes, baseRunners, baseRunnerPitchers, homeScore, awayScore, homePitches, awayPitches, runsThisInning, playLog, redoStack, retiredPitchers]);
 
   const activePitcherId = isTopInning ? game?.currentHomePitcherId : game?.currentAwayPitcherId;
 
@@ -268,7 +364,11 @@ export default function LiveScorer() {
     if (!isTopInning) setInning(prev => prev + 1);
   }, [game, isTopInning, inning, baseRunners, baseRunnerPitchers, outs, balls, strikes, batterIndices, homeScore, awayScore, runsThisInning]);
 
-  const recordPlay = useCallback((result: string, newBases: (any|null)[], runs: number, extraOuts: number = 0, nextPitchers?: (number|null)[], scoringPitcherIds?: number[], scoringRunnerIds?: number[]) => {
+  const recordPlay = useCallback((
+      result: string, newBases: (any|null)[], runs: number, extraOuts: number = 0, 
+      nextPitchers?: (number|null)[], scoringPitcherIds?: number[], scoringRunnerIds?: number[], 
+      isManualOut: boolean = false
+    ) => {
     clearRedo();
     if (!game) return;
     
@@ -278,8 +378,7 @@ export default function LiveScorer() {
     const isUnlimitedInning = rules?.unlimitedLastInning && inning >= (rules?.inningsPerGame || 5);
     const newRunsThisInning = runsThisInning + runs;
 
-    // ⚡ MID AT-BAT LOGIC: Tied to previous play. Does not advance batter or clear count!
-    const isMidAtBat = result === 'Move Runners' || result === 'Manual Out';
+    const isMidAtBat = result === 'Move Runners' || isManualOut;
 
     if (outs >= targetOuts && extraOuts > 0) {
        triggerJackass(`Inning is already over! (Current Outs: ${outs})`);
@@ -297,12 +396,12 @@ export default function LiveScorer() {
 
     const activeBatterIdx = isTopInning ? batterIndices.away : batterIndices.home;
     
-    // Assign to the PREVIOUS batter if this is a mid-at-bat adjustment
+    // Assign RBI to the PREVIOUS batter if this is a mid-at-bat adjustment
     const effectiveBatterIdx = isMidAtBat 
         ? (activeBatterIdx - 1 + hittingLineup.length) % hittingLineup.length 
         : activeBatterIdx;
     
-    const batter = hittingLineup[effectiveBatterIdx]?.player;
+    const batter = isManualOut ? null : hittingLineup[effectiveBatterIdx]?.player;
 
     const runner1Id = baseRunners[0]?.id || null;
     const runner2Id = baseRunners[1]?.id || null;
@@ -315,7 +414,7 @@ export default function LiveScorer() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        gameId: id, batterId: batter?.id, pitcherId: activePitcherId, slot: effectiveBatterIdx + 1,
+        gameId: id, batterId: isManualOut ? null : batter?.id, pitcherId: activePitcherId, slot: effectiveBatterIdx + 1,
         runAttribution: runAttributionString, result: result.toUpperCase().replace(/\s/g, '_'), 
         runsScored: runs, outs: extraOuts, inning: inning, isTopInning: isTopInning,
         runner1Id, runner2Id, runner3Id, scorerIds: scorerIdsString,
@@ -327,7 +426,7 @@ export default function LiveScorer() {
     setRunsThisInning(newRunsThisInning); 
 
     setPlayLog(prev => [{
-      type: 'play', batter: result === 'Manual Out' ? 'System' : (batter?.name || 'Unknown'), batterId: result === 'Manual Out' ? undefined : batter?.id, pitcherId: activePitcherId, 
+      type: 'play', batter: isManualOut ? 'System' : (batter?.name || 'Unknown'), batterId: isManualOut ? undefined : batter?.id, pitcherId: activePitcherId, 
       result, runsScored: runs, runs: runs,
       inning: inning, isTopInning: isTopInning, slot: effectiveBatterIdx + 1, runAttribution: runAttributionString,
       runner1Id, runner2Id, runner3Id, scorerIds: scorerIdsString,
@@ -601,7 +700,7 @@ export default function LiveScorer() {
           break;
       }
       case 'Manual Out': {
-          recordPlay('Manual Out', [...baseRunners], 0, 1, [...baseRunnerPitchers]);
+          recordPlay('Manual Out', [...baseRunners], 0, 1, [...baseRunnerPitchers], [], [], true);
           break;
       }
       case 'Sac Fly': startPlacementFlow('Tag'); break;
@@ -809,7 +908,7 @@ export default function LiveScorer() {
     } catch (error) { alert("Failed to mark game as completed."); }
   };
 
-  if (!game) return <div className="bg-slate-950 min-h-screen flex items-center justify-center font-black italic text-white animate-pulse">WARMING UP...</div>;
+  if (!game || !clientId) return <div className="bg-slate-950 min-h-screen flex flex-col items-center justify-center font-black italic text-white animate-pulse"><div className="text-2xl mb-2">WARMING UP...</div><div className="text-xs text-blue-400">Securing Local Connection</div></div>;
 
   const btrTeamId = isTopInning ? game.awayTeamId : game.homeTeamId;
   const activeHittingLineup = game.lineups.filter((l: any) => l.teamId === btrTeamId && l.battingOrder !== 99).sort((a: any, b: any) => a.battingOrder - b.battingOrder);
@@ -829,7 +928,6 @@ export default function LiveScorer() {
         const isOut = ['FLY OUT', 'GROUND OUT', 'OUT', 'DP'].some(o => res === o || res.includes(o));
         const isK = res === 'K' || res.includes('STRIKEOUT');
 
-        // Prevent Manual Outs from ruining live active stats too!
         if (res === 'MANUAL_OUT') return; 
 
         if (isHit) {
@@ -854,6 +952,7 @@ export default function LiveScorer() {
         ← {backLabel}
       </Link>
 
+      {/* MODALS */}
       {showEndGameModal && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/95 backdrop-blur-md p-6 text-center">
           <div className="bg-[#002D62] p-8 rounded-3xl border-4 border-[#c1121f] max-w-sm w-full shadow-2xl">
@@ -1194,7 +1293,7 @@ export default function LiveScorer() {
               )}
             </div>
 
-            {/* ⚡ NEW: GAME MANAGEMENT & MANUAL OVERRIDES */}
+            {/* ⚡ GAME MANAGEMENT & MANUAL OVERRIDES */}
             <div className="pt-4 border-t border-white/10 mt-4">
                <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Game Management</p>
                <button onClick={() => handleOtherAction('Move Baserunners')} className="w-full bg-blue-900 border border-white/10 p-4 rounded-xl font-black uppercase text-[10px] hover:bg-blue-700 mb-2 transition-all">Move Baserunners (Mid At-Bat)</button>
@@ -1225,113 +1324,130 @@ export default function LiveScorer() {
         </div>
       )}
 
-      {/* ORIGINAL SCOREBOARD - COMPLETELY UNTOUCHED */}
-      <div className="bg-[#002D62] overflow-hidden rounded shadow-2xl mb-8 border border-white/20 select-none">
-        <div className="bg-[#c1121f] text-white px-3 py-1 flex justify-between items-center font-black uppercase text-[9px]">
-            <span>{game.season?.name}</span>
-            <span>{game.season?.inningsPerGame} INN | {game.season?.balls || 4}B {game.season?.strikes || 3}S {game.season?.outs || 3}O {game.season?.mercyRule > 0 ? `| ${game.season.mercyRule} Run Mercy` : ''}</span>
-        </div>
-        <div className="flex">
-            <div className="grid grid-cols-[1fr_auto] border-r border-white/20 bg-white text-black min-w-[210px]">
-                <div className="px-5 py-3 font-black flex items-center gap-3 border-b border-black/10">
-                    <span className="w-7 h-7 bg-red-700 text-white flex items-center justify-center text-xs rounded-sm font-bold">{game.awayTeam.name.substring(0,3)}</span>
-                    <span className="uppercase text-base truncate font-bold">{game.awayTeam.name}</span>
-                </div>
-                <div className="px-6 py-3 bg-white font-black text-3xl flex items-center justify-center border-b border-black/10">{awayScore}</div>
-                <div className="px-5 py-3 font-black flex items-center gap-3">
-                    <span className="w-7 h-7 bg-blue-800 text-white flex items-center justify-center text-xs rounded-sm font-bold">{game.homeTeam.name.substring(0,3)}</span>
-                    <span className="uppercase text-base truncate font-bold">{game.homeTeam.name}</span>
-                </div>
-                <div className="px-6 py-3 bg-white font-black text-3xl flex items-center justify-center">{homeScore}</div>
+      {/* ⚡ THE SPECTATOR UI OVERLAY */}
+      {!hasControl && (
+          <div className="bg-[#002D62] border-2 border-blue-500 p-6 rounded-3xl mb-8 text-center animate-pulse shadow-[0_0_30px_rgba(59,130,246,0.3)] relative z-[50]">
+              <h2 className="text-xl font-black uppercase italic mb-2 text-white">Spectator Mode</h2>
+              <p className="text-xs text-blue-300 font-bold uppercase mb-6 tracking-widest leading-relaxed">
+                  Another device is currently scoring this game.<br/>Your screen is syncing live.
+              </p>
+              <button onClick={claimBaton} className="bg-blue-600 text-white w-full py-4 rounded-xl font-black uppercase tracking-widest hover:bg-white hover:text-blue-900 transition-all pointer-events-auto">
+                  Take Control
+              </button>
+          </div>
+      )}
+
+      {/* ⚡ GRAY OUT THE ENTIRE UI WHEN SPECTATING */}
+      <div className={`transition-all duration-300 ${!hasControl ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
+
+          <div className="bg-[#002D62] overflow-hidden rounded shadow-2xl mb-8 border border-white/20 select-none">
+            <div className="bg-[#c1121f] text-white px-3 py-1 flex justify-between items-center font-black uppercase text-[9px]">
+                <span>{game.season?.name}</span>
+                <span>{game.season?.inningsPerGame} INN | {game.season?.balls || 4}B {game.season?.strikes || 3}S {game.season?.outs || 3}O {game.season?.mercyRule > 0 ? `| ${game.season.mercyRule} Run Mercy` : ''}</span>
             </div>
-            <div className="flex-1 grid grid-cols-2 bg-[#002D62]">
-                <div className="flex flex-col items-center justify-center p-3 border-r border-white/10 text-center">
-                    <div className="relative w-11 h-11 mb-2">
-                        {[1, 2, 0].map(idx => <div key={idx} className={`absolute ${idx===1?'top-0 left-1/2 -translate-x-1/2':idx===2?'top-1/2 left-0 -translate-y-1/2':'top-1/2 right-0 -translate-y-1/2'} w-3.5 h-3.5 rotate-45 border border-white/30 ${baseRunners[idx] ? 'bg-yellow-400 border-yellow-200 shadow-lg' : ''}`}></div>)}
+            <div className="flex">
+                <div className="grid grid-cols-[1fr_auto] border-r border-white/20 bg-white text-black min-w-[210px]">
+                    <div className="px-5 py-3 font-black flex items-center gap-3 border-b border-black/10">
+                        <span className="w-7 h-7 bg-red-700 text-white flex items-center justify-center text-xs rounded-sm font-bold">{game.awayTeam.name.substring(0,3)}</span>
+                        <span className="uppercase text-base truncate font-bold">{game.awayTeam.name}</span>
                     </div>
-                    <div className="text-lg font-black">{balls}-{strikes}</div>
+                    <div className="px-6 py-3 bg-white font-black text-3xl flex items-center justify-center border-b border-black/10">{awayScore}</div>
+                    <div className="px-5 py-3 font-black flex items-center gap-3">
+                        <span className="w-7 h-7 bg-blue-800 text-white flex items-center justify-center text-xs rounded-sm font-bold">{game.homeTeam.name.substring(0,3)}</span>
+                        <span className="uppercase text-base truncate font-bold">{game.homeTeam.name}</span>
+                    </div>
+                    <div className="px-6 py-3 bg-white font-black text-3xl flex items-center justify-center">{homeScore}</div>
                 </div>
-                <div className="flex flex-col items-center justify-center p-3 text-center">
-                   <div className="font-black text-2xl leading-none">{isTopInning ? '▲' : '▼'}{inning}</div>
-                  <div className="text-[10px] font-black uppercase opacity-60 mt-1">{outs} OUT</div>
-               </div>
+                <div className="flex-1 grid grid-cols-2 bg-[#002D62]">
+                    <div className="flex flex-col items-center justify-center p-3 border-r border-white/10 text-center">
+                        <div className="relative w-11 h-11 mb-2">
+                            {[1, 2, 0].map(idx => <div key={idx} className={`absolute ${idx===1?'top-0 left-1/2 -translate-x-1/2':idx===2?'top-1/2 left-0 -translate-y-1/2':'top-1/2 right-0 -translate-y-1/2'} w-3.5 h-3.5 rotate-45 border border-white/30 ${baseRunners[idx] ? 'bg-yellow-400 border-yellow-200 shadow-lg' : ''}`}></div>)}
+                        </div>
+                        <div className="text-lg font-black">{balls}-{strikes}</div>
+                    </div>
+                    <div className="flex flex-col items-center justify-center p-3 text-center">
+                       <div className="font-black text-2xl leading-none">{isTopInning ? '▲' : '▼'}{inning}</div>
+                      <div className="text-[10px] font-black uppercase opacity-60 mt-1">{outs} OUT</div>
+                   </div>
+                </div>
             </div>
-        </div>
-        <div className="bg-[#EAEAEA] text-black px-4 py-2 flex justify-between items-center border-t border-black/20 font-black italic text-[10px]">
-          <div>PITCHING: {currentPitcher?.name}</div>
-          <div>P: <span className="text-lg leading-none">{isTopInning ? homePitches : awayPitches}</span></div>
-        </div>
-        <div className="bg-white text-black px-4 py-2 border-t border-black/10 font-black italic text-[10px]">
-          <div className="flex justify-between items-center mb-1">
-             <div>{currentBatterIdx + 1}. {currentBatter?.name} <span className="ml-2 text-slate-400 uppercase not-italic text-[9px]">({currentBatterPosition})</span></div>
-             <div className="flex gap-4">
-                <span className="opacity-40">{currentStats.gameH}-{currentStats.gameAb} TODAY</span>
-                <span className="text-[#002D62]">AVG: {currentStats.avg}</span>
-             </div>
-          </div>
-          <div className="text-[8px] uppercase text-[#669bbc] border-t border-black/5 pt-1">
-            ON DECK: {activeHittingLineup[(currentBatterIdx + 1) % activeHittingLineup.length]?.player.name}
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3 mb-8">
-        <div className="grid grid-cols-2 gap-3">
-          <button onClick={() => handleAction('Ball')} className="bg-slate-900 border-b-4 border-slate-700 py-6 rounded-xl font-black text-xl uppercase italic">Ball</button>
-          <button onClick={() => handleAction('Strike')} className="bg-slate-900 border-b-4 border-slate-700 py-6 rounded-xl font-black text-xl uppercase italic">Strike</button>
-        </div>
-        <div className="grid grid-cols-4 gap-2">
-          {['Single', 'Double', 'Triple', 'HR'].map((h) => <button key={h} onClick={() => handleAction(h)} className="bg-blue-900 border-b-4 border-blue-950 p-4 rounded-lg font-black text-[10px] uppercase italic">{h}</button>)}
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <button onClick={() => recordPlay('Fly Out', [...baseRunners], 0, 1, [...baseRunnerPitchers])} className="bg-red-950 border-b-4 border-red-900 p-4 rounded-lg font-black text-[10px] uppercase italic">Fly Out</button>
-          <button onClick={() => recordPlay('Ground Out', [...baseRunners], 0, 1, [...baseRunnerPitchers])} className="bg-red-950 border-b-4 border-red-900 p-4 rounded-lg font-black text-[10px] uppercase italic">Ground Out</button>
-          <button onClick={handleDPAction} className="bg-red-950 border-b-4 border-red-900 p-4 rounded-lg font-black text-[10px] uppercase italic">Double Play</button>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <button onClick={() => recordPlay('K', [...baseRunners], 0, 1, [...baseRunnerPitchers])} className="bg-red-900/40 border-b-4 border-red-900/60 p-3 rounded-lg font-black text-[10px] uppercase italic">K</button>
-          <button onClick={() => handleAction('BB')} className="bg-blue-900/40 border-b-4 border-blue-900/60 p-3 rounded-lg font-black text-[10px] uppercase italic">BB</button>
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          <button onClick={() => startPlacementFlow('Error')} className="bg-yellow-600/20 border-b-4 border-yellow-600/40 p-3 rounded-lg font-black text-[10px] uppercase italic">Error</button>
-          <button onClick={() => setShowOtherModal(true)} className="bg-purple-900/40 border-b-4 border-purple-900/60 p-3 rounded-lg font-black text-[10px] uppercase italic text-purple-200">Other...</button>
-          <button onClick={() => startPlacementFlow('Tag')} className="bg-orange-900/40 border-b-4 border-orange-900/60 p-3 rounded-lg font-black text-[10px] uppercase italic">Tag</button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <button onClick={undoLastPlay} disabled={playLog.length === 0} className="bg-slate-900 border border-white/5 py-3 rounded-lg text-[10px] font-black uppercase text-slate-500">Undo ↩</button>
-        <button onClick={redoLastPlay} disabled={redoStack.length === 0} className="bg-slate-900 border border-white/5 py-3 rounded-lg text-[10px] font-black uppercase text-slate-500">Redo ↪</button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 mb-8">
-        <button onClick={() => openSubModal('pitcher')} className="bg-[#003566] border-b-4 border-[#001d3d] py-4 rounded-xl font-black text-xs uppercase italic text-blue-200">Pitching Change</button>
-        <button onClick={() => openSubModal('batter')} className="bg-[#003566] border-b-4 border-[#001d3d] py-4 rounded-xl font-black text-xs uppercase italic text-blue-200">Pinch Hitter</button>
-      </div>
-
-      <div className="bg-slate-900/40 rounded-xl border border-white/5 overflow-hidden shadow-inner">
-        <div className="bg-white/5 px-4 py-2 font-black uppercase text-[10px] text-slate-400 text-center italic">Live Game Feed</div>
-        <div className="p-2 space-y-1 h-[120px] overflow-y-auto scrollbar-hide">
-          {playLog.filter(l => l.type !== 'pitch').map((log, i) => (
-            <div key={i} className={`flex flex-col px-3 py-2 rounded text-xs ${log.runs > 0 ? 'bg-blue-600/20 border-blue-500/30 border' : ''}`}>
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-3 font-black uppercase"><span className="text-[9px] font-bold text-slate-500 w-8">{log.logDisplayInning}</span>{log.batter}</div>
-                <div className="flex items-center gap-4"><span className={`font-black italic uppercase ${log.runs > 0 ? 'text-blue-400' : log.runs < 0 ? 'text-red-400' : 'text-slate-400'}`}>{log.result}</span></div>
+            <div className="bg-[#EAEAEA] text-black px-4 py-2 flex justify-between items-center border-t border-black/20 font-black italic text-[10px]">
+              <div>PITCHING: {currentPitcher?.name}</div>
+              <div>P: <span className="text-lg leading-none">{isTopInning ? homePitches : awayPitches}</span></div>
+            </div>
+            <div className="bg-white text-black px-4 py-2 border-t border-black/10 font-black italic text-[10px]">
+              <div className="flex justify-between items-center mb-1">
+                 <div>{currentBatterIdx + 1}. {currentBatter?.name} <span className="ml-2 text-slate-400 uppercase not-italic text-[9px]">({currentBatterPosition})</span></div>
+                 <div className="flex gap-4">
+                    <span className="opacity-40">{currentStats.gameH}-{currentStats.gameAb} TODAY</span>
+                    <span className="text-[#002D62]">AVG: {currentStats.avg}</span>
+                 </div>
               </div>
-              {log.runs > 0 && log.scorerIds && (
-                <div className="text-[8px] text-blue-300/80 font-bold uppercase mt-1 pl-11">
-                   Scored: {log.scorerIds.split(',').map((id: string) => game?.lineups?.find((l:any) => String(l.playerId) === String(id))?.player.name || 'Ghost Runner').join(', ')}
-                </div>
-              )}
+              <div className="text-[8px] uppercase text-[#669bbc] border-t border-black/5 pt-1">
+                ON DECK: {activeHittingLineup[(currentBatterIdx + 1) % activeHittingLineup.length]?.player.name}
+              </div>
             </div>
-          ))}
-        </div>
+          </div>
+
+          <div className="space-y-3 mb-8">
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => handleAction('Ball')} className="bg-slate-900 border-b-4 border-slate-700 py-6 rounded-xl font-black text-xl uppercase italic">Ball</button>
+              <button onClick={() => handleAction('Strike')} className="bg-slate-900 border-b-4 border-slate-700 py-6 rounded-xl font-black text-xl uppercase italic">Strike</button>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {['Single', 'Double', 'Triple', 'HR'].map((h) => <button key={h} onClick={() => handleAction(h)} className="bg-blue-900 border-b-4 border-blue-950 p-4 rounded-lg font-black text-[10px] uppercase italic">{h}</button>)}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => recordPlay('Fly Out', [...baseRunners], 0, 1, [...baseRunnerPitchers])} className="bg-red-950 border-b-4 border-red-900 p-4 rounded-lg font-black text-[10px] uppercase italic">Fly Out</button>
+              <button onClick={() => recordPlay('Ground Out', [...baseRunners], 0, 1, [...baseRunnerPitchers])} className="bg-red-950 border-b-4 border-red-900 p-4 rounded-lg font-black text-[10px] uppercase italic">Ground Out</button>
+              <button onClick={handleDPAction} className="bg-red-950 border-b-4 border-red-900 p-4 rounded-lg font-black text-[10px] uppercase italic">Double Play</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => recordPlay('K', [...baseRunners], 0, 1, [...baseRunnerPitchers])} className="bg-red-900/40 border-b-4 border-red-900/60 p-3 rounded-lg font-black text-[10px] uppercase italic">K</button>
+              <button onClick={() => handleAction('BB')} className="bg-blue-900/40 border-b-4 border-blue-900/60 p-3 rounded-lg font-black text-[10px] uppercase italic">BB</button>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <button onClick={() => startPlacementFlow('Error')} className="bg-yellow-600/20 border-b-4 border-yellow-600/40 p-3 rounded-lg font-black text-[10px] uppercase italic">Error</button>
+              <button onClick={() => setShowOtherModal(true)} className="bg-purple-900/40 border-b-4 border-purple-900/60 p-3 rounded-lg font-black text-[10px] uppercase italic text-purple-200">Other...</button>
+              <button onClick={() => startPlacementFlow('Tag')} className="bg-orange-900/40 border-b-4 border-orange-900/60 p-3 rounded-lg font-black text-[10px] uppercase italic">Tag</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <button onClick={undoLastPlay} disabled={playLog.length === 0} className="bg-slate-900 border border-white/5 py-3 rounded-lg text-[10px] font-black uppercase text-slate-500">Undo ↩</button>
+            <button onClick={redoLastPlay} disabled={redoStack.length === 0} className="bg-slate-900 border border-white/5 py-3 rounded-lg text-[10px] font-black uppercase text-slate-500">Redo ↪</button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mb-8">
+            <button onClick={() => openSubModal('pitcher')} className="bg-[#003566] border-b-4 border-[#001d3d] py-4 rounded-xl font-black text-xs uppercase italic text-blue-200">Pitching Change</button>
+            <button onClick={() => openSubModal('batter')} className="bg-[#003566] border-b-4 border-[#001d3d] py-4 rounded-xl font-black text-xs uppercase italic text-blue-200">Pinch Hitter</button>
+          </div>
+
+          <div className="bg-slate-900/40 rounded-xl border border-white/5 overflow-hidden shadow-inner">
+            <div className="bg-white/5 px-4 py-2 font-black uppercase text-[10px] text-slate-400 text-center italic">Live Game Feed</div>
+            <div className="p-2 space-y-1 h-[120px] overflow-y-auto scrollbar-hide">
+              {playLog.filter(l => l.type !== 'pitch').map((log, i) => (
+                <div key={i} className={`flex flex-col px-3 py-2 rounded text-xs ${log.runs > 0 ? 'bg-blue-600/20 border-blue-500/30 border' : ''}`}>
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-3 font-black uppercase"><span className="text-[9px] font-bold text-slate-500 w-8">{log.logDisplayInning}</span>{log.batter}</div>
+                    <div className="flex items-center gap-4"><span className={`font-black italic uppercase ${log.runs > 0 ? 'text-blue-400' : log.runs < 0 ? 'text-red-400' : 'text-slate-400'}`}>{log.result}</span></div>
+                  </div>
+                  {log.runs > 0 && log.scorerIds && (
+                    <div className="text-[8px] text-blue-300/80 font-bold uppercase mt-1 pl-11">
+                       Scored: {log.scorerIds.split(',').map((id: string) => game?.lineups?.find((l:any) => String(l.playerId) === String(id))?.player.name || 'Ghost Runner').join(', ')}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={() => { setGameOverMessage("Manual Game Over"); setShowEndGameModal(true); }} className="w-full mt-8 bg-red-600/10 border-2 border-red-600/50 text-red-500 py-4 rounded-xl font-black uppercase italic tracking-widest hover:bg-red-600 hover:text-white transition-all">End Game</button>
+
       </div>
-
-      <button onClick={() => { setGameOverMessage("Manual Game Over"); setShowEndGameModal(true); }} className="w-full mt-8 bg-red-600/10 border-2 border-red-600/50 text-red-500 py-4 rounded-xl font-black uppercase italic tracking-widest hover:bg-red-600 hover:text-white transition-all">End Game</button>
-
+      
       {showJackassError && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-red-600/95 backdrop-blur-md p-6 text-center">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-red-600/95 backdrop-blur-md p-6 text-center z-[5000]">
           <div className="bg-white p-8 rounded-3xl border-4 border-black max-w-sm w-full shadow-2xl">
             <h2 className="text-2xl font-black uppercase italic mb-2 text-black">Jackass Alert</h2>
             <p className="text-black font-bold mb-8 uppercase tracking-tighter leading-tight">{jackassMessage}</p>

@@ -154,6 +154,7 @@ model Game {
   isSpeedRestricted    Boolean?         
   speedLimit           Int?             
   liveState            String?
+  activeScorerId       String?          // ⚡ NEW: Tracking the Baton
   isPlayoff            Boolean          @default(false)
   currentHomePitcherId Int?
   currentAwayPitcherId Int?
