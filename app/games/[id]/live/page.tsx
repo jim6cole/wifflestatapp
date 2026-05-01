@@ -176,7 +176,7 @@ export default function LiveScorer() {
                 syncStateFromCloud(data);
             }
         } catch (err) {}
-    }, 1500); 
+    }, 5000); 
 
     return () => clearInterval(pollInterval);
   }, [id, clientId, activeScorerId, isLoaded, syncStateFromCloud]);
