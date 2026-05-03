@@ -88,7 +88,7 @@ export async function GET(request: Request) {
           ipOuts: 0, ph: 0, pr: 0, per: 0, pbb: 0, pk: 0, phr: 0, w: 0, l: 0, sv: 0,
           weighted_per: 0, 
           gameIds: new Set<number>(),
-          manualGP: 0,
+          importedGp: 0, // ⚡ Changed from manualGP to importedGp for bulk legacy stats
           leaguesPlayed: new Set<string>([leagueLabel]),
           stylesPlayed: new Set<string>([speedLabel])
         };
@@ -105,18 +105,17 @@ export async function GET(request: Request) {
     });
 
     atBats.forEach(ab => {
-      // ⚡ FIX 1: Prevent double-counting by skipping any AtBats belonging to an overridden game
+      // Prevent double-counting by skipping any AtBats belonging to an overridden game
       if (ab.game?.isManualOverride) return;
 
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
       const isManualOut = res === 'MANUAL_OUT';
       
-      // ⚡ BATTER SHIELD
+      // BATTER SHIELD
       if (!isManualOut && ab.batterId && ab.batter) {
           const b = addToMap(batterMap, ab.batterId, ab.batter.name, ab.game);
           b.gameIds.add(ab.gameId);
           
-          // ⚡ FIX 2: Strict match for K to prevent "WALK" from triggering a Strikeout
           const isK = res === 'K' || res === 'STRIKEOUT';
           
           const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
@@ -154,7 +153,6 @@ export async function GET(request: Request) {
           p.gameIds.add(ab.gameId);
           p.ipOuts += (ab.outs || 0);
           
-          // ⚡ FIX 2: Strict match for K
           const isK = res === 'K' || res === 'STRIKEOUT';
           
           const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
@@ -175,8 +173,7 @@ export async function GET(request: Request) {
     });
 
     manualLines.forEach((ms: any) => { 
-      // ⚡ FIX 1: Strict inclusion rule for manual stats. 
-      // Only include this manual line if the game was overridden OR if it was exclusively a manually-scored game.
+      // Strict inclusion rule for manual stats. 
       const isOverridden = ms.game?.isManualOverride;
       const hasNoAtBats = !gamesWithLiveAtBats.has(ms.gameId);
 
@@ -188,7 +185,16 @@ export async function GET(request: Request) {
       if (ms.saveCount) p.sv += ms.saveCount;
 
       const b = addToMap(batterMap, ms.playerId, ms.player.name, ms.game);
-      b.manualGP += (ms.gp || 1);
+      
+      // ⚡ FIX: Use importedGp for legacy bulk imports, otherwise add gameId to Set to prevent double counting GP
+      if (ms.gp && ms.gp > 1) {
+        b.importedGp += ms.gp;
+        p.importedGp += ms.gp;
+      } else {
+        b.gameIds.add(ms.gameId);
+        p.gameIds.add(ms.gameId);
+      }
+
       b.ab += ms.ab; 
       b.h += ms.h; 
       b.hr += ms.hr; 
@@ -235,7 +241,7 @@ export async function GET(request: Request) {
       const displays = getDisplays(b);
       return { 
         ...b, 
-        gp: b.gameIds.size + b.manualGP, 
+        gp: b.gameIds.size + b.importedGp, // ⚡ Updated GP calc
         pa,
         gameIds: Array.from(b.gameIds), 
         leagueDisplay: displays.leagueDisplay,
@@ -250,7 +256,8 @@ export async function GET(request: Request) {
       const mathIP = p.ipOuts / 3;
       const displays = getDisplays(p);
       return { 
-        id: p.id, name: p.name, w: p.w, l: p.l, sv: p.sv, gp: p.gameIds.size,
+        id: p.id, name: p.name, w: p.w, l: p.l, sv: p.sv, 
+        gp: p.gameIds.size + p.importedGp, // ⚡ Updated GP calc
         leagueDisplay: displays.leagueDisplay,
         speedDisplay: displays.speedDisplay,
         ip: `${Math.floor(p.ipOuts / 3)}.${p.ipOuts % 3}`, 
