@@ -72,6 +72,8 @@ export async function GET(request: Request) {
 
     const batterMap: Record<number, any> = {};
     const pitcherMap: Record<number, any> = {};
+    
+    // Track which games actually contain live pitch-by-pitch data
     const gamesWithLiveAtBats = new Set(atBats.map(ab => ab.gameId));
 
     const addToMap = (map: any, id: number, name: string, game: any) => {
@@ -103,6 +105,9 @@ export async function GET(request: Request) {
     });
 
     atBats.forEach(ab => {
+      // ⚡ FIX 1: Prevent double-counting by skipping any AtBats belonging to an overridden game
+      if (ab.game?.isManualOverride) return;
+
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
       const isManualOut = res === 'MANUAL_OUT';
       
@@ -111,9 +116,10 @@ export async function GET(request: Request) {
           const b = addToMap(batterMap, ab.batterId, ab.batter.name, ab.game);
           b.gameIds.add(ab.gameId);
           
+          // ⚡ FIX 2: Strict match for K to prevent "WALK" from triggering a Strikeout
           const isK = res === 'K' || res === 'STRIKEOUT';
+          
           const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
-          // ⚡ FIX: Explicitly exclude 'PLAY' from hits, add 'TRIPLE_PLAY' to outs
           const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
           const isH = !isOut && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
           
@@ -148,7 +154,9 @@ export async function GET(request: Request) {
           p.gameIds.add(ab.gameId);
           p.ipOuts += (ab.outs || 0);
           
+          // ⚡ FIX 2: Strict match for K
           const isK = res === 'K' || res === 'STRIKEOUT';
+          
           const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
           const isH = !isK && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
 
@@ -167,22 +175,41 @@ export async function GET(request: Request) {
     });
 
     manualLines.forEach((ms: any) => { 
+      // ⚡ FIX 1: Strict inclusion rule for manual stats. 
+      // Only include this manual line if the game was overridden OR if it was exclusively a manually-scored game.
+      const isOverridden = ms.game?.isManualOverride;
+      const hasNoAtBats = !gamesWithLiveAtBats.has(ms.gameId);
+
+      if (!isOverridden && !hasNoAtBats) return;
+
       const p = addToMap(pitcherMap, ms.playerId, ms.player.name, ms.game);
       if (ms.winCount) p.w += ms.winCount;
       if (ms.lossCount) p.l += ms.lossCount;
       if (ms.saveCount) p.sv += ms.saveCount;
 
-      if (!gamesWithLiveAtBats.has(ms.gameId)) {
-        const b = addToMap(batterMap, ms.playerId, ms.player.name, ms.game);
-        b.manualGP += (ms.gp || 1);
-        b.ab += ms.ab; b.h += ms.h; b.hr += ms.hr; b.rbi += ms.rbi; b.r += ms.r; b.bb += ms.bb; b.k += ms.k;
-        b.d += ms.d2b; b.t += ms.d3b;
-        b.tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
-        p.ipOuts += (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
-        p.pk += ms.pk; p.ph += ms.ph; p.pr += ms.pr; p.per += ms.per; p.pbb += ms.pbb; p.phr += (ms.phr || 0); 
-        const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) ? ms.game?.season?.inningsPerGame : (ms.game?.season?.eraStandard || 4);
-        p.weighted_per += (ms.per * standard);
-      }
+      const b = addToMap(batterMap, ms.playerId, ms.player.name, ms.game);
+      b.manualGP += (ms.gp || 1);
+      b.ab += ms.ab; 
+      b.h += ms.h; 
+      b.hr += ms.hr; 
+      b.rbi += ms.rbi; 
+      b.r += ms.r; 
+      b.bb += ms.bb; 
+      b.k += ms.k;
+      b.d += ms.d2b; 
+      b.t += ms.d3b;
+      b.tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
+      
+      p.ipOuts += (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
+      p.pk += ms.pk; 
+      p.ph += ms.ph; 
+      p.pr += ms.pr; 
+      p.per += ms.per; 
+      p.pbb += ms.pbb; 
+      p.phr += (ms.phr || 0); 
+      
+      const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) ? ms.game?.season?.inningsPerGame : (ms.game?.season?.eraStandard || 4);
+      p.weighted_per += (ms.per * standard);
     });
 
     const getDisplays = (item: any) => {

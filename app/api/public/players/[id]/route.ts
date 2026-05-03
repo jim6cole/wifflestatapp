@@ -59,7 +59,6 @@ export async function GET(
       return yearlySplits[splitKey];
     };
 
-    // ⚡ FIX: Find out which games actually have live at-bats
     const gamesWithLiveAtBats = new Set(atBats.map(ab => ab.gameId));
 
     // 3. Seed GP from Lineups (Ensures fielders with 0 ABs get a Game Played)
@@ -71,25 +70,34 @@ export async function GET(
 
     // 4. Process Live Data
     atBats.forEach(ab => {
+      // ⚡ FIX 1: Prevent double-counting by skipping any AtBats belonging to an overridden game
+      if (ab.game?.isManualOverride) return;
+
       const split = getSplit(ab.game);
       split.liveGameIds.add(ab.gameId);
       
-      const res = ab.result?.toUpperCase() || '';
-      const isHit = ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h));
-      const isOut = ['K', 'OUT', 'FLY', 'GROUND', 'DP', 'STRIKEOUT'].some(o => res.includes(o));
+      const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
+      const isManualOut = res === 'MANUAL_OUT';
+      
+      // ⚡ FIX 2: Strict match for K to prevent "WALK" from triggering a Strikeout
+      const isK = res === 'K' || res === 'STRIKEOUT';
+      
       const isWalk = ['WALK', 'BB', 'HBP'].some(w => res.includes(w));
+      const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
+      const isHit = !isOut && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
 
-      if (ab.batterId === playerId) {
+      if (!isManualOut && ab.batterId === playerId) {
         if (isWalk) split.batting.bb++;
         else if (isHit || isOut) {
           split.batting.ab++;
-          if (res.includes('K')) split.batting.k++;
+          if (isK) split.batting.k++;
           if (isHit) {
             split.batting.h++;
-            if (res.includes('DOUBLE') || res.includes('2B')) { split.batting.d++; split.batting.tb += 2; }
-            else if (res.includes('TRIPLE') || res.includes('3B')) { split.batting.t++; split.batting.tb += 3; }
-            else if (res.includes('HR') || res.includes('4B')) { split.batting.hr++; split.batting.tb += 4; }
-            else split.batting.tb += 1;
+            const bases = (res.includes('HR') || res.includes('4B')) ? 4 : (res.includes('TRIPLE') || res.includes('3B')) ? 3 : (res.includes('DOUBLE') || res.includes('2B')) ? 2 : 1;
+            split.batting.tb += bases;
+            if (bases === 2) split.batting.d++;
+            else if (bases === 3) split.batting.t++;
+            else if (bases === 4) split.batting.hr++;
           }
         }
         split.batting.rbi += (ab.rbi || ab.runsScored || 0);
@@ -104,7 +112,7 @@ export async function GET(
         split.pitching.outs += (ab.outs || 0);
         if (isHit) split.pitching.h++;
         if (isWalk) split.pitching.bb++;
-        if (res.includes('K')) split.pitching.k++;
+        if (isK) split.pitching.k++;
         if (res.includes('HR') || res.includes('4B')) split.pitching.hr++;
         
         let chargedRuns = 0;
@@ -138,38 +146,41 @@ export async function GET(
       if (ms.lossCount && ms.lossCount > 0) split.pitching.l += ms.lossCount;
       if (ms.saveCount && ms.saveCount > 0) split.pitching.sv += ms.saveCount;
 
-      // ⚡ Only apply manual box stats if the game was NOT scored live
-      if (!gamesWithLiveAtBats.has(ms.gameId)) {
-        split.batting.ab += ms.ab || 0; 
-        split.batting.h += ms.h || 0; 
-        split.batting.hr += ms.hr || 0;
-        split.batting.rbi += ms.rbi || 0; 
-        split.batting.bb += ms.bb || 0; 
-        split.batting.k += ms.k || 0;
-        split.batting.d += ms.d2b || 0; 
-        split.batting.t += ms.d3b || 0;
-        
-        const d2b = ms.d2b || 0;
-        const d3b = ms.d3b || 0;
-        const hr = ms.hr || 0;
-        const h = ms.h || 0;
-        split.batting.tb += (h - d2b - d3b - hr) + (d2b * 2) + (d3b * 3) + (hr * 4);
+      // ⚡ Only apply manual box stats if the game was overridden OR has no live at-bats
+      const isOverridden = ms.game?.isManualOverride;
+      const hasNoAtBats = !gamesWithLiveAtBats.has(ms.gameId);
 
-        if ((ms.ip || 0) > 0 || (ms.pk || 0) > 0) {
-          const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) 
-            ? ms.game?.season?.inningsPerGame 
-            : (ms.game?.season?.eraStandard || 4);
+      if (!isOverridden && !hasNoAtBats) return;
 
-          const mOuts = (Math.floor(ms.ip || 0) * 3) + (Math.round(((ms.ip || 0) % 1) * 10));
-          split.pitching.outs += mOuts;
-          split.pitching.h += ms.ph || 0; 
-          split.pitching.bb += ms.pbb || 0; 
-          split.pitching.k += ms.pk || 0;
-          split.pitching.r += ms.pr || 0; 
-          split.pitching.er += ms.per || 0;
-          split.pitching.hr += ms.phr || 0;
-          split.pitching.weighted_er += ((ms.per || 0) * standard);
-        }
+      split.batting.ab += ms.ab || 0; 
+      split.batting.h += ms.h || 0; 
+      split.batting.hr += ms.hr || 0;
+      split.batting.rbi += ms.rbi || 0; 
+      split.batting.bb += ms.bb || 0; 
+      split.batting.k += ms.k || 0;
+      split.batting.d += ms.d2b || 0; 
+      split.batting.t += ms.d3b || 0;
+      
+      const d2b = ms.d2b || 0;
+      const d3b = ms.d3b || 0;
+      const hr = ms.hr || 0;
+      const h = ms.h || 0;
+      split.batting.tb += (h - d2b - d3b - hr) + (d2b * 2) + (d3b * 3) + (hr * 4);
+
+      if ((ms.ip || 0) > 0 || (ms.pk || 0) > 0) {
+        const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) 
+          ? ms.game?.season?.inningsPerGame 
+          : (ms.game?.season?.eraStandard || 4);
+
+        const mOuts = (Math.floor(ms.ip || 0) * 3) + (Math.round(((ms.ip || 0) % 1) * 10));
+        split.pitching.outs += mOuts;
+        split.pitching.h += ms.ph || 0; 
+        split.pitching.bb += ms.pbb || 0; 
+        split.pitching.k += ms.pk || 0;
+        split.pitching.r += ms.pr || 0; 
+        split.pitching.er += ms.per || 0;
+        split.pitching.hr += ms.phr || 0;
+        split.pitching.weighted_er += ((ms.per || 0) * standard);
       }
     });
 

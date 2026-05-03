@@ -5,11 +5,14 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const [players, allManualStats, allScoringAtBats] = await Promise.all([
+    const [players, allManualStats, allScoringAtBats, atBatGames] = await Promise.all([
       prisma.player.findMany({
         include: {
           rosterSlots: { include: { team: true } },
-          atBats: true, 
+          atBats: { 
+            // ⚡ FIX 1: Include game to check for manual override
+            include: { game: { select: { isManualOverride: true } } } 
+          }, 
           pitchedAtBats: { 
             include: {
               game: { include: { season: { select: { eraStandard: true } } } }
@@ -27,11 +30,18 @@ export async function GET() {
         include: {
           game: { include: { season: { select: { eraStandard: true } } } }
         }
-      })
+      }),
+      // ⚡ FIX 1: Highly efficient query to map all games that contain live at bats
+      prisma.atBat.groupBy({ by: ['gameId'] })
     ]);
+
+    const gamesWithLiveAtBats = new Set(atBatGames.map(g => g.gameId));
 
     const livePitcherWeightedER: Record<number, number> = {};
     allScoringAtBats.forEach(ab => {
+      // ⚡ FIX 1: Skip overridden games
+      if (ab.game?.isManualOverride) return;
+
       const standard = ab.game?.season?.eraStandard || 4;
       if (ab.runAttribution) {
         const responsibleIds = ab.runAttribution.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
@@ -49,6 +59,9 @@ export async function GET() {
       let totalWeightedER = livePitcherWeightedER[player.id] || 0;
 
       player.atBats?.forEach((ab: any) => {
+        // ⚡ FIX 1: Skip overridden games
+        if (ab.game?.isManualOverride) return;
+
         const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
         
         if (res === 'MANUAL_OUT') return; 
@@ -56,10 +69,10 @@ export async function GET() {
         rbis += ab.rbi || 0;
         runs += ab.runsScored || 0;
 
+        // ⚡ FIX 2: Strict match for Strikeout
         const isK = res === 'K' || res === 'STRIKEOUT';
         const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
 
-        // ⚡ FIX: Add !res.includes('PLAY') to Triple
         if (res.includes('SINGLE')) { 
           abCount++; hits++; 
         } else if (res.includes('DOUBLE') && !res.includes('PLAY')) { 
@@ -77,10 +90,14 @@ export async function GET() {
       });
 
       player.pitchedAtBats?.forEach((ab: any) => {
+        // ⚡ FIX 1: Skip overridden games
+        if (ab.game?.isManualOverride) return;
+
         const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
         
         ipOutsTotal += (ab.outs || 0);
         
+        // ⚡ FIX 2: Strict match for Strikeout
         const isK = res === 'K' || res === 'STRIKEOUT';
         const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
         const isHit = !isK && !isWalk && res !== 'MANUAL_OUT' && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
@@ -92,6 +109,12 @@ export async function GET() {
 
       const manualForPlayer = allManualStats.filter(ms => ms.playerId === player.id);
       manualForPlayer.forEach(ms => {
+        // ⚡ FIX 1: Strict inclusion rule for manual stats
+        const isOverridden = ms.game?.isManualOverride;
+        const hasNoAtBats = !gamesWithLiveAtBats.has(ms.gameId);
+
+        if (!isOverridden && !hasNoAtBats) return;
+
         abCount += ms.ab || 0; hits += ms.h || 0; hr += ms.hr || 0; rbis += ms.rbi || 0;
         walks += ms.bb || 0; ks += ms.k || 0; runs += ms.r || 0; d2b += ms.d2b || 0; d3b += ms.d3b || 0;
 

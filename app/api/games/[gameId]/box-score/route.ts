@@ -45,6 +45,9 @@ export async function GET(
       : [...allSeasonGames.filter(g => g.scheduledAt <= game.scheduledAt), game];
 
     const validGameIds = validGames.map(g => g.id);
+    
+    // ⚡ FIX 1: Map which games are explicitly manually overridden
+    const manualOverrideGameIds = new Set(validGames.filter(g => g.isManualOverride).map(g => g.id));
 
     const [seasonAtBats, seasonManualStats] = await Promise.all([
       prisma.atBat.findMany({
@@ -123,6 +126,17 @@ export async function GET(
     });
 
     seasonManualStats.forEach(ms => {
+      // ⚡ FIX 2: Strict filter to prevent double-counting
+      const isOverridden = manualOverrideGameIds.has(ms.gameId);
+      const hasNoAtBats = !seasonAtBats.some(ab => ab.gameId === ms.gameId);
+
+      if (!isOverridden && !hasNoAtBats) return;
+
+      if (ms.gameId === gId) {
+         if (ms.teamId === game.awayTeamId) totals.awayH += ms.h;
+         if (ms.teamId === game.homeTeamId) totals.homeH += ms.h;
+      }
+
       if (batters[ms.playerId]) {
         batters[ms.playerId].season_ab += ms.ab;
         batters[ms.playerId].season_h += ms.h;
@@ -172,13 +186,16 @@ export async function GET(
 
     seasonAtBats.forEach(ab => {
       const isCurrent = ab.gameId === gId;
+      const isOverridden = manualOverrideGameIds.has(ab.gameId);
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
       
       const isManualOut = res === 'MANUAL_OUT';
+
+      // ⚡ FIX 3: Strict Strikeout match to avoid "WALK" bug
       const isK = res === 'K' || res === 'STRIKEOUT';
       const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
       
-      // ⚡ FIX: Added TRIPLE_PLAY to the out list, excluded PLAY from hit list
+      // ⚡ FIX 4: Added TRIPLE_PLAY to the out list, excluded PLAY from hit list
       const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
       const isHit = !isOut && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
       const isAB = (isHit || isOut) && !isManualOut; 
@@ -186,14 +203,17 @@ export async function GET(
       if (isCurrent) {
         if (ab.isTopInning) {
           if (lineScore[ab.inning]) lineScore[ab.inning].away += ab.runsScored;
-          if (isHit) totals.awayH++;
-          if (res.includes('ERROR')) totals.awayE++;
+          if (!isOverridden && isHit) totals.awayH++;
+          if (!isOverridden && res.includes('ERROR')) totals.awayE++;
         } else {
           if (lineScore[ab.inning]) lineScore[ab.inning].home += ab.runsScored;
-          if (isHit) totals.homeH++;
-          if (res.includes('ERROR')) totals.homeE++;
+          if (!isOverridden && isHit) totals.homeH++;
+          if (!isOverridden && res.includes('ERROR')) totals.homeE++;
         }
       }
+
+      // ⚡ FIX 5: Skip applying AtBat stats to players if the game is manually overridden
+      if (isOverridden) return;
 
       const b = batters[ab.batterId];
       if (b && !isManualOut) {
