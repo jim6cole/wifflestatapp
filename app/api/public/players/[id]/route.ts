@@ -11,7 +11,6 @@ export async function GET(
     const { id } = await params;
     const playerId = parseInt(id);
 
-    // 1. Fetch Player + Manual Stats + Lineups
     const player = await prisma.player.findUnique({
       where: { id: playerId },
       include: {
@@ -24,7 +23,6 @@ export async function GET(
 
     if (!player) return NextResponse.json({ error: "Player not found" }, { status: 404 });
 
-    // 2. Fetch Live At-Bats
     const atBats = await prisma.atBat.findMany({
       where: { OR: [ { batterId: playerId }, { pitcherId: playerId } ] },
       include: { game: { include: { season: { include: { league: true } } } } }
@@ -33,16 +31,13 @@ export async function GET(
     const yearlySplits: Record<string, any> = {};
     const teams = new Set(player.lineups.map(l => l.team.name));
 
-    // Helper to initialize or get a split bucket
     const getSplit = (game: any) => {
       const year = game?.season?.year?.toString() || new Date(game.scheduledAt).getFullYear().toString();
-      
       let lName = game?.season?.league?.shortName || game?.season?.league?.name || 'AWAA';
       if (lName.toUpperCase() === 'MID ATLANTIC WIFFLE') lName = 'MAW';
       
       const isRestricted = game.isSpeedRestricted ?? game.season?.isSpeedRestricted;
       const speedLim = game.speedLimit ?? game.season?.speedLimit ?? 60;
-
       const style = isRestricted ? `MED (${speedLim}mph)` : 'FAST';
       const splitKey = `${year}-${lName}-${style}`;
 
@@ -61,17 +56,53 @@ export async function GET(
 
     const gamesWithLiveAtBats = new Set(atBats.map(ab => ab.gameId));
 
-    // 3. Seed GP from Lineups (Ensures fielders with 0 ABs get a Game Played)
     player.lineups.forEach(l => {
       if (!l.game) return;
       const split = getSplit(l.game);
       split.liveGameIds.add(l.gameId);
     });
 
-    // 4. Process Live Data
+    // ⚡ FIX: Add Live Games W/L/SV Tracker Map
+    const liveGamesTracker = new Map();
+
     atBats.forEach(ab => {
-      // ⚡ FIX 1: Prevent double-counting by skipping any AtBats belonging to an overridden game
       if (ab.game?.isManualOverride) return;
+
+      if (!liveGamesTracker.has(ab.gameId)) {
+          liveGamesTracker.set(ab.gameId, { gameObj: ab.game, homeRuns: 0, awayRuns: 0, homePitcher: null, awayPitcher: null, pitcherOfRecordW: null, pitcherOfRecordL: null, homePitcherEntryLead: 0, awayPitcherEntryLead: 0, lastHomePitcher: null, lastAwayPitcher: null });
+      }
+      const trk = liveGamesTracker.get(ab.gameId);
+
+      // LEAD TRACKER
+      if (ab.isTopInning) { 
+          if (trk.homePitcher !== ab.pitcherId) {
+              trk.homePitcher = ab.pitcherId;
+              trk.homePitcherEntryLead = trk.homeRuns - trk.awayRuns;
+              if (trk.pitcherOfRecordW === null && trk.homeRuns > trk.awayRuns) trk.pitcherOfRecordW = ab.pitcherId;
+          }
+          trk.lastHomePitcher = ab.pitcherId;
+          const oldAwayRuns = trk.awayRuns;
+          trk.awayRuns += (ab.runsScored || 0);
+
+          if (trk.awayRuns > trk.homeRuns && oldAwayRuns <= trk.homeRuns) {
+              trk.pitcherOfRecordW = trk.awayPitcher;
+              trk.pitcherOfRecordL = trk.homePitcher;
+          }
+      } else { 
+          if (trk.awayPitcher !== ab.pitcherId) {
+              trk.awayPitcher = ab.pitcherId;
+              trk.awayPitcherEntryLead = trk.awayRuns - trk.homeRuns;
+              if (trk.pitcherOfRecordW === null && trk.awayRuns > trk.homeRuns) trk.pitcherOfRecordW = ab.pitcherId;
+          }
+          trk.lastAwayPitcher = ab.pitcherId;
+          const oldHomeRuns = trk.homeRuns;
+          trk.homeRuns += (ab.runsScored || 0);
+
+          if (trk.homeRuns > trk.awayRuns && oldHomeRuns <= trk.awayRuns) {
+              trk.pitcherOfRecordW = trk.homePitcher;
+              trk.pitcherOfRecordL = trk.awayPitcher;
+          }
+      }
 
       const split = getSplit(ab.game);
       split.liveGameIds.add(ab.gameId);
@@ -79,9 +110,7 @@ export async function GET(
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
       const isManualOut = res === 'MANUAL_OUT';
       
-      // ⚡ FIX 2: Strict match for K to prevent "WALK" from triggering a Strikeout
       const isK = res === 'K' || res === 'STRIKEOUT';
-      
       const isWalk = ['WALK', 'BB', 'HBP'].some(w => res.includes(w));
       const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
       const isHit = !isOut && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
@@ -130,23 +159,47 @@ export async function GET(
       }
     });
 
-    // 5. Process Manual Data
+    liveGamesTracker.forEach((trk) => {
+        const homeWinner = trk.homeRuns > trk.awayRuns;
+        
+        let wId = trk.pitcherOfRecordW;
+        let lId = trk.pitcherOfRecordL;
+
+        if (!wId && homeWinner) wId = trk.lastHomePitcher;
+        if (!wId && !homeWinner && trk.awayRuns > trk.homeRuns) wId = trk.lastAwayPitcher;
+
+        const split = getSplit(trk.gameObj);
+
+        if (Number(wId) === playerId) split.pitching.w++;
+        if (Number(lId) === playerId) split.pitching.l++;
+
+        let closerId = null;
+        let isSave = false;
+
+        if (homeWinner) {
+            closerId = trk.lastHomePitcher;
+            if (closerId && closerId !== wId && trk.homePitcherEntryLead >= 1 && trk.homePitcherEntryLead <= 3) isSave = true;
+        } else if (trk.awayRuns > trk.homeRuns) {
+            closerId = trk.lastAwayPitcher;
+            if (closerId && closerId !== wId && trk.awayPitcherEntryLead >= 1 && trk.awayPitcherEntryLead <= 3) isSave = true;
+        }
+
+        if (isSave && Number(closerId) === playerId) split.pitching.sv++;
+    });
+
     player.manualStats.forEach(ms => {
       const split = getSplit(ms.game);
       
-      // If it's a bulk legacy import
       if (ms.gp && ms.gp > 1) {
         split.importedGp += ms.gp;
       } else {
         split.manualGameIds.add(ms.gameId);
       }
       
-      // ⚡ Always apply W/L/SV (These are usually manual overrides)
       if (ms.winCount && ms.winCount > 0) split.pitching.w += ms.winCount;
       if (ms.lossCount && ms.lossCount > 0) split.pitching.l += ms.lossCount;
       if (ms.saveCount && ms.saveCount > 0) split.pitching.sv += ms.saveCount;
 
-      // ⚡ Only apply manual box stats if the game was overridden OR has no live at-bats
       const isOverridden = ms.game?.isManualOverride;
       const hasNoAtBats = !gamesWithLiveAtBats.has(ms.gameId);
 
@@ -186,7 +239,6 @@ export async function GET(
 
     const rawSplits = Object.values(yearlySplits);
 
-    // 6. Final Formatting for Splits
     const formattedSplits = rawSplits.map((s: any) => {
       const pa = s.batting.ab + s.batting.bb;
       const obp = pa > 0 ? (s.batting.h + s.batting.bb) / pa : 0;
@@ -213,7 +265,6 @@ export async function GET(
       };
     }).sort((a, b) => parseInt(b.year) - parseInt(a.year));
 
-    // 7. Career Totals (Top Boxes)
     const careerTotals = rawSplits.reduce((acc, s) => ({
       ab: acc.ab + s.batting.ab, h: acc.h + s.batting.h, hr: acc.hr + s.batting.hr, 
       rbi: acc.rbi + s.batting.rbi, bb: acc.bb + s.batting.bb, tb: acc.tb + s.batting.tb,

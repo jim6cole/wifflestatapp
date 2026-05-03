@@ -39,14 +39,9 @@ export async function GET(
     });
 
     const currentIndex = allSeasonGames.findIndex(g => g.id === gId);
-    
-    const validGames = currentIndex !== -1 
-      ? allSeasonGames.slice(0, currentIndex + 1)
-      : [...allSeasonGames.filter(g => g.scheduledAt <= game.scheduledAt), game];
-
+    const validGames = currentIndex !== -1 ? allSeasonGames.slice(0, currentIndex + 1) : [...allSeasonGames.filter(g => g.scheduledAt <= game.scheduledAt), game];
     const validGameIds = validGames.map(g => g.id);
     
-    // ⚡ FIX 1: Map which games are explicitly manually overridden
     const manualOverrideGameIds = new Set(validGames.filter(g => g.isManualOverride).map(g => g.id));
 
     const [seasonAtBats, seasonManualStats] = await Promise.all([
@@ -82,7 +77,7 @@ export async function GET(
           id: l.playerId, name: l.player.name, teamId: l.teamId, 
           outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, 
           season_outs: 0, season_h: 0, season_bb: 0, season_er: 0,
-          wins: 0, losses: 0, decision: null,
+          wins: 0, losses: 0, sv: 0, decision: null,
           totalPitches: 0, totalStrikes: 0, groundOuts: 0, flyOuts: 0, battersFaced: 0
         };
       }
@@ -96,7 +91,7 @@ export async function GET(
           teamId: ab.isTopInning ? game.homeTeamId : game.awayTeamId,
           outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, 
           season_outs: 0, season_h: 0, season_bb: 0, season_er: 0,
-          wins: 0, losses: 0, decision: null,
+          wins: 0, losses: 0, sv: 0, decision: null,
           totalPitches: 0, totalStrikes: 0, groundOuts: 0, flyOuts: 0, battersFaced: 0
         };
       }
@@ -106,12 +101,10 @@ export async function GET(
       if (!pitchers[ms.playerId] && (ms.ip > 0 || ms.ph > 0 || ms.pr > 0 || ms.pbb > 0 || ms.pk > 0)) {
         const teamId = lineups.find(l => l.playerId === ms.playerId)?.teamId || (ms as any).teamId || game.homeTeamId;
         pitchers[ms.playerId] = {
-          id: ms.playerId, 
-          name: ms.player?.name || 'Unknown', 
-          teamId,
+          id: ms.playerId, name: ms.player?.name || 'Unknown', teamId,
           outs: 0, h: 0, r: 0, er: 0, bb: 0, k: 0, hr: 0, 
           season_outs: 0, season_h: 0, season_bb: 0, season_er: 0,
-          wins: 0, losses: 0, decision: null,
+          wins: 0, losses: 0, sv: 0, decision: null,
           totalPitches: 0, totalStrikes: 0, groundOuts: 0, flyOuts: 0, battersFaced: 0
         };
       }
@@ -125,64 +118,8 @@ export async function GET(
       }
     });
 
-    seasonManualStats.forEach(ms => {
-      // ⚡ FIX 2: Strict filter to prevent double-counting
-      const isOverridden = manualOverrideGameIds.has(ms.gameId);
-      const hasNoAtBats = !seasonAtBats.some(ab => ab.gameId === ms.gameId);
-
-      if (!isOverridden && !hasNoAtBats) return;
-
-      if (ms.gameId === gId) {
-         if (ms.teamId === game.awayTeamId) totals.awayH += ms.h;
-         if (ms.teamId === game.homeTeamId) totals.homeH += ms.h;
-      }
-
-      if (batters[ms.playerId]) {
-        batters[ms.playerId].season_ab += ms.ab;
-        batters[ms.playerId].season_h += ms.h;
-        batters[ms.playerId].season_bb += ms.bb;
-        batters[ms.playerId].season_tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
-        
-        if (ms.gameId === gId) {
-           batters[ms.playerId].ab += ms.ab;
-           batters[ms.playerId].r += ms.r;
-           batters[ms.playerId].h += ms.h;
-           batters[ms.playerId].d += ms.d2b;
-           batters[ms.playerId].t += ms.d3b;
-           batters[ms.playerId].hr += ms.hr;
-           batters[ms.playerId].rbi += ms.rbi;
-           batters[ms.playerId].bb += ms.bb;
-           batters[ms.playerId].k += ms.k;
-        }
-      }
-      if (pitchers[ms.playerId]) {
-        const mOuts = (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
-        pitchers[ms.playerId].season_outs += mOuts;
-        pitchers[ms.playerId].season_h += ms.ph;
-        pitchers[ms.playerId].season_bb += ms.pbb;
-        pitchers[ms.playerId].season_er += ms.per;
-        if ((ms as any).winCount) pitchers[ms.playerId].wins += (ms as any).winCount;
-        if ((ms as any).lossCount) pitchers[ms.playerId].losses += (ms as any).lossCount;
-
-        if (ms.gameId === gId) {
-           pitchers[ms.playerId].outs += mOuts;
-           pitchers[ms.playerId].h += ms.ph;
-           pitchers[ms.playerId].r += ms.pr;
-           pitchers[ms.playerId].er += ms.per;
-           pitchers[ms.playerId].bb += ms.pbb;
-           pitchers[ms.playerId].k += ms.pk;
-           pitchers[ms.playerId].hr += (ms as any).phr || 0;
-           
-           if ((ms as any).winCount > 0) pitchers[ms.playerId].decision = 'W';
-           if ((ms as any).lossCount > 0) pitchers[ms.playerId].decision = 'L';
-           if ((ms as any).saveCount > 0) pitchers[ms.playerId].decision = 'SV';
-        }
-      }
-    });
-
-    seasonManualStats.filter(ms => ms.gameId !== gId).forEach(ms => {
-      seasonHRTracker[ms.playerId] = (seasonHRTracker[ms.playerId] || 0) + ms.hr;
-    });
+    // ⚡ FIX: Bulletproof Pitch-by-Pitch W/L/SV Lead Tracker
+    const liveGamesTracker = new Map();
 
     seasonAtBats.forEach(ab => {
       const isCurrent = ab.gameId === gId;
@@ -190,12 +127,8 @@ export async function GET(
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
       
       const isManualOut = res === 'MANUAL_OUT';
-
-      // ⚡ FIX 3: Strict Strikeout match to avoid "WALK" bug
       const isK = res === 'K' || res === 'STRIKEOUT';
       const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
-      
-      // ⚡ FIX 4: Added TRIPLE_PLAY to the out list, excluded PLAY from hit list
       const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
       const isHit = !isOut && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
       const isAB = (isHit || isOut) && !isManualOut; 
@@ -212,8 +145,43 @@ export async function GET(
         }
       }
 
-      // ⚡ FIX 5: Skip applying AtBat stats to players if the game is manually overridden
       if (isOverridden) return;
+
+      if (!liveGamesTracker.has(ab.gameId)) {
+          liveGamesTracker.set(ab.gameId, { homeRuns: 0, awayRuns: 0, homePitcher: null, awayPitcher: null, pitcherOfRecordW: null, pitcherOfRecordL: null, homePitcherEntryLead: 0, awayPitcherEntryLead: 0, lastHomePitcher: null, lastAwayPitcher: null });
+      }
+      const trk = liveGamesTracker.get(ab.gameId);
+      
+      // LEAD CHANGE TRACKER
+      if (ab.isTopInning) { 
+          if (trk.homePitcher !== ab.pitcherId) {
+              trk.homePitcher = ab.pitcherId;
+              trk.homePitcherEntryLead = trk.homeRuns - trk.awayRuns;
+              if (trk.pitcherOfRecordW === null && trk.homeRuns > trk.awayRuns) trk.pitcherOfRecordW = ab.pitcherId;
+          }
+          trk.lastHomePitcher = ab.pitcherId;
+          const oldAwayRuns = trk.awayRuns;
+          trk.awayRuns += (ab.runsScored || 0);
+
+          if (trk.awayRuns > trk.homeRuns && oldAwayRuns <= trk.homeRuns) {
+              trk.pitcherOfRecordW = trk.awayPitcher;
+              trk.pitcherOfRecordL = trk.homePitcher;
+          }
+      } else { 
+          if (trk.awayPitcher !== ab.pitcherId) {
+              trk.awayPitcher = ab.pitcherId;
+              trk.awayPitcherEntryLead = trk.awayRuns - trk.homeRuns;
+              if (trk.pitcherOfRecordW === null && trk.awayRuns > trk.homeRuns) trk.pitcherOfRecordW = ab.pitcherId;
+          }
+          trk.lastAwayPitcher = ab.pitcherId;
+          const oldHomeRuns = trk.homeRuns;
+          trk.homeRuns += (ab.runsScored || 0);
+
+          if (trk.homeRuns > trk.awayRuns && oldHomeRuns <= trk.awayRuns) {
+              trk.pitcherOfRecordW = trk.homePitcher;
+              trk.pitcherOfRecordL = trk.awayPitcher;
+          }
+      }
 
       const b = batters[ab.batterId];
       if (b && !isManualOut) {
@@ -221,19 +189,10 @@ export async function GET(
         if (isWalk) { b.season_bb++; if (isCurrent) b.bb++; }
         if (isHit) {
           let bases = (res.includes('HR') || res.includes('4B')) ? 4 : (res.includes('TRIPLE') || res.includes('3B')) ? 3 : (res.includes('DOUBLE') || res.includes('2B')) ? 2 : 1;
-          
           if (bases === 4) {
             seasonHRTracker[ab.batterId] = (seasonHRTracker[ab.batterId] || 0) + 1;
             if (isCurrent) {
-              hrEvents.push({
-                batterName: ab.batter.name, 
-                pitcherName: ab.pitcher.name,
-                inning: ab.inning, 
-                side: ab.isTopInning ? 'TOP' : 'BOT',
-                teamId: ab.isTopInning ? game.awayTeamId : game.homeTeamId,
-                seasonTotal: seasonHRTracker[ab.batterId],
-                runsScored: ab.runsScored || 1
-              });
+              hrEvents.push({ batterName: ab.batter.name, pitcherName: ab.pitcher.name, inning: ab.inning, side: ab.isTopInning ? 'TOP' : 'BOT', teamId: ab.isTopInning ? game.awayTeamId : game.homeTeamId, seasonTotal: seasonHRTracker[ab.batterId], runsScored: ab.runsScored || 1 });
               b.hr++;
             }
           }
@@ -286,6 +245,105 @@ export async function GET(
           if (isCurrent) { p.r += ab.runsScored; p.er += ab.runsScored; }
         }
       }
+    });
+
+    // ⚡ FIX: Award Accurate MLB W/L/SV
+    liveGamesTracker.forEach((trk, trackingGameId) => {
+        const homeWinner = trk.homeRuns > trk.awayRuns;
+        
+        let wId = trk.pitcherOfRecordW;
+        let lId = trk.pitcherOfRecordL;
+
+        if (!wId && homeWinner) wId = trk.lastHomePitcher;
+        if (!wId && !homeWinner && trk.awayRuns > trk.homeRuns) wId = trk.lastAwayPitcher;
+
+        if (wId && pitchers[wId]) {
+            pitchers[wId].wins++;
+            if (trackingGameId === gId) pitchers[wId].decision = 'W';
+        }
+        if (lId && pitchers[lId]) {
+            pitchers[lId].losses++;
+            if (trackingGameId === gId) pitchers[lId].decision = 'L';
+        }
+
+        let closerId = null;
+        let isSave = false;
+
+        if (homeWinner) {
+            closerId = trk.lastHomePitcher;
+            if (closerId && closerId !== wId && trk.homePitcherEntryLead >= 1 && trk.homePitcherEntryLead <= 3) {
+                isSave = true;
+            }
+        } else if (trk.awayRuns > trk.homeRuns) {
+            closerId = trk.lastAwayPitcher;
+            if (closerId && closerId !== wId && trk.awayPitcherEntryLead >= 1 && trk.awayPitcherEntryLead <= 3) {
+                isSave = true;
+            }
+        }
+
+        if (isSave && closerId && pitchers[closerId]) {
+            pitchers[closerId].sv++;
+            if (trackingGameId === gId) pitchers[closerId].decision = 'SV';
+        }
+    });
+
+    seasonManualStats.forEach(ms => {
+      const isOverridden = manualOverrideGameIds.has(ms.gameId);
+      const hasNoAtBats = !seasonAtBats.some(ab => ab.gameId === ms.gameId);
+
+      if (!isOverridden && !hasNoAtBats) return;
+
+      if (ms.gameId === gId) {
+         if (ms.teamId === game.awayTeamId) totals.awayH += ms.h;
+         if (ms.teamId === game.homeTeamId) totals.homeH += ms.h;
+      }
+
+      if (batters[ms.playerId]) {
+        batters[ms.playerId].season_ab += ms.ab;
+        batters[ms.playerId].season_h += ms.h;
+        batters[ms.playerId].season_bb += ms.bb;
+        batters[ms.playerId].season_tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
+        
+        if (ms.gameId === gId) {
+           batters[ms.playerId].ab += ms.ab;
+           batters[ms.playerId].r += ms.r;
+           batters[ms.playerId].h += ms.h;
+           batters[ms.playerId].d += ms.d2b;
+           batters[ms.playerId].t += ms.d3b;
+           batters[ms.playerId].hr += ms.hr;
+           batters[ms.playerId].rbi += ms.rbi;
+           batters[ms.playerId].bb += ms.bb;
+           batters[ms.playerId].k += ms.k;
+        }
+      }
+      if (pitchers[ms.playerId]) {
+        const mOuts = (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
+        pitchers[ms.playerId].season_outs += mOuts;
+        pitchers[ms.playerId].season_h += ms.ph;
+        pitchers[ms.playerId].season_bb += ms.pbb;
+        pitchers[ms.playerId].season_er += ms.per;
+        if ((ms as any).winCount) pitchers[ms.playerId].wins += (ms as any).winCount;
+        if ((ms as any).lossCount) pitchers[ms.playerId].losses += (ms as any).lossCount;
+        if ((ms as any).saveCount) pitchers[ms.playerId].sv += (ms as any).saveCount;
+
+        if (ms.gameId === gId) {
+           pitchers[ms.playerId].outs += mOuts;
+           pitchers[ms.playerId].h += ms.ph;
+           pitchers[ms.playerId].r += ms.pr;
+           pitchers[ms.playerId].er += ms.per;
+           pitchers[ms.playerId].bb += ms.pbb;
+           pitchers[ms.playerId].k += ms.pk;
+           pitchers[ms.playerId].hr += (ms as any).phr || 0;
+           
+           if ((ms as any).winCount > 0) pitchers[ms.playerId].decision = 'W';
+           if ((ms as any).lossCount > 0) pitchers[ms.playerId].decision = 'L';
+           if ((ms as any).saveCount > 0) pitchers[ms.playerId].decision = 'SV';
+        }
+      }
+    });
+
+    seasonManualStats.filter(ms => ms.gameId !== gId).forEach(ms => {
+      seasonHRTracker[ms.playerId] = (seasonHRTracker[ms.playerId] || 0) + ms.hr;
     });
 
     const formatB = (b: any) => {

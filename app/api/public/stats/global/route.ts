@@ -72,8 +72,6 @@ export async function GET(request: Request) {
 
     const batterMap: Record<number, any> = {};
     const pitcherMap: Record<number, any> = {};
-    
-    // Track which games actually contain live pitch-by-pitch data
     const gamesWithLiveAtBats = new Set(atBats.map(ab => ab.gameId));
 
     const addToMap = (map: any, id: number, name: string, game: any) => {
@@ -88,7 +86,7 @@ export async function GET(request: Request) {
           ipOuts: 0, ph: 0, pr: 0, per: 0, pbb: 0, pk: 0, phr: 0, w: 0, l: 0, sv: 0,
           weighted_per: 0, 
           gameIds: new Set<number>(),
-          importedGp: 0, // ⚡ Changed from manualGP to importedGp for bulk legacy stats
+          importedGp: 0,
           leaguesPlayed: new Set<string>([leagueLabel]),
           stylesPlayed: new Set<string>([speedLabel])
         };
@@ -104,20 +102,55 @@ export async function GET(request: Request) {
        b.gameIds.add(l.gameId);
     });
 
+    const liveGamesTracker = new Map();
+
     atBats.forEach(ab => {
-      // Prevent double-counting by skipping any AtBats belonging to an overridden game
       if (ab.game?.isManualOverride) return;
+
+      if (!liveGamesTracker.has(ab.gameId)) {
+          liveGamesTracker.set(ab.gameId, { homeRuns: 0, awayRuns: 0, homePitcher: null, awayPitcher: null, pitcherOfRecordW: null, pitcherOfRecordL: null, homePitcherEntryLead: 0, awayPitcherEntryLead: 0, lastHomePitcher: null, lastAwayPitcher: null });
+      }
+      const trk = liveGamesTracker.get(ab.gameId);
+
+      // LEAD TRACKER
+      if (ab.isTopInning) { 
+          if (trk.homePitcher !== ab.pitcherId) {
+              trk.homePitcher = ab.pitcherId;
+              trk.homePitcherEntryLead = trk.homeRuns - trk.awayRuns;
+              if (trk.pitcherOfRecordW === null && trk.homeRuns > trk.awayRuns) trk.pitcherOfRecordW = ab.pitcherId;
+          }
+          trk.lastHomePitcher = ab.pitcherId;
+          const oldAwayRuns = trk.awayRuns;
+          trk.awayRuns += (ab.runsScored || 0);
+
+          if (trk.awayRuns > trk.homeRuns && oldAwayRuns <= trk.homeRuns) {
+              trk.pitcherOfRecordW = trk.awayPitcher;
+              trk.pitcherOfRecordL = trk.homePitcher;
+          }
+      } else { 
+          if (trk.awayPitcher !== ab.pitcherId) {
+              trk.awayPitcher = ab.pitcherId;
+              trk.awayPitcherEntryLead = trk.awayRuns - trk.homeRuns;
+              if (trk.pitcherOfRecordW === null && trk.awayRuns > trk.homeRuns) trk.pitcherOfRecordW = ab.pitcherId;
+          }
+          trk.lastAwayPitcher = ab.pitcherId;
+          const oldHomeRuns = trk.homeRuns;
+          trk.homeRuns += (ab.runsScored || 0);
+
+          if (trk.homeRuns > trk.awayRuns && oldHomeRuns <= trk.awayRuns) {
+              trk.pitcherOfRecordW = trk.homePitcher;
+              trk.pitcherOfRecordL = trk.awayPitcher;
+          }
+      }
 
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
       const isManualOut = res === 'MANUAL_OUT';
-      
-      // BATTER SHIELD
+
       if (!isManualOut && ab.batterId && ab.batter) {
           const b = addToMap(batterMap, ab.batterId, ab.batter.name, ab.game);
           b.gameIds.add(ab.gameId);
           
           const isK = res === 'K' || res === 'STRIKEOUT';
-          
           const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
           const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
           const isH = !isOut && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
@@ -172,8 +205,33 @@ export async function GET(request: Request) {
       }
     });
 
+    liveGamesTracker.forEach((trk) => {
+        const homeWinner = trk.homeRuns > trk.awayRuns;
+        
+        let wId = trk.pitcherOfRecordW;
+        let lId = trk.pitcherOfRecordL;
+
+        if (!wId && homeWinner) wId = trk.lastHomePitcher;
+        if (!wId && !homeWinner && trk.awayRuns > trk.homeRuns) wId = trk.lastAwayPitcher;
+
+        if (wId && pitcherMap[wId]) pitcherMap[wId].w++;
+        if (lId && pitcherMap[lId]) pitcherMap[lId].l++;
+
+        let closerId = null;
+        let isSave = false;
+
+        if (homeWinner) {
+            closerId = trk.lastHomePitcher;
+            if (closerId && closerId !== wId && trk.homePitcherEntryLead >= 1 && trk.homePitcherEntryLead <= 3) isSave = true;
+        } else if (trk.awayRuns > trk.homeRuns) {
+            closerId = trk.lastAwayPitcher;
+            if (closerId && closerId !== wId && trk.awayPitcherEntryLead >= 1 && trk.awayPitcherEntryLead <= 3) isSave = true;
+        }
+
+        if (isSave && closerId && pitcherMap[closerId]) pitcherMap[closerId].sv++;
+    });
+
     manualLines.forEach((ms: any) => { 
-      // Strict inclusion rule for manual stats. 
       const isOverridden = ms.game?.isManualOverride;
       const hasNoAtBats = !gamesWithLiveAtBats.has(ms.gameId);
 
@@ -186,7 +244,6 @@ export async function GET(request: Request) {
 
       const b = addToMap(batterMap, ms.playerId, ms.player.name, ms.game);
       
-      // ⚡ FIX: Use importedGp for legacy bulk imports, otherwise add gameId to Set to prevent double counting GP
       if (ms.gp && ms.gp > 1) {
         b.importedGp += ms.gp;
         p.importedGp += ms.gp;
@@ -241,7 +298,7 @@ export async function GET(request: Request) {
       const displays = getDisplays(b);
       return { 
         ...b, 
-        gp: b.gameIds.size + b.importedGp, // ⚡ Updated GP calc
+        gp: b.gameIds.size + b.importedGp, 
         pa,
         gameIds: Array.from(b.gameIds), 
         leagueDisplay: displays.leagueDisplay,
@@ -257,7 +314,7 @@ export async function GET(request: Request) {
       const displays = getDisplays(p);
       return { 
         id: p.id, name: p.name, w: p.w, l: p.l, sv: p.sv, 
-        gp: p.gameIds.size + p.importedGp, // ⚡ Updated GP calc
+        gp: p.gameIds.size + p.importedGp, 
         leagueDisplay: displays.leagueDisplay,
         speedDisplay: displays.speedDisplay,
         ip: `${Math.floor(p.ipOuts / 3)}.${p.ipOuts % 3}`, 
