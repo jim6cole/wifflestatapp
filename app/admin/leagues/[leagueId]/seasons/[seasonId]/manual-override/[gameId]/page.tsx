@@ -40,18 +40,23 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
         return roster.map((player: any) => {
           const pId = Number(player.id);
 
-          // 1. Check for existing override
           const saved = !forceLive && Array.isArray(overrides) 
             ? overrides.find((s: any) => Number(s.playerId) === pId)
             : null;
 
-          // ⚡ SMART CHECK: If the saved record exists but has 0 AB and 0 IP, 
-          // treat it as uninitialized and pull live stats instead.
           const isEssentiallyEmpty = saved && saved.ab === 0 && saved.ip === 0;
 
-          if (saved && !isEssentiallyEmpty) return { ...saved, teamId }; 
+          if (saved && !isEssentiallyEmpty) {
+             return { 
+                ...saved, 
+                teamId,
+                // Ensure W/L/SV fallback safely
+                winCount: saved.winCount || 0,
+                lossCount: saved.lossCount || 0,
+                saveCount: saved.saveCount || 0
+             }; 
+          }
 
-          // 2. Map from Live Box Score (using your route.ts keys: d, t, er, h, etc.)
           const liveB = allLiveBatters.find((b: any) => Number(b.id) === pId) || {};
           const liveP = allLivePitchers.find((p: any) => Number(p.id) === pId) || {};
 
@@ -73,7 +78,11 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
             per: Number(liveP.er || 0),   
             pbb: Number(liveP.bb || 0),   
             pk: Number(liveP.k || 0),     
-            phr: Number(liveP.hr || 0)    
+            phr: Number(liveP.hr || 0),
+            // ⚡ Mapped from our newly upgraded Live Box Score!
+            winCount: Number(liveP.wins || 0),
+            lossCount: Number(liveP.losses || 0),
+            saveCount: Number(liveP.sv || 0)
           };
         });
       };
@@ -117,6 +126,8 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
   );
 
   const statOptions: React.ReactNode[] = Array.from({ length: 41 }, (_, i) => <option key={i} value={i}>{i}</option>);
+  const booleanOptions: React.ReactNode[] = [<option key={0} value={0}>0</option>, <option key={1} value={1}>1</option>];
+  
   const ipOptions: React.ReactNode[] = [];
   for (let i = 0; i <= 15; i++) {
     ipOptions.push(<option key={`${i}.0`} value={i}>{i}.0</option>);
@@ -133,16 +144,22 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
             <tr className="bg-[#001d3d] text-white text-[10px] uppercase font-black">
               <th className="p-3 text-left w-48">Player</th>
               <th className="p-3 bg-[#c1121f]" colSpan={9}>Hitting</th>
-              <th className="p-3 bg-[#669bbc]" colSpan={7}>Pitching</th>
+              <th className="p-3 bg-[#669bbc]" colSpan={10}>Pitching</th> {/* ⚡ Expanded colSpan to 10 */}
             </tr>
             <tr className="bg-slate-100 text-[10px] font-bold border-b-2 border-[#001d3d] uppercase tracking-tighter">
               <th className="p-2 text-left">Name</th>
               <th className="p-2">AB</th><th className="p-2">R</th><th className="p-2">H</th>
               <th className="p-2">2B</th><th className="p-2">3B</th><th className="p-2">HR</th>
               <th className="p-2">RBI</th><th className="p-2">BB</th><th className="p-2">K</th>
+              
               <th className="p-2 border-l-2 border-[#001d3d]">IP</th>
               <th className="p-2">H</th><th className="p-2">R</th><th className="p-2">ER</th>
               <th className="p-2">BB</th><th className="p-2">K</th><th className="p-2">HR</th>
+              
+              {/* ⚡ Added W, L, SV Headers */}
+              <th className="p-2 border-l-2 border-[#001d3d] text-[#c1121f]">W</th>
+              <th className="p-2 text-[#c1121f]">L</th>
+              <th className="p-2 text-[#c1121f]">SV</th>
             </tr>
           </thead>
           <tbody>
@@ -151,14 +168,23 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
               return (
                 <tr key={idx} className="border-b border-slate-200 hover:bg-[#fdf0d5] transition-colors">
                   <td className="p-2 text-left font-black uppercase text-xs truncate max-w-[120px]">{player?.name || 'Unknown'}</td>
+                  
                   {['ab', 'r', 'h', 'd2b', 'd3b', 'hr', 'rbi', 'bb', 'k'].map(f => (
                     <td key={f} className="p-1">
                       <select value={stat[f]} onChange={(e) => handleStatChange(type, idx, f, e.target.value)} className="w-12 p-1 text-center font-bold text-sm bg-white border border-slate-300 outline-none">{statOptions}</select>
                     </td>
                   ))}
-                  {['ip', 'ph', 'pr', 'per', 'pbb', 'pk', 'phr'].map((f, pi) => (
-                    <td key={f} className={`p-1 ${pi === 0 ? 'border-l-2 border-[#001d3d]' : ''}`}>
-                      <select value={stat[f]} onChange={(e) => handleStatChange(type, idx, f, e.target.value)} className="w-14 p-1 text-center font-bold text-sm bg-white border border-slate-300 outline-none">{f === 'ip' ? ipOptions : statOptions}</select>
+                  
+                  {/* ⚡ Mapped the new fields to dropdowns */}
+                  {['ip', 'ph', 'pr', 'per', 'pbb', 'pk', 'phr', 'winCount', 'lossCount', 'saveCount'].map((f, pi) => (
+                    <td key={f} className={`p-1 ${pi === 0 || pi === 7 ? 'border-l-2 border-[#001d3d]' : ''}`}>
+                      <select 
+                        value={stat[f]} 
+                        onChange={(e) => handleStatChange(type, idx, f, e.target.value)} 
+                        className={`w-14 p-1 text-center font-bold text-sm bg-white border border-slate-300 outline-none ${pi >= 7 ? 'text-[#c1121f] bg-red-50' : ''}`}
+                      >
+                        {f === 'ip' ? ipOptions : (f.includes('Count') ? booleanOptions : statOptions)}
+                      </select>
                     </td>
                   ))}
                 </tr>

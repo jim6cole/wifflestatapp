@@ -93,9 +93,10 @@ export async function POST(
           pbb: parseInt(s.pbb) || 0,
           pk: parseInt(s.pk) || 0,
           phr: parseInt(s.phr) || 0,
-          winCount: s.win ? 1 : 0,    
-          lossCount: s.loss ? 1 : 0,  
-          saveCount: s.save ? 1 : 0,  
+          // ⚡ Accept the exact values passed from the new frontend dropdowns
+          winCount: parseInt(s.winCount) || 0,    
+          lossCount: parseInt(s.lossCount) || 0,  
+          saveCount: parseInt(s.saveCount) || 0,  
         })),
       }),
 
