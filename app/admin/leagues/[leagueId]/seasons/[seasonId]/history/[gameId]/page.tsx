@@ -4,6 +4,8 @@ import Link from 'next/link';
 import BoxScoreTable from '@/components/stats/BoxScoreTable';
 import PitchingBoxScoreTable from '@/components/stats/PitchingBoxScoreTable';
 
+const KNOWN_RESULTS = ["SINGLE", "CLEAN_SINGLE", "DOUBLE", "CLEAN_DOUBLE", "GROUND_RULE_DOUBLE", "TRIPLE", "HR", "WALK", "BB", "HBP", "ERROR", "K", "STRIKEOUT", "OUT", "FLY_OUT", "GROUND_OUT", "DOUBLE_PLAY", "DP", "TRIPLE_PLAY", "FIELDERS_CHOICE", "MANUAL_OUT"];
+
 export default function StatCorrectionPage({ params }: { params: Promise<{ leagueId: string, seasonId: string, gameId: string }> }) {
   const { leagueId, seasonId, gameId } = use(params);
   
@@ -16,7 +18,6 @@ export default function StatCorrectionPage({ params }: { params: Promise<{ leagu
   const load = async () => {
     const t = new Date().getTime();
     try {
-      // ⚡ Cleaned up: Only fetching the 4 things needed for play-by-play
       const [gRes, sRes, hRes, pRes] = await Promise.all([
         fetch(`/api/games/${gameId}/setup?t=${t}`),
         fetch(`/api/games/${gameId}/box-score?t=${t}`),
@@ -38,7 +39,6 @@ export default function StatCorrectionPage({ params }: { params: Promise<{ leagu
     if (gameId) load();
   }, [gameId]);
 
-  // ⚡ AUTOMATED PROPAGATION
   const handleUpdate = async (atBatId: number, updates: any) => {
     const isPlayerChange = 'batterId' in updates || 'pitcherId' in updates;
     
@@ -214,18 +214,40 @@ export default function StatCorrectionPage({ params }: { params: Promise<{ leagu
                       <div className="flex flex-col">
                         <label className="text-[10px] font-black uppercase mb-1 tracking-widest text-[#669bbc]">Result</label>
                         <select 
-                          value={ab.result} 
+                          value={ab.result || ''} 
                           onChange={(e) => handleUpdate(ab.id, { result: e.target.value })}
                           className="bg-[#fdf0d5] border-2 border-[#001d3d] p-3 font-black uppercase text-sm outline-none focus:border-[#ffd60a]"
                         >
-                          <option value="SINGLE">Single</option>
-                          <option value="DOUBLE">Double</option>
-                          <option value="TRIPLE">Triple</option>
-                          <option value="HR">Home Run</option>
-                          <option value="OUT">Out</option>
-                          <option value="K">Strikeout</option>
-                          <option value="WALK">Walk</option>
-                          <option value="ERROR">Error</option>
+                          {!KNOWN_RESULTS.includes(ab.result) && ab.result && (
+                            <option value={ab.result}>{ab.result} (Custom)</option>
+                          )}
+                          <optgroup label="Hits">
+                            <option value="SINGLE">Single</option>
+                            <option value="CLEAN_SINGLE">Clean Single</option>
+                            <option value="DOUBLE">Double</option>
+                            <option value="CLEAN_DOUBLE">Clean Double</option>
+                            <option value="GROUND_RULE_DOUBLE">Ground Rule Double</option>
+                            <option value="TRIPLE">Triple</option>
+                            <option value="HR">Home Run</option>
+                          </optgroup>
+                          <optgroup label="On Base">
+                            <option value="WALK">Walk</option>
+                            <option value="BB">Walk (BB)</option>
+                            <option value="HBP">Hit By Pitch</option>
+                            <option value="ERROR">Reached on Error</option>
+                          </optgroup>
+                          <optgroup label="Outs">
+                            <option value="K">Strikeout (K)</option>
+                            <option value="STRIKEOUT">Strikeout</option>
+                            <option value="OUT">General Out</option>
+                            <option value="FLY_OUT">Fly Out</option>
+                            <option value="GROUND_OUT">Ground Out</option>
+                            <option value="DOUBLE_PLAY">Double Play</option>
+                            <option value="DP">Double Play (DP)</option>
+                            <option value="TRIPLE_PLAY">Triple Play</option>
+                            <option value="FIELDERS_CHOICE">Fielder's Choice</option>
+                            <option value="MANUAL_OUT">Manual Out / Ghost Runner</option>
+                          </optgroup>
                         </select>
                       </div>
 
@@ -239,7 +261,6 @@ export default function StatCorrectionPage({ params }: { params: Promise<{ leagu
                         />
                       </div>
 
-                      {/* ⚡ INHERITED RUNNER FIXER */}
                       {ab.runsScored > 0 && (
                         <div className="flex flex-col">
                           <label className="text-[10px] font-black uppercase mb-1 tracking-widest text-[#c1121f]">Charge Runs To (IDs)</label>

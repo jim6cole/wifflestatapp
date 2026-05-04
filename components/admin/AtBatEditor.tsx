@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
 
-// Define the shape of your AtBat data to satisfy TypeScript
 interface AtBatRecord {
   id: number;
   inning: number;
@@ -17,8 +16,9 @@ interface AtBatEditorProps {
   onClose: () => void;
 }
 
+const KNOWN_RESULTS = ["SINGLE", "CLEAN_SINGLE", "DOUBLE", "CLEAN_DOUBLE", "GROUND_RULE_DOUBLE", "TRIPLE", "HR", "WALK", "BB", "HBP", "ERROR", "K", "STRIKEOUT", "OUT", "FLY_OUT", "GROUND_OUT", "DOUBLE_PLAY", "DP", "TRIPLE_PLAY", "FIELDERS_CHOICE", "MANUAL_OUT"];
+
 export default function AtBatEditor({ gameId, playerId, playerName, onClose }: AtBatEditorProps) {
-  // Fix the 'never[]' error by providing a type to useState
   const [atBats, setAtBats] = useState<AtBatRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -38,7 +38,6 @@ export default function AtBatEditor({ gameId, playerId, playerName, onClose }: A
       body: JSON.stringify({ result: newResult }),
     });
     
-    // Type-safe state update
     setAtBats(prev => prev.map((ab) => ab.id === atBatId ? { ...ab, result: newResult } : ab));
   };
 
@@ -62,18 +61,40 @@ export default function AtBatEditor({ gameId, playerId, playerName, onClose }: A
               </p>
               
               <select 
-                value={ab.result} 
+                value={ab.result || ''} 
                 onChange={(e) => updateResult(ab.id, e.target.value)}
                 className="w-full bg-[#1e293b] border border-slate-700 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
               >
-                <option value="SINGLE">Single</option>
-                <option value="DOUBLE">Double</option>
-                <option value="TRIPLE">Triple</option>
-                <option value="HR">Home Run</option>
-                <option value="WALK">Walk</option>
-                <option value="STRIKEOUT">Strikeout</option>
-                <option value="OUT">Ground/Fly Out</option>
-                <option value="ERROR">Reached on Error</option>
+                {!KNOWN_RESULTS.includes(ab.result) && ab.result && (
+                  <option value={ab.result}>{ab.result} (Custom)</option>
+                )}
+                <optgroup label="Hits">
+                  <option value="SINGLE">Single</option>
+                  <option value="CLEAN_SINGLE">Clean Single</option>
+                  <option value="DOUBLE">Double</option>
+                  <option value="CLEAN_DOUBLE">Clean Double</option>
+                  <option value="GROUND_RULE_DOUBLE">Ground Rule Double</option>
+                  <option value="TRIPLE">Triple</option>
+                  <option value="HR">Home Run</option>
+                </optgroup>
+                <optgroup label="On Base">
+                  <option value="WALK">Walk</option>
+                  <option value="BB">Walk (BB)</option>
+                  <option value="HBP">Hit By Pitch</option>
+                  <option value="ERROR">Reached on Error</option>
+                </optgroup>
+                <optgroup label="Outs">
+                  <option value="K">Strikeout (K)</option>
+                  <option value="STRIKEOUT">Strikeout</option>
+                  <option value="OUT">General Out</option>
+                  <option value="FLY_OUT">Fly Out</option>
+                  <option value="GROUND_OUT">Ground Out</option>
+                  <option value="DOUBLE_PLAY">Double Play</option>
+                  <option value="DP">Double Play (DP)</option>
+                  <option value="TRIPLE_PLAY">Triple Play</option>
+                  <option value="FIELDERS_CHOICE">Fielder's Choice</option>
+                  <option value="MANUAL_OUT">Manual Out / Ghost Runner</option>
+                </optgroup>
               </select>
 
               <div className="mt-3 flex gap-4 text-xs font-mono text-slate-400">
