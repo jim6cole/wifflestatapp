@@ -92,15 +92,16 @@ export async function GET(
     };
 
     lineups.forEach(l => {
+        // ⚡ FIX: Do NOT blindly award batting GP from lineups if the game was manually overridden!
+        if (l.game?.isManualOverride) return;
+        
         const b = initPlayer(batterMap, l.playerId, l.player.name);
         b.gameIds.add(l.gameId);
     });
 
-    // ⚡ FIX: Added W/L/SV Tracker
     const liveGamesTracker = new Map();
 
     atBats.forEach(ab => {
-      // ⚡ FIX: Prevent double-counting by skipping overrides
       if (ab.game?.isManualOverride) return;
 
       if (!liveGamesTracker.has(ab.gameId)) {
@@ -108,7 +109,6 @@ export async function GET(
       }
       const trk = liveGamesTracker.get(ab.gameId);
 
-      // ⚡ FIX: Track Lead Changes
       if (ab.isTopInning) { 
           if (trk.homePitcher !== ab.pitcherId) {
               trk.homePitcher = ab.pitcherId;
@@ -139,14 +139,12 @@ export async function GET(
           }
       }
 
-      // Only attribute the stat if the player was on THIS team during this specific game
       const isBatterOnThisTeam = ab.game.lineups.some((l:any) => l.playerId === ab.batterId && l.teamId === tId);
       const isPitcherOnThisTeam = ab.game.lineups.some((l:any) => l.playerId === ab.pitcherId && l.teamId === tId);
 
       const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
       const isManualOut = res === 'MANUAL_OUT';
       
-      // ⚡ FIX: Strict exact K match to avoid "WALK" triggering strikeouts
       const isK = res === 'K' || res === 'STRIKEOUT';
       const isWalk = ['WALK', 'BB', 'HBP'].some(w => res.includes(w));
       const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
@@ -209,7 +207,6 @@ export async function GET(
       }
     });
 
-    // ⚡ FIX: Calculate W/L/SV dynamically for the team
     liveGamesTracker.forEach((trk) => {
         const homeWinner = trk.homeRuns > trk.awayRuns;
         let wId = trk.pitcherOfRecordW;
@@ -236,35 +233,47 @@ export async function GET(
         if (isSave && closerId && isOnTeam(Number(closerId)) && pitcherMap[Number(closerId)]) pitcherMap[Number(closerId)].sv++;
     });
 
-    // ⚡ FIX: Apply Strict Inclusion Filter to Manual Stats
     manualLines.forEach(ms => {
         const isOverridden = ms.game?.isManualOverride;
         const hasNoAtBats = !gamesWithLiveAtBats.has(ms.gameId);
 
         if (!isOverridden && !hasNoAtBats) return;
 
-        const b = initPlayer(batterMap, ms.playerId, ms.player.name);
-        const p = initPlayer(pitcherMap, ms.playerId, ms.player.name);
+        // ⚡ FIX: Determine if they actually earned stats to warrant a Game Played (GP)
+        const hasBatting = (ms.ab > 0 || ms.bb > 0 || ms.r > 0 || ms.h > 0 || ms.k > 0 || ms.rbi > 0 || ms.d2b > 0 || ms.d3b > 0 || ms.hr > 0);
+        const hasPitching = ((ms.ip || 0) > 0 || (ms.pk || 0) > 0 || (ms.pbb || 0) > 0 || (ms.ph || 0) > 0 || (ms.pr || 0) > 0 || (ms.per || 0) > 0 || (ms.winCount || 0) > 0 || (ms.lossCount || 0) > 0 || (ms.saveCount || 0) > 0 || (ms.phr || 0) > 0);
 
-        if (ms.gp && ms.gp > 1) {
-            b.importedGp += ms.gp;
-            p.importedGp += ms.gp;
-        } else {
-            b.gameIds.add(ms.gameId);
-            p.gameIds.add(ms.gameId);
+        if (hasBatting || (ms.gp && ms.gp > 1)) {
+            const b = initPlayer(batterMap, ms.playerId, ms.player.name);
+            
+            if (ms.gp && ms.gp > 1) {
+                b.importedGp += ms.gp;
+            } else if (hasBatting) {
+                b.gameIds.add(ms.gameId);
+            }
+
+            b.ab += ms.ab; b.h += ms.h; b.hr += ms.hr; b.rbi += ms.rbi; b.r += ms.r; b.bb += ms.bb; b.k += ms.k;
+            b.d += ms.d2b; b.t += ms.d3b;
+            b.tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
         }
 
-        b.ab += ms.ab; b.h += ms.h; b.hr += ms.hr; b.rbi += ms.rbi; b.r += ms.r; b.bb += ms.bb; b.k += ms.k;
-        b.d += ms.d2b; b.t += ms.d3b;
-        b.tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
+        if (hasPitching || (ms.gp && ms.gp > 1 && hasPitching)) {
+            const p = initPlayer(pitcherMap, ms.playerId, ms.player.name);
+            
+            if (ms.gp && ms.gp > 1 && hasPitching) {
+                p.importedGp += ms.gp;
+            } else if (hasPitching) {
+                p.gameIds.add(ms.gameId);
+            }
 
-        p.ipOuts += (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
-        p.pk += ms.pk; p.ph += ms.ph; p.pr += ms.pr; p.per += ms.per; p.pbb += ms.pbb; p.phr += (ms.phr || 0);
-        if (ms.winCount) p.w += ms.winCount; if (ms.lossCount) p.l += ms.lossCount; if (ms.saveCount) p.sv += ms.saveCount;
-        
-        const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) 
-            ? ms.game?.season?.inningsPerGame : (ms.game?.season?.eraStandard || 4);
-        p.weighted_per += (ms.per * standard);
+            p.ipOuts += (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
+            p.pk += ms.pk; p.ph += ms.ph; p.pr += ms.pr; p.per += ms.per; p.pbb += ms.pbb; p.phr += (ms.phr || 0);
+            if (ms.winCount) p.w += ms.winCount; if (ms.lossCount) p.l += ms.lossCount; if (ms.saveCount) p.sv += ms.saveCount;
+            
+            const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) 
+                ? ms.game?.season?.inningsPerGame : (ms.game?.season?.eraStandard || 4);
+            p.weighted_per += (ms.per * standard);
+        }
     });
 
     const batters = Object.values(batterMap).map((b: any) => {

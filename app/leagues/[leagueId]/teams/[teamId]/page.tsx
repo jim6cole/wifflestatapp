@@ -1,317 +1,260 @@
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+'use client';
+import { useState, useEffect } from 'react';
+import { useParams } from 'next/navigation';
+import Link from 'next/link';
 
-export const dynamic = 'force-dynamic';
+export default function TeamStatsPage() {
+  const { leagueId, teamId } = useParams();
+  const [data, setData] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'hitting' | 'pitching'>('hitting');
+  const [loading, setLoading] = useState(true);
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ teamId: string }> }
-) {
-  try {
-    const { teamId } = await params;
-    const tId = parseInt(teamId);
-    const { searchParams } = new URL(request.url);
-    
-    const yearFilter = searchParams.get('year');
-    const seasonIdFilter = searchParams.get('seasonId');
-    const eventIdFilter = searchParams.get('eventId');
+  const [selectedYear, setSelectedYear] = useState('');
+  const [selectedSeasonId, setSelectedSeasonId] = useState('');
+  const [selectedEventId, setSelectedEventId] = useState('');
 
-    const gameWhere: any = { 
-      status: 'COMPLETED',
-      OR: [{ homeTeamId: tId }, { awayTeamId: tId }]
-    };
+  useEffect(() => {
+    if (!teamId) return;
+    setLoading(true);
+    let url = `/api/public/teams/${teamId}/stats?`;
+    if (selectedYear) url += `year=${selectedYear}&`;
+    if (selectedSeasonId) url += `seasonId=${selectedSeasonId}&`;
+    if (selectedEventId) url += `eventId=${selectedEventId}&`;
 
-    if (seasonIdFilter) gameWhere.seasonId = parseInt(seasonIdFilter);
-    if (eventIdFilter) gameWhere.eventId = parseInt(eventIdFilter);
-    if (yearFilter && yearFilter !== 'all') {
-      gameWhere.season = { year: parseInt(yearFilter) };
-    }
+    fetch(url)
+      .then(res => res.json())
+      .then(d => { 
+        setData(d); 
+        setLoading(false); 
+      })
+      .catch(err => {
+        console.error("Failed to load team stats:", err);
+        setLoading(false);
+      });
+  }, [teamId, selectedYear, selectedSeasonId, selectedEventId]);
 
-    const [team, games, atBats, manualLines, lineups, atBatGames] = await Promise.all([
-      prisma.team.findUnique({ 
-        where: { id: tId },
-        include: { 
-            league: { 
-                include: { 
-                    seasons: { 
-                        include: { events: { orderBy: { id: 'desc' } } }, 
-                        orderBy: { year: 'desc' } 
-                    } 
-                } 
-            }
-        }
-      }),
-      prisma.game.findMany({ where: gameWhere }),
-      prisma.atBat.findMany({
-        where: { game: gameWhere },
-        include: { 
-            batter: { select: { name: true } }, 
-            pitcher: { select: { name: true } }, 
-            game: { include: { lineups: true, season: true } } 
-        }
-      }),
-      prisma.manualStatLine.findMany({
-        where: { teamId: tId, game: gameWhere },
-        include: { 
-            player: { select: { name: true } }, 
-            game: { include: { season: true } } 
-        }
-      }),
-      prisma.lineupEntry.findMany({
-         where: { teamId: tId, game: gameWhere },
-         include: { player: { select: { name: true } }, game: { include: { season: true } } }
-      }),
-      prisma.atBat.groupBy({ by: ['gameId'] })
-    ]);
-
-    if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
-
-    const gamesWithLiveAtBats = new Set(atBatGames.map(g => g.gameId));
-
-    let w = 0, l = 0, t = 0, rf = 0, ra = 0;
-    games.forEach(g => {
-      const isHome = g.homeTeamId === tId;
-      const tScore = isHome ? g.homeScore : g.awayScore;
-      const oScore = isHome ? g.awayScore : g.homeScore;
-      rf += tScore; ra += oScore;
-      if (tScore > oScore) w++; else if (oScore > tScore) l++; else t++;
-    });
-
-    const batterMap: Record<number, any> = {};
-    const pitcherMap: Record<number, any> = {};
-
-    const initPlayer = (map: any, id: number, name: string) => {
-      if (!map[id]) {
-        map[id] = { 
-            id, name, ab: 0, h: 0, d: 0, t: 0, hr: 0, rbi: 0, r: 0, bb: 0, k: 0, tb: 0, 
-            ipOuts: 0, ph: 0, pr: 0, per: 0, pbb: 0, pk: 0, phr: 0, w: 0, l: 0, sv: 0, 
-            weighted_per: 0, gameIds: new Set<number>(), importedGp: 0
-        };
-      }
-      return map[id];
-    };
-
-    lineups.forEach(l => {
-        // ⚡ FIX: Do NOT blindly award batting GP from lineups if the game was manually overridden!
-        if (l.game?.isManualOverride) return;
-        
-        const b = initPlayer(batterMap, l.playerId, l.player.name);
-        b.gameIds.add(l.gameId);
-    });
-
-    const liveGamesTracker = new Map();
-
-    atBats.forEach(ab => {
-      if (ab.game?.isManualOverride) return;
-
-      if (!liveGamesTracker.has(ab.gameId)) {
-          liveGamesTracker.set(ab.gameId, { gameObj: ab.game, homeRuns: 0, awayRuns: 0, homePitcher: null, awayPitcher: null, pitcherOfRecordW: null, pitcherOfRecordL: null, homePitcherEntryLead: 0, awayPitcherEntryLead: 0, lastHomePitcher: null, lastAwayPitcher: null });
-      }
-      const trk = liveGamesTracker.get(ab.gameId);
-
-      if (ab.isTopInning) { 
-          if (trk.homePitcher !== ab.pitcherId) {
-              trk.homePitcher = ab.pitcherId;
-              trk.homePitcherEntryLead = trk.homeRuns - trk.awayRuns;
-              if (trk.pitcherOfRecordW === null && trk.homeRuns > trk.awayRuns) trk.pitcherOfRecordW = ab.pitcherId;
-          }
-          trk.lastHomePitcher = ab.pitcherId;
-          const oldAwayRuns = trk.awayRuns;
-          trk.awayRuns += (ab.runsScored || 0);
-
-          if (trk.awayRuns > trk.homeRuns && oldAwayRuns <= trk.homeRuns) {
-              trk.pitcherOfRecordW = trk.awayPitcher;
-              trk.pitcherOfRecordL = trk.homePitcher;
-          }
-      } else { 
-          if (trk.awayPitcher !== ab.pitcherId) {
-              trk.awayPitcher = ab.pitcherId;
-              trk.awayPitcherEntryLead = trk.awayRuns - trk.homeRuns;
-              if (trk.pitcherOfRecordW === null && trk.awayRuns > trk.homeRuns) trk.pitcherOfRecordW = ab.pitcherId;
-          }
-          trk.lastAwayPitcher = ab.pitcherId;
-          const oldHomeRuns = trk.homeRuns;
-          trk.homeRuns += (ab.runsScored || 0);
-
-          if (trk.homeRuns > trk.awayRuns && oldHomeRuns <= trk.awayRuns) {
-              trk.pitcherOfRecordW = trk.homePitcher;
-              trk.pitcherOfRecordL = trk.awayPitcher;
-          }
-      }
-
-      const isBatterOnThisTeam = ab.game.lineups.some((l:any) => l.playerId === ab.batterId && l.teamId === tId);
-      const isPitcherOnThisTeam = ab.game.lineups.some((l:any) => l.playerId === ab.pitcherId && l.teamId === tId);
-
-      const res = ab.result?.toUpperCase().replace(/\s/g, '_') || '';
-      const isManualOut = res === 'MANUAL_OUT';
-      
-      const isK = res === 'K' || res === 'STRIKEOUT';
-      const isWalk = ['WALK', 'BB', 'HBP'].some(w => res.includes(w));
-      const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
-      const isHit = !isOut && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
-
-      if (!isManualOut && ab.batterId && ab.batter && isBatterOnThisTeam) {
-        const b = initPlayer(batterMap, ab.batterId, ab.batter.name);
-        b.gameIds.add(ab.gameId);
-        
-        if (isWalk) b.bb++;
-        else if (isHit || isOut) {
-            b.ab++;
-            if (isK) b.k++;
-            if (isHit) {
-                b.h++;
-                const bases = res.includes('HR') || res.includes('4B') ? 4 : res.includes('TRIPLE') || res.includes('3B') ? 3 : res.includes('DOUBLE') || res.includes('2B') ? 2 : 1;
-                b.tb += bases;
-                if (bases === 2) b.d++; else if (bases === 3) b.t++; else if (bases === 4) b.hr++;
-            }
-        }
-        b.rbi += (ab.rbi || ab.runsScored || 0);
-      }
-
-      if (ab.scorerIds) {
-        ab.scorerIds.split(',').forEach(sid => { 
-            const sIdNum = parseInt(sid);
-            if (!isNaN(sIdNum)) {
-                const isRunnerOnTeam = ab.game.lineups.some((l:any) => l.playerId === sIdNum && l.teamId === tId);
-                if (isRunnerOnTeam) {
-                    const runner = batterMap[sIdNum] || initPlayer(batterMap, sIdNum, "Unknown");
-                    runner.r++;
-                    runner.gameIds.add(ab.gameId);
-                }
-            }
-        });
-      }
-
-      if (ab.pitcherId && ab.pitcher && isPitcherOnThisTeam) {
-        const p = initPlayer(pitcherMap, ab.pitcherId, ab.pitcher.name);
-        p.gameIds.add(ab.gameId);
-        p.ipOuts += (ab.outs || 0);
-        
-        if (isK) p.pk++;
-        if (isHit) { p.ph++; if (res.includes('HR') || res.includes('4B')) p.phr++; }
-        if (isWalk) p.pbb++;
-        
-        const standard = (ab.game?.season?.eraStandard === 4 && ab.game?.season?.inningsPerGame !== 4) 
-            ? ab.game?.season?.inningsPerGame : (ab.game?.season?.eraStandard || 4);
-        
-        if (ab.runsScored > 0) {
-            let chargedRuns = 0;
-            if (ab.runAttribution) {
-                const attrIds = ab.runAttribution.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-                chargedRuns = attrIds.filter(id => id === ab.pitcherId).length;
-            } else {
-                chargedRuns = ab.runsScored;
-            }
-            p.pr += chargedRuns; p.per += chargedRuns; p.weighted_per += (chargedRuns * standard);
-        }
-      }
-    });
-
-    liveGamesTracker.forEach((trk) => {
-        const homeWinner = trk.homeRuns > trk.awayRuns;
-        let wId = trk.pitcherOfRecordW;
-        let lId = trk.pitcherOfRecordL;
-
-        if (!wId && homeWinner) wId = trk.lastHomePitcher;
-        if (!wId && !homeWinner && trk.awayRuns > trk.homeRuns) wId = trk.lastAwayPitcher;
-
-        let closerId = null;
-        let isSave = false;
-
-        if (homeWinner) {
-            closerId = trk.lastHomePitcher;
-            if (closerId && closerId !== wId && trk.homePitcherEntryLead >= 1 && trk.homePitcherEntryLead <= 3) isSave = true;
-        } else if (trk.awayRuns > trk.homeRuns) {
-            closerId = trk.lastAwayPitcher;
-            if (closerId && closerId !== wId && trk.awayPitcherEntryLead >= 1 && trk.awayPitcherEntryLead <= 3) isSave = true;
-        }
-
-        const isOnTeam = (pid: number) => trk.gameObj.lineups.some((l:any) => l.playerId === pid && l.teamId === tId);
-
-        if (wId && isOnTeam(Number(wId)) && pitcherMap[Number(wId)]) pitcherMap[Number(wId)].w++;
-        if (lId && isOnTeam(Number(lId)) && pitcherMap[Number(lId)]) pitcherMap[Number(lId)].l++;
-        if (isSave && closerId && isOnTeam(Number(closerId)) && pitcherMap[Number(closerId)]) pitcherMap[Number(closerId)].sv++;
-    });
-
-    manualLines.forEach(ms => {
-        const isOverridden = ms.game?.isManualOverride;
-        const hasNoAtBats = !gamesWithLiveAtBats.has(ms.gameId);
-
-        if (!isOverridden && !hasNoAtBats) return;
-
-        // ⚡ FIX: Determine if they actually earned stats to warrant a Game Played (GP)
-        const hasBatting = (ms.ab > 0 || ms.bb > 0 || ms.r > 0 || ms.h > 0 || ms.k > 0 || ms.rbi > 0 || ms.d2b > 0 || ms.d3b > 0 || ms.hr > 0);
-        const hasPitching = ((ms.ip || 0) > 0 || (ms.pk || 0) > 0 || (ms.pbb || 0) > 0 || (ms.ph || 0) > 0 || (ms.pr || 0) > 0 || (ms.per || 0) > 0 || (ms.winCount || 0) > 0 || (ms.lossCount || 0) > 0 || (ms.saveCount || 0) > 0 || (ms.phr || 0) > 0);
-
-        if (hasBatting || (ms.gp && ms.gp > 1)) {
-            const b = initPlayer(batterMap, ms.playerId, ms.player.name);
-            
-            if (ms.gp && ms.gp > 1) {
-                b.importedGp += ms.gp;
-            } else if (hasBatting) {
-                b.gameIds.add(ms.gameId);
-            }
-
-            b.ab += ms.ab; b.h += ms.h; b.hr += ms.hr; b.rbi += ms.rbi; b.r += ms.r; b.bb += ms.bb; b.k += ms.k;
-            b.d += ms.d2b; b.t += ms.d3b;
-            b.tb += (ms.h - ms.d2b - ms.d3b - ms.hr) + (ms.d2b * 2) + (ms.d3b * 3) + (ms.hr * 4);
-        }
-
-        if (hasPitching || (ms.gp && ms.gp > 1 && hasPitching)) {
-            const p = initPlayer(pitcherMap, ms.playerId, ms.player.name);
-            
-            if (ms.gp && ms.gp > 1 && hasPitching) {
-                p.importedGp += ms.gp;
-            } else if (hasPitching) {
-                p.gameIds.add(ms.gameId);
-            }
-
-            p.ipOuts += (Math.floor(ms.ip) * 3) + Math.round((ms.ip % 1) * 10);
-            p.pk += ms.pk; p.ph += ms.ph; p.pr += ms.pr; p.per += ms.per; p.pbb += ms.pbb; p.phr += (ms.phr || 0);
-            if (ms.winCount) p.w += ms.winCount; if (ms.lossCount) p.l += ms.lossCount; if (ms.saveCount) p.sv += ms.saveCount;
-            
-            const standard = (ms.game?.season?.eraStandard === 4 && ms.game?.season?.inningsPerGame !== 4) 
-                ? ms.game?.season?.inningsPerGame : (ms.game?.season?.eraStandard || 4);
-            p.weighted_per += (ms.per * standard);
-        }
-    });
-
-    const batters = Object.values(batterMap).map((b: any) => {
-        const pa = b.ab + b.bb;
-        const obp = pa > 0 ? (b.h + b.bb) / pa : 0;
-        const slg = b.ab > 0 ? b.tb / b.ab : 0;
-        return {
-            ...b, 
-            gp: b.gameIds.size + b.importedGp, 
-            pa,
-            gameIds: Array.from(b.gameIds),
-            avg: b.ab > 0 ? (b.h / b.ab).toFixed(3).replace(/^0/, '') : '.000',
-            obp: pa > 0 ? obp.toFixed(3).replace(/^0/, '') : '.000',
-            slg: b.ab > 0 ? slg.toFixed(3).replace(/^0/, '') : '.000',
-            ops: (pa > 0 || b.ab > 0) ? (obp + slg).toFixed(3).replace(/^0/, '') : '.000'
-        };
-    });
-
-    const pitchers = Object.values(pitcherMap).map((p: any) => {
-        const mathIP = p.ipOuts / 3;
-        return {
-            ...p, 
-            gp: p.gameIds.size + p.importedGp, 
-            ip: `${Math.floor(p.ipOuts / 3)}.${p.ipOuts % 3}`,
-            gameIds: Array.from(p.gameIds),
-            era: mathIP > 0 ? (p.weighted_per / mathIP).toFixed(2) : "0.00",
-            whip: mathIP > 0 ? ((p.ph + p.pbb) / mathIP).toFixed(2) : "0.00"
-        };
-    });
-
-    return NextResponse.json({
-      teamName: team.name,
-      record: { w, l, t, rf, ra, pct: (w+l+t) > 0 ? ((w + (t*0.5))/(w+l+t)).toFixed(3).replace(/^0/, '') : '.000' },
-      batters, pitchers,
-      seasons: team.league.seasons,
-      years: Array.from(new Set(team.league.seasons.map((s:any) => s.year))).sort((a:any, b:any) => b-a)
-    });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (loading && !data) {
+    return (
+      <div className="min-h-screen bg-[#001d3d] flex items-center justify-center">
+        <div className="font-black text-white italic text-5xl animate-pulse uppercase">Syncing Franchise...</div>
+      </div>
+    );
   }
+
+  const filteredSeasons = selectedYear && data?.seasons 
+    ? data.seasons.filter((s:any) => s.year === parseInt(selectedYear)) 
+    : data?.seasons || [];
+
+  const filteredEvents = selectedSeasonId && data?.seasons 
+    ? data.seasons.find((s:any) => String(s.id) === selectedSeasonId)?.events || [] 
+    : [];
+
+  return (
+    <div className="min-h-screen bg-[#fdf0d5] text-[#001d3d] p-4 md:p-12 border-[16px] border-[#001d3d]">
+      <div className="max-w-[1500px] mx-auto">
+        
+        <div className="bg-[#001d3d] border-8 border-[#c1121f] p-8 md:p-12 shadow-[16px_16px_0px_#ffd60a] mb-8 text-white relative overflow-hidden">
+          <div className="relative z-10">
+            <Link href={`/leagues/${leagueId}/standings`} className="text-[9px] font-black uppercase text-[#669bbc] tracking-widest hover:text-white transition-colors mb-6 block">
+              ← Back to League Standings
+            </Link>
+            <h1 className="text-7xl md:text-9xl font-black italic uppercase tracking-tighter leading-none mb-4">
+              {data?.teamName || "Team Stats"}
+            </h1>
+            <div className="flex flex-wrap gap-8 items-end">
+              <div>
+                <p className="text-[10px] font-black uppercase text-[#ffd60a] tracking-widest mb-1">Franchise Record</p>
+                <p className="text-6xl font-black italic tracking-tight">
+                  {data?.record?.w || 0}-{data?.record?.l || 0}-{data?.record?.t || 0}
+                </p>
+              </div>
+              <div className="bg-white/5 px-6 py-3 border-2 border-white/10">
+                <p className="text-[9px] font-black uppercase text-white/50 mb-1">Franchise Win %</p>
+                <p className="text-3xl font-black italic text-[#ffd60a]">{data?.record?.pct || ".000"}</p>
+              </div>
+            </div>
+          </div>
+          <div className="absolute right-[-20px] bottom-[-20px] text-[220px] font-black italic text-white/5 pointer-events-none select-none uppercase">TEAM</div>
+        </div>
+
+        <div className="bg-[#001d3d] p-4 border-x-4 border-t-4 border-[#001d3d] flex flex-wrap items-center gap-8 shadow-inner">
+           <div className="flex items-center gap-3">
+              <label className="text-[10px] font-black uppercase text-[#ffd60a] italic">Year:</label>
+              <select value={selectedYear} onChange={(e) => { setSelectedYear(e.target.value); setSelectedSeasonId(''); setSelectedEventId(''); }} className="bg-white border-2 border-[#ffd60a] px-3 py-1.5 text-xs font-black uppercase italic outline-none">
+                <option value="">All-Time</option>
+                {data?.years?.map((y:any) => <option key={y} value={y}>{y}</option>)}
+              </select>
+           </div>
+           <div className="flex items-center gap-3">
+              <label className="text-[10px] font-black uppercase text-[#ffd60a] italic">Season:</label>
+              <select value={selectedSeasonId} onChange={(e) => { setSelectedSeasonId(e.target.value); setSelectedEventId(''); }} className="bg-white border-2 border-[#ffd60a] px-3 py-1.5 text-xs font-black uppercase italic outline-none min-w-[150px]">
+                <option value="">All Seasons</option>
+                {filteredSeasons.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+           </div>
+           <div className="flex items-center gap-3">
+              <label className="text-[10px] font-black uppercase text-[#ffd60a] italic">Tournament:</label>
+              <select value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)} disabled={!selectedSeasonId} className="bg-white border-2 border-[#ffd60a] px-3 py-1.5 text-xs font-black uppercase italic outline-none min-w-[150px] disabled:opacity-30">
+                <option value="">Entire Season</option>
+                {filteredEvents.map((ev:any) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+              </select>
+           </div>
+        </div>
+
+        <div className="flex gap-2 mb-4">
+           <button onClick={() => setActiveTab('hitting')} className={`flex-1 py-4 font-black uppercase italic text-xl border-4 transition-all ${activeTab === 'hitting' ? 'bg-[#001d3d] text-white border-[#001d3d] shadow-[8px_8px_0px_#c1121f]' : 'bg-white border-[#001d3d]'}`}>Franchise Hitting</button>
+           <button onClick={() => setActiveTab('pitching')} className={`flex-1 py-4 font-black uppercase italic text-xl border-4 transition-all ${activeTab === 'pitching' ? 'bg-[#ffd60a] text-[#001d3d] border-[#001d3d] shadow-[8px_8px_0px_#c1121f]' : 'bg-white border-[#001d3d]'}`}>Franchise Pitching</button>
+        </div>
+
+        <div className="bg-white border-4 border-[#001d3d] shadow-[12px_12px_0px_#000] overflow-hidden min-h-[400px]">
+           {loading ? (
+             <div className="flex items-center justify-center h-64 font-black italic text-4xl text-[#001d3d] animate-pulse uppercase">Filtering Records...</div>
+           ) : (
+             <div className="overflow-x-auto">
+               {activeTab === 'hitting' ? <HittingTable data={data?.batters || []} /> : <PitchingTable data={data?.pitchers || []} />}
+             </div>
+           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const sortArray = (data: any[], sortConfig: { key: string, direction: 'asc' | 'desc' }) => {
+  return [...data].sort((a, b) => {
+    let aVal = a[sortConfig.key];
+    let bVal = b[sortConfig.key];
+    if (typeof aVal === 'string' && !isNaN(parseFloat(aVal))) aVal = parseFloat(aVal);
+    if (typeof bVal === 'string' && !isNaN(parseFloat(bVal))) bVal = parseFloat(bVal);
+    if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+};
+
+function PitchingTable({ data }: { data: any[] }) {
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'era', direction: 'asc' });
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'desc'; 
+    if (['era', 'whip', 'h', 'r', 'er', 'bb', 'hr'].includes(key)) direction = 'asc'; 
+    if (sortConfig.key === key) direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
+    setSortConfig({ key, direction });
+  };
+
+  const sortedData = sortArray(data, sortConfig);
+  const SortIndicator = ({ columnKey }: { columnKey: string }) => {
+    if (sortConfig.key !== columnKey) return null;
+    return <span className="ml-1 text-[#c1121f]">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>;
+  };
+
+  return (
+    <table className="w-full text-left border-collapse whitespace-nowrap">
+      <thead className="bg-[#001d3d] text-[#ffd60a] text-[10px] font-black uppercase italic tracking-widest border-b-4 border-[#001d3d]">
+        <tr>
+          <th className="px-4 py-4 border-r border-white/10 cursor-pointer sticky left-0 bg-[#001d3d] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.1)]" onClick={() => handleSort('name')}>Player <SortIndicator columnKey="name" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('gp')}>GP <SortIndicator columnKey="gp" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('w')}>W <SortIndicator columnKey="w" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('l')}>L <SortIndicator columnKey="l" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('sv')}>SV <SortIndicator columnKey="sv" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer border-x border-white/10" onClick={() => handleSort('ip')}>IP <SortIndicator columnKey="ip" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('ph')}>H <SortIndicator columnKey="ph" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('pr')}>R <SortIndicator columnKey="pr" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('per')}>ER <SortIndicator columnKey="per" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('pbb')}>BB <SortIndicator columnKey="pbb" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('pk')}>K <SortIndicator columnKey="pk" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('phr')}>HR <SortIndicator columnKey="phr" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer border-l border-white/10" onClick={() => handleSort('era')}>ERA <SortIndicator columnKey="era" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('whip')}>WHIP <SortIndicator columnKey="whip" /></th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {sortedData.map((p) => (
+          <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+            <td className="px-4 py-3 font-black italic uppercase text-[15px] border-r border-slate-100 sticky left-0 bg-white z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+              <Link href={`/players/${p.id}`} className="hover:text-[#c1121f]">{p.name}</Link>
+            </td>
+            <td className="px-3 py-3 text-center font-bold">{p.gp}</td>
+            <td className="px-3 py-3 text-center font-bold text-green-700">{p.w}</td>
+            <td className="px-3 py-3 text-center font-bold text-red-700">{p.l}</td>
+            <td className="px-3 py-3 text-center font-bold text-blue-700">{p.sv}</td>
+            <td className="px-4 py-3 text-center font-black border-x border-slate-100">{p.ip}</td>
+            <td className="px-3 py-3 text-center font-bold">{p.ph}</td>
+            <td className="px-3 py-3 text-center font-bold">{p.pr}</td>
+            <td className="px-3 py-3 text-center font-bold">{p.per}</td>
+            <td className="px-3 py-3 text-center font-bold">{p.pbb}</td>
+            <td className="px-3 py-3 text-center font-black text-[#003566]">{p.pk}</td>
+            <td className="px-3 py-3 text-center font-bold">{p.phr}</td>
+            <td className="px-4 py-3 text-center font-black text-[#c1121f] text-lg tabular-nums bg-slate-50 border-l border-slate-100">{p.era}</td>
+            <td className="px-4 py-3 text-center font-black text-slate-700 text-lg tabular-nums bg-slate-50">{p.whip}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function HittingTable({ data }: { data: any[] }) {
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'ops', direction: 'desc' });
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'desc'; 
+    if (sortConfig.key === key) direction = sortConfig.direction === 'desc' ? 'asc' : 'desc';
+    setSortConfig({ key, direction });
+  };
+
+  const sortedData = sortArray(data, sortConfig);
+  const SortIndicator = ({ columnKey }: { columnKey: string }) => {
+    if (sortConfig.key !== columnKey) return null;
+    return <span className="ml-1 text-[#c1121f]">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>;
+  };
+
+  return (
+    <table className="w-full text-left border-collapse whitespace-nowrap">
+      <thead className="bg-[#001d3d] text-[#ffd60a] text-[10px] font-black uppercase italic tracking-widest border-b-4 border-[#001d3d]">
+        <tr>
+          <th className="px-4 py-4 border-r border-white/10 cursor-pointer sticky left-0 bg-[#001d3d] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.1)]" onClick={() => handleSort('name')}>Player <SortIndicator columnKey="name" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('gp')}>GP <SortIndicator columnKey="gp" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('pa')}>PA <SortIndicator columnKey="pa" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer border-r border-white/10" onClick={() => handleSort('ab')}>AB <SortIndicator columnKey="ab" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('r')}>R <SortIndicator columnKey="r" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('h')}>H <SortIndicator columnKey="h" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('d')}>2B <SortIndicator columnKey="d" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('t')}>3B <SortIndicator columnKey="t" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer text-[#c1121f]" onClick={() => handleSort('hr')}>HR <SortIndicator columnKey="hr" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('rbi')}>RBI <SortIndicator columnKey="rbi" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer" onClick={() => handleSort('bb')}>BB <SortIndicator columnKey="bb" /></th>
+          <th className="px-3 py-4 text-center cursor-pointer border-r border-white/10" onClick={() => handleSort('k')}>K <SortIndicator columnKey="k" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('avg')}>AVG <SortIndicator columnKey="avg" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('obp')}>OBP <SortIndicator columnKey="obp" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer" onClick={() => handleSort('slg')}>SLG <SortIndicator columnKey="slg" /></th>
+          <th className="px-4 py-4 text-center cursor-pointer text-[#ffd60a]" onClick={() => handleSort('ops')}>OPS <SortIndicator columnKey="ops" /></th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {sortedData.map((b) => (
+          <tr key={b.id} className="hover:bg-slate-50 transition-colors">
+            <td className="px-4 py-3 font-black italic uppercase text-[15px] border-r border-slate-100 sticky left-0 bg-white z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+              <Link href={`/players/${b.id}`} className="hover:text-[#c1121f]">{b.name}</Link>
+            </td>
+            <td className="px-3 py-3 text-center font-bold">{b.gp}</td>
+            <td className="px-3 py-3 text-center font-bold">{b.pa}</td>
+            <td className="px-3 py-3 text-center font-bold border-r border-slate-100">{b.ab}</td>
+            <td className="px-3 py-3 text-center font-bold text-[#003566]">{b.r}</td>
+            <td className="px-3 py-3 text-center font-black text-[#003566]">{b.h}</td>
+            <td className="px-3 py-3 text-center font-bold">{b.d}</td>
+            <td className="px-3 py-3 text-center font-bold">{b.t}</td>
+            <td className="px-3 py-3 text-center font-black text-[#c1121f]">{b.hr}</td>
+            <td className="px-3 py-3 text-center font-bold">{b.rbi}</td>
+            <td className="px-3 py-3 text-center font-bold">{b.bb}</td>
+            <td className="px-3 py-3 text-center font-bold border-r border-slate-100">{b.k}</td>
+            <td className="px-4 py-3 text-center font-black text-slate-600 text-lg font-mono bg-slate-50/50">{b.avg}</td>
+            <td className="px-4 py-3 text-center font-black text-slate-600 text-lg font-mono bg-slate-50/50">{b.obp}</td>
+            <td className="px-4 py-3 text-center font-black text-slate-600 text-lg font-mono bg-slate-50/50">{b.slg}</td>
+            <td className="px-4 py-3 text-center font-black text-[#c1121f] text-xl italic font-mono bg-red-50/30">{b.ops}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
