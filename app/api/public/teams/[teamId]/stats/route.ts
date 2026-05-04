@@ -16,8 +16,9 @@ export async function GET(
     const seasonIdFilter = searchParams.get('seasonId');
     const eventIdFilter = searchParams.get('eventId');
 
+    // ⚡ FIX: Allow ACTIVE live games to count toward Team Stats immediately
     const gameWhere: any = { 
-      status: 'COMPLETED',
+      status: { in: ['COMPLETED', 'ACTIVE'] },
       OR: [{ homeTeamId: tId }, { awayTeamId: tId }]
     };
 
@@ -44,6 +45,7 @@ export async function GET(
       prisma.game.findMany({ where: gameWhere }),
       prisma.atBat.findMany({
         where: { game: gameWhere },
+        orderBy: { id: 'asc' }, // ⚡ FIX: Strict Chronological Order
         include: { 
             batter: { select: { name: true } }, 
             pitcher: { select: { name: true } }, 
@@ -92,9 +94,7 @@ export async function GET(
     };
 
     lineups.forEach(l => {
-        // ⚡ FIX: Do NOT blindly award batting GP from lineups if the game was manually overridden!
         if (l.game?.isManualOverride) return;
-        
         const b = initPlayer(batterMap, l.playerId, l.player.name);
         b.gameIds.add(l.gameId);
     });
@@ -109,6 +109,7 @@ export async function GET(
       }
       const trk = liveGamesTracker.get(ab.gameId);
 
+      // ⚡ FIX: Tie-Game Logic implemented for Teams
       if (ab.isTopInning) { 
           if (trk.homePitcher !== ab.pitcherId) {
               trk.homePitcher = ab.pitcherId;
@@ -119,7 +120,10 @@ export async function GET(
           const oldAwayRuns = trk.awayRuns;
           trk.awayRuns += (ab.runsScored || 0);
 
-          if (trk.awayRuns > trk.homeRuns && oldAwayRuns <= trk.homeRuns) {
+          if (trk.awayRuns === trk.homeRuns) {
+              trk.pitcherOfRecordW = null;
+              trk.pitcherOfRecordL = null;
+          } else if (trk.awayRuns > trk.homeRuns && oldAwayRuns <= trk.homeRuns) {
               trk.pitcherOfRecordW = trk.awayPitcher;
               trk.pitcherOfRecordL = trk.homePitcher;
           }
@@ -133,7 +137,10 @@ export async function GET(
           const oldHomeRuns = trk.homeRuns;
           trk.homeRuns += (ab.runsScored || 0);
 
-          if (trk.homeRuns > trk.awayRuns && oldHomeRuns <= trk.awayRuns) {
+          if (trk.homeRuns === trk.awayRuns) {
+              trk.pitcherOfRecordW = null;
+              trk.pitcherOfRecordL = null;
+          } else if (trk.homeRuns > trk.awayRuns && oldHomeRuns <= trk.awayRuns) {
               trk.pitcherOfRecordW = trk.homePitcher;
               trk.pitcherOfRecordL = trk.awayPitcher;
           }
@@ -228,6 +235,7 @@ export async function GET(
 
         const isOnTeam = (pid: number) => trk.gameObj.lineups.some((l:any) => l.playerId === pid && l.teamId === tId);
 
+        // ⚡ FIX: Strict Number() wrapping
         if (wId && isOnTeam(Number(wId)) && pitcherMap[Number(wId)]) pitcherMap[Number(wId)].w++;
         if (lId && isOnTeam(Number(lId)) && pitcherMap[Number(lId)]) pitcherMap[Number(lId)].l++;
         if (isSave && closerId && isOnTeam(Number(closerId)) && pitcherMap[Number(closerId)]) pitcherMap[Number(closerId)].sv++;
@@ -239,7 +247,6 @@ export async function GET(
 
         if (!isOverridden && !hasNoAtBats) return;
 
-        // ⚡ FIX: Determine if they actually earned stats to warrant a Game Played (GP)
         const hasBatting = (ms.ab > 0 || ms.bb > 0 || ms.r > 0 || ms.h > 0 || ms.k > 0 || ms.rbi > 0 || ms.d2b > 0 || ms.d3b > 0 || ms.hr > 0);
         const hasPitching = ((ms.ip || 0) > 0 || (ms.pk || 0) > 0 || (ms.pbb || 0) > 0 || (ms.ph || 0) > 0 || (ms.pr || 0) > 0 || (ms.per || 0) > 0 || (ms.winCount || 0) > 0 || (ms.lossCount || 0) > 0 || (ms.saveCount || 0) > 0 || (ms.phr || 0) > 0);
 
