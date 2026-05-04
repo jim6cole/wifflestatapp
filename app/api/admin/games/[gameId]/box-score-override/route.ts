@@ -3,7 +3,6 @@ import prisma from '@/lib/prisma';
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
-// ⚡ ADDED: GET function to fetch existing override stats
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ gameId: string }> }
@@ -33,7 +32,6 @@ export async function POST(
     const session = await getServerSession(authOptions);
     const user = session?.user as any;
     
-    // Authorization check
     if (!user?.isGlobalAdmin && !user?.memberships?.some((m: any) => m.roleLevel >= 2)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -50,17 +48,14 @@ export async function POST(
 
     if (!prisma) throw new Error("Database not connected.");
 
-    // CALCULATE MASTER SCORES
     const awayTotalRuns = (awayStats || []).reduce((sum: number, player: any) => sum + (parseInt(player.r) || 0), 0);
     const homeTotalRuns = (homeStats || []).reduce((sum: number, player: any) => sum + (parseInt(player.r) || 0), 0);
 
-    // Prepare data
     const awayData = (awayStats || []).map((s: any) => ({ ...s, teamId: parseInt(awayTeamId) }));
     const homeData = (homeStats || []).map((s: any) => ({ ...s, teamId: parseInt(homeTeamId) }));
     const allStats = [...awayData, ...homeData];
 
     await prisma.$transaction([
-      // 1. WIPE OLD OVERRIDE STATS
       prisma.manualStatLine.deleteMany({
         where: {
           gameId: gId,
@@ -68,7 +63,6 @@ export async function POST(
         },
       }),
 
-      // 2. SAVE NEW OVERRIDE STATS
       prisma.manualStatLine.createMany({
         data: allStats.map((s: any) => ({
           gameId: gId,
@@ -93,21 +87,19 @@ export async function POST(
           pbb: parseInt(s.pbb) || 0,
           pk: parseInt(s.pk) || 0,
           phr: parseInt(s.phr) || 0,
-          // ⚡ Accept the exact values passed from the new frontend dropdowns
           winCount: parseInt(s.winCount) || 0,    
           lossCount: parseInt(s.lossCount) || 0,  
           saveCount: parseInt(s.saveCount) || 0,  
         })),
       }),
 
-      // 3. UPDATE SCOREBOARD & FLIP THE OVERRIDE FLAG
       prisma.game.update({
         where: { id: gId },
         data: { 
           status: 'COMPLETED',
           awayScore: awayTotalRuns, 
           homeScore: homeTotalRuns,
-          isManualOverride: true // ⚡ This tells the app to ignore the raw play data
+          isManualOverride: true 
         },
       }),
     ]);

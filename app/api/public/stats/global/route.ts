@@ -12,7 +12,8 @@ export async function GET(request: Request) {
     const leagueIdFilter = searchParams.get('leagueId');
     const yearFilter = searchParams.get('year');
 
-    const whereClause: any = { status: 'COMPLETED' };
+    // ⚡ FIX: Allow ACTIVE live games to count toward Global Stats immediately
+    const whereClause: any = { status: { in: ['COMPLETED', 'ACTIVE'] } };
 
     if (seasonIdFilter) {
       whereClause.seasonId = parseInt(seasonIdFilter);
@@ -35,6 +36,7 @@ export async function GET(request: Request) {
     const [atBats, manualLines, leagues, metadata, lineups] = await Promise.all([
       prisma.atBat.findMany({
         where: { game: whereClause },
+        orderBy: { id: 'asc' }, 
         include: {
           batter: { select: { name: true } },
           pitcher: { select: { name: true } },
@@ -112,7 +114,6 @@ export async function GET(request: Request) {
       }
       const trk = liveGamesTracker.get(ab.gameId);
 
-      // LEAD TRACKER
       if (ab.isTopInning) { 
           if (trk.homePitcher !== ab.pitcherId) {
               trk.homePitcher = ab.pitcherId;
@@ -123,7 +124,10 @@ export async function GET(request: Request) {
           const oldAwayRuns = trk.awayRuns;
           trk.awayRuns += (ab.runsScored || 0);
 
-          if (trk.awayRuns > trk.homeRuns && oldAwayRuns <= trk.homeRuns) {
+          if (trk.awayRuns === trk.homeRuns) {
+              trk.pitcherOfRecordW = null;
+              trk.pitcherOfRecordL = null;
+          } else if (trk.awayRuns > trk.homeRuns && oldAwayRuns <= trk.homeRuns) {
               trk.pitcherOfRecordW = trk.awayPitcher;
               trk.pitcherOfRecordL = trk.homePitcher;
           }
@@ -137,7 +141,10 @@ export async function GET(request: Request) {
           const oldHomeRuns = trk.homeRuns;
           trk.homeRuns += (ab.runsScored || 0);
 
-          if (trk.homeRuns > trk.awayRuns && oldHomeRuns <= trk.awayRuns) {
+          if (trk.homeRuns === trk.awayRuns) {
+              trk.pitcherOfRecordW = null;
+              trk.pitcherOfRecordL = null;
+          } else if (trk.homeRuns > trk.awayRuns && oldHomeRuns <= trk.awayRuns) {
               trk.pitcherOfRecordW = trk.homePitcher;
               trk.pitcherOfRecordL = trk.awayPitcher;
           }
@@ -153,7 +160,7 @@ export async function GET(request: Request) {
           const isK = res === 'K' || res === 'STRIKEOUT';
           const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
           const isOut = ['OUT', 'FLY', 'GROUND', 'DP', 'DOUBLE_PLAY', 'TRIPLE_PLAY'].some(o => res.includes(o)) || isK;
-          const isH = !isOut && !isWalk && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
+          const isH = !isOut && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
           
           if (isWalk) b.bb++;
           else if (isH || isOut) { 
@@ -187,7 +194,6 @@ export async function GET(request: Request) {
           p.ipOuts += (ab.outs || 0);
           
           const isK = res === 'K' || res === 'STRIKEOUT';
-          
           const isWalk = res === 'WALK' || res === 'BB' || res.includes('HBP');
           const isH = !isK && !isWalk && !isManualOut && ['SINGLE', 'DOUBLE', 'TRIPLE', 'HR', '1B', '2B', '3B', '4B'].some(h => res.includes(h) && !res.includes('PLAY'));
 
@@ -207,15 +213,15 @@ export async function GET(request: Request) {
 
     liveGamesTracker.forEach((trk) => {
         const homeWinner = trk.homeRuns > trk.awayRuns;
-        
         let wId = trk.pitcherOfRecordW;
         let lId = trk.pitcherOfRecordL;
 
         if (!wId && homeWinner) wId = trk.lastHomePitcher;
         if (!wId && !homeWinner && trk.awayRuns > trk.homeRuns) wId = trk.lastAwayPitcher;
 
-        if (wId && pitcherMap[wId]) pitcherMap[wId].w++;
-        if (lId && pitcherMap[lId]) pitcherMap[lId].l++;
+        // ⚡ FIX: Strictly enforce Number() indexing so merged strings/ints always match perfectly
+        if (wId && pitcherMap[Number(wId)]) pitcherMap[Number(wId)].w++;
+        if (lId && pitcherMap[Number(lId)]) pitcherMap[Number(lId)].l++;
 
         let closerId = null;
         let isSave = false;
@@ -228,7 +234,7 @@ export async function GET(request: Request) {
             if (closerId && closerId !== wId && trk.awayPitcherEntryLead >= 1 && trk.awayPitcherEntryLead <= 3) isSave = true;
         }
 
-        if (isSave && closerId && pitcherMap[closerId]) pitcherMap[closerId].sv++;
+        if (isSave && closerId && pitcherMap[Number(closerId)]) pitcherMap[Number(closerId)].sv++;
     });
 
     manualLines.forEach((ms: any) => { 
@@ -298,7 +304,7 @@ export async function GET(request: Request) {
       const displays = getDisplays(b);
       return { 
         ...b, 
-        gp: b.gameIds.size + b.importedGp, 
+        gp: b.gameIds.size + b.importedGp,
         pa,
         gameIds: Array.from(b.gameIds), 
         leagueDisplay: displays.leagueDisplay,
@@ -314,7 +320,7 @@ export async function GET(request: Request) {
       const displays = getDisplays(p);
       return { 
         id: p.id, name: p.name, w: p.w, l: p.l, sv: p.sv, 
-        gp: p.gameIds.size + p.importedGp, 
+        gp: p.gameIds.size + p.importedGp,
         leagueDisplay: displays.leagueDisplay,
         speedDisplay: displays.speedDisplay,
         ip: `${Math.floor(p.ipOuts / 3)}.${p.ipOuts % 3}`, 

@@ -50,7 +50,6 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
              return { 
                 ...saved, 
                 teamId,
-                // Ensure W/L/SV fallback safely
                 winCount: saved.winCount || 0,
                 lossCount: saved.lossCount || 0,
                 saveCount: saved.saveCount || 0
@@ -79,10 +78,10 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
             pbb: Number(liveP.bb || 0),   
             pk: Number(liveP.k || 0),     
             phr: Number(liveP.hr || 0),
-            // ⚡ Mapped from our newly upgraded Live Box Score!
-            winCount: Number(liveP.wins || 0),
-            lossCount: Number(liveP.losses || 0),
-            saveCount: Number(liveP.sv || 0)
+            // Pull single-game W/L/SV decision properly
+            winCount: liveP.decision === 'W' ? 1 : 0,
+            lossCount: liveP.decision === 'L' ? 1 : 0,
+            saveCount: liveP.decision === 'SV' ? 1 : 0
           };
         });
       };
@@ -99,9 +98,30 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
   useEffect(() => { if (gameId) load(); }, [gameId]);
 
   const handleStatChange = (team: 'away' | 'home', idx: number, field: string, value: string) => {
+    const parsedValue = field === 'ip' ? parseFloat(value) || 0 : parseInt(value) || 0;
+
+    // Mutually Exclusive Logic for W, L, SV
+    if (['winCount', 'lossCount', 'saveCount'].includes(field)) {
+      if (parsedValue === 1) {
+        const clearStat = (arr: any[]) => arr.map(p => ({ ...p, [field]: 0 }));
+        
+        if (team === 'away') {
+          setHomeStats(clearStat(homeStats)); 
+          const newAway = clearStat(awayStats); 
+          newAway[idx][field] = 1; 
+          setAwayStats(newAway);
+        } else {
+          setAwayStats(clearStat(awayStats)); 
+          const newHome = clearStat(homeStats); 
+          newHome[idx][field] = 1; 
+          setHomeStats(newHome);
+        }
+        return;
+      }
+    }
+
     const setter = team === 'away' ? setAwayStats : setHomeStats;
     const targetArray = team === 'away' ? [...awayStats] : [...homeStats];
-    const parsedValue = field === 'ip' ? parseFloat(value) || 0 : parseInt(value) || 0;
     targetArray[idx] = { ...targetArray[idx], [field]: parsedValue };
     setter(targetArray);
   };
@@ -144,7 +164,7 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
             <tr className="bg-[#001d3d] text-white text-[10px] uppercase font-black">
               <th className="p-3 text-left w-48">Player</th>
               <th className="p-3 bg-[#c1121f]" colSpan={9}>Hitting</th>
-              <th className="p-3 bg-[#669bbc]" colSpan={10}>Pitching</th> {/* ⚡ Expanded colSpan to 10 */}
+              <th className="p-3 bg-[#669bbc]" colSpan={10}>Pitching</th>
             </tr>
             <tr className="bg-slate-100 text-[10px] font-bold border-b-2 border-[#001d3d] uppercase tracking-tighter">
               <th className="p-2 text-left">Name</th>
@@ -156,7 +176,6 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
               <th className="p-2">H</th><th className="p-2">R</th><th className="p-2">ER</th>
               <th className="p-2">BB</th><th className="p-2">K</th><th className="p-2">HR</th>
               
-              {/* ⚡ Added W, L, SV Headers */}
               <th className="p-2 border-l-2 border-[#001d3d] text-[#c1121f]">W</th>
               <th className="p-2 text-[#c1121f]">L</th>
               <th className="p-2 text-[#c1121f]">SV</th>
@@ -175,7 +194,6 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
                     </td>
                   ))}
                   
-                  {/* ⚡ Mapped the new fields to dropdowns */}
                   {['ip', 'ph', 'pr', 'per', 'pbb', 'pk', 'phr', 'winCount', 'lossCount', 'saveCount'].map((f, pi) => (
                     <td key={f} className={`p-1 ${pi === 0 || pi === 7 ? 'border-l-2 border-[#001d3d]' : ''}`}>
                       <select 
@@ -192,29 +210,6 @@ export default function ManualBoxScorePage({ params }: { params: Promise<{ leagu
             })}
           </tbody>
         </table>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="min-h-screen bg-[#001d3d] text-[#fdf0d5] p-4 md:p-8 font-sans border-[12px] border-[#ffd60a]">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8 gap-4">
-          <div>
-            <Link href={`/admin/leagues/${leagueId}/seasons/${seasonId}/games/${gameId}`} className="text-[#669bbc] text-[10px] font-black uppercase mb-2 block tracking-widest group hover:text-white transition-colors">← Cancel & Return</Link>
-            <h1 className="text-4xl md:text-5xl font-black italic uppercase text-[#ffd60a] tracking-tighter shadow-black drop-shadow-md">Manual Box Score Override</h1>
-          </div>
-          <div className="flex gap-4">
-            <button onClick={() => load(true)} className="bg-[#669bbc] text-white px-4 py-2 text-[10px] font-black uppercase italic border-2 border-[#001d3d] shadow-[4px_4px_0px_#000] hover:bg-white hover:text-[#001d3d] transition-all">
-              ⚡ Full Live Re-Sync
-            </button>
-            <button onClick={saveManualOverride} disabled={isSaving} className="bg-[#c1121f] text-white px-10 py-4 font-black uppercase italic tracking-tighter hover:bg-[#ffd60a] hover:text-[#001d3d] border-4 border-[#001d3d] shadow-[6px_6px_0px_#000] disabled:opacity-50 transition-all">
-              {isSaving ? 'SAVING...' : 'SAVE OVERRIDE'}
-            </button>
-          </div>
-        </div>
-        {renderTable(game.awayTeam.name, awayStats, 'away')}
-        {renderTable(game.homeTeam.name, homeStats, 'home')}
       </div>
     </div>
   );
